@@ -13,9 +13,9 @@ export function developmentEnvironment(development: boolean, defaultHarnessPort:
   harnessPort: number
   mobilePort: number
 } {
-  if (!development) return { profile: 'dsh-desktop', harnessPort: defaultHarnessPort, mobilePort: 43127 }
-  const profile = env.DSH_DEV_PROFILE || 'dsh-desktop-dev'
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(profile) || profile === 'dsh-desktop') {
+  if (!development) return { profile: 'taichi-dsh', harnessPort: defaultHarnessPort, mobilePort: 43127 }
+  const profile = env.DSH_DEV_PROFILE || 'taichi-dsh-dev'
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(profile) || profile === 'taichi-dsh') {
     throw new Error('DSH_DEV_PROFILE must be a separate development directory name.')
   }
   const port = (value: string | undefined, fallback: number, name: string): number => {

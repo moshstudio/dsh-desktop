@@ -455,7 +455,7 @@ jobs:
         if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.checks == 'extended')
         shell: pwsh
         env:
-          SMOKE_EXE: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'dist\win-unpacked\DSH Desktop.exe' || 'dist-dev\win-unpacked\DSH Desktop Dev.exe' }}
+          SMOKE_EXE: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'dist\win-unpacked\taichi-dsh.exe' || 'dist-dev\win-unpacked\taichi-dsh Dev.exe' }}
         run: |
           # Run outside the checkout: otherwise Node can silently resolve a
           # missing packaged dependency from the repository's node_modules.

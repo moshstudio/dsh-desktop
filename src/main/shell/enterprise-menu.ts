@@ -1,7 +1,5 @@
 import { desktopMenuMessages } from './menu-messages'
 
-export const ENTERPRISE_URL = 'https://dshdesktop.com/zh/enterprise/'
-
 export interface DesktopMenuItem {
   id?: string
   label?: string
@@ -11,10 +9,6 @@ export interface DesktopMenuItem {
   accelerator?: string
   submenu?: DesktopMenuItem[]
   click?: () => void
-}
-
-export function enterpriseMenuLabel(locale: string): string {
-  return desktopMenuMessages(locale).enterprise
 }
 
 export function updateMenuLabel(locale: string): string {
@@ -76,7 +70,6 @@ export function externalUrlToOpen(url: string): string | undefined {
 /**
  * macOS application menu. About opens the product dialog.
  * The next item checks for an update. Download starts only after consent.
- * Enterprise opens the product site.
  * Restart starts the current Host again. Safe Mode relaunches into the core profile when that action is supplied.
  * The next item reveals harness.log. It stays after Restart when Safe Mode is already active.
  * Phone pairing stays out of this menu.
@@ -86,7 +79,6 @@ export function externalUrlToOpen(url: string): string | undefined {
 export function buildDarwinDesktopMenu(options: {
   locale: string
   appName: string
-  openEnterprise: () => void
   showAbout: () => void
   checkForUpdates: () => void
   restart?: () => void
@@ -105,7 +97,6 @@ export function buildDarwinDesktopMenu(options: {
       submenu: [
         { label: aboutMenuLabel(options.locale), click: options.showAbout },
         { label: updateMenuLabel(options.locale), accelerator: 'CmdOrCtrl+U', click: options.checkForUpdates },
-        { label: enterpriseMenuLabel(options.locale), click: options.openEnterprise },
         ...(options.restart === undefined
           ? []
           : [{ label: restartMenuLabel(options.locale), accelerator: 'CmdOrCtrl+Shift+R', click: options.restart }]),

@@ -5,3 +5,7 @@ patches/*.patch whitespace=-space-before-tab,-blank-at-eol
 
 # Preserve pinned third-party inputs byte-for-byte, including upstream whitespace.
 packages/ppt-runtime/upstream/** -whitespace
+
+# The government-notice checker hashes OFL.txt bytes. Keep LF so Windows autocrlf
+# does not change the approved license digest.
+packages/dsh-desktop-office/sources/curated/government-notice/OFL.txt text eol=lf

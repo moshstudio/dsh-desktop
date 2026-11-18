@@ -216,9 +216,9 @@ describe('DSH Desktop onboarding wizard', () => {
     expect(source).toContain('openSection(MODELS_SECTION_ID)')
     expect(source).not.toContain('OnboardingSurface')
     expect(source).not.toContain('ModelsSection')
-    expect(source).toContain('https://github.com/dataelement/dsh-desktop\'')
-    expect(source).not.toContain('dsh-desktop/issues')
-    expect(source).toContain('GITHUB_MARK_PATH')
+    expect(source).toContain('https://moshangwangluo.com')
+    expect(source).toContain('陌上网络')
+    expect(source).not.toContain('github.com/dataelement/dsh-desktop')
     expect(source).toContain('IconGlobeOutlineRegular')
   })
 

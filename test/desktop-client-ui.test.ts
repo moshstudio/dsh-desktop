@@ -91,7 +91,6 @@ describe('DSH Desktop client slot occupants', () => {
     expect(registrations.map(({ config }) => config.name)).toEqual([
       'conversation.input.dock',
       'sidebar.settings.action',
-      'settings.sidebar.footer',
       'sidebar.brand.mark',
       'sidebar.brand.name',
       'conversation.hero.brand.mark',
@@ -100,14 +99,8 @@ describe('DSH Desktop client slot occupants', () => {
       'sidebar.workspaces.session.menu.item',
       'sidebar.workspaces.session.menu.item'
     ])
-    const enterprise = registrations.find(({ config }) => config.name === 'settings.sidebar.footer')
-    expect(enterprise?.config.id).toBe('desktop-enterprise-entry')
-    const entry = enterprise!.component({ t: () => '了解企业版' }) as { type: unknown; props: Record<string, unknown> }
-    expect(entry.type).toBe('a')
-    expect(entry.props.href).toBe('https://dshdesktop.com/zh/enterprise/')
-    expect(entry.props.target).toBe('_blank')
-    expect(entry.props.rel).toBe('noopener noreferrer')
-    expect(entry.props.children).toContain('了解企业版')
+    expect(registrations.some(({ config }) => config.name === 'settings.sidebar.footer')).toBe(false)
+    expect(source).not.toContain('了解企业版')
     // Desktop toolbar styles have an owned lifetime; branding stays in currentColor.
     expect(appended).toHaveLength(1)
     expect(appended[0]?.textContent).toContain("[data-dsh-preset-search]")
@@ -116,21 +109,25 @@ describe('DSH Desktop client slot occupants', () => {
     disposeStyle?.()
     expect(removeStyle).toHaveBeenCalledOnce()
 
-    const sidebarName = registrations.find(
+    const sidebar = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.name'
-    )!.component({}) as { type: unknown; props: Record<string, unknown> }
-    expect(sidebarName.type).toBe(BrandWordmark)
-    expect(sidebarName.props.includeMark).toBe(false)
+    )!.component
+    const englishName = sidebar({ t: (key: string) => key === 'name' ? 'taichi-dsh' : key }) as { type: unknown; props: Record<string, unknown> }
+    const chineseName = sidebar({ t: (key: string) => key === 'name' ? '太极-dsh' : key }) as { type: unknown; props: Record<string, unknown> }
+    expect(englishName.type).toBe('span')
+    expect(englishName.props.children).toEqual(['taichi-dsh'])
+    expect(chineseName.props.children).toEqual(['太极-dsh'])
+    expect(source).toContain("zh: { name: '太极-dsh' }")
 
     const sidebarMark = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.mark'
     )!.component({ size: 24 }) as { type: unknown; props: Record<string, unknown> }
     expect(sidebarMark.type).toBe('svg')
     expect(sidebarMark.props.height).toBe(17)
-    const [markPath] = sidebarMark.props.children as Array<{ type: unknown; props: Record<string, unknown> }>
-    if (!markPath) throw new Error('Expected the sidebar brand SVG path')
-    expect(markPath.type).toBe('path')
-    expect(markPath.props.fill).toBe('currentColor')
+    const markChildren = sidebarMark.props.children as Array<{ type: unknown; props: Record<string, unknown> }>
+    const markCircle = markChildren.find(child => child.type === 'circle')
+    if (!markCircle) throw new Error('Expected the sidebar taiji circle')
+    expect(markCircle.props.fill).toBe('currentColor')
 
     const heroMark = registrations.find(
       ({ config }) => config.name === 'conversation.hero.brand.mark'

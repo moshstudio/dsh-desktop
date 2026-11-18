@@ -78,9 +78,9 @@ describe('sign-windows-unpacked', () => {
       '--tsretrywait',
       '10',
       '--name',
-      'DSH Desktop',
+      'taichi-dsh',
       '--url',
-      'https://www.dshdesktop.com',
+      'https://moshangwangluo.com',
       'C:\\test\\app.exe'
     ])
   })

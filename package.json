@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
-  "author": "DataElement",
+  "author": "陌上网络",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -14,7 +14,7 @@
   "bugs": {
     "url": "https://github.com/dataelement/dsh-desktop/issues"
   },
-  "homepage": "https://github.com/dataelement/dsh-desktop#readme",
+  "homepage": "https://moshangwangluo.com",
   "keywords": [
     "deepseek",
     "harness",
@@ -323,8 +323,8 @@
     "koffi": "3.1.5"
   },
   "build": {
-    "appId": "io.dsh.desktop",
-    "productName": "DSH Desktop",
+    "appId": "io.taichi.dsh",
+    "productName": "taichi-dsh",
     "asar": true,
     "asarUnpack": [
       "**/*.{node,dylib,dll,so,exe}",
@@ -411,6 +411,13 @@
         "from": "build/app-icon.png",
         "to": "icon.png"
       },
+      { "from": "build/tray-icon-16.png", "to": "tray-icon-16.png" },
+      { "from": "build/tray-icon-20.png", "to": "tray-icon-20.png" },
+      { "from": "build/tray-icon-24.png", "to": "tray-icon-24.png" },
+      { "from": "build/tray-icon-32.png", "to": "tray-icon-32.png" },
+      { "from": "build/tray-icon-40.png", "to": "tray-icon-40.png" },
+      { "from": "build/tray-icon-48.png", "to": "tray-icon-48.png" },
+      { "from": "build/tray-icon-64.png", "to": "tray-icon-64.png" },
       {
         "from": "build/packaged-pnpm-invocation.mjs",
         "to": "packaged-pnpm-invocation.mjs"
@@ -496,7 +503,7 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "DSH Desktop uses your microphone to transcribe speech into message drafts."
+        "NSMicrophoneUsageDescription": "taichi-dsh uses your microphone to transcribe speech into message drafts."
       },
       "gatekeeperAssess": false,
       "signIgnore": [
@@ -530,8 +537,8 @@
     },
     "linux": {
       "target": [{ "target": "deb", "arch": ["x64"] }],
-      "executableName": "dsh-desktop",
-      "maintainer": "DataElement",
+      "executableName": "taichi-dsh",
+      "maintainer": "陌上网络",
       "icon": "build/app-icon.png",
       "category": "Utility",
       "artifactName": "dsh-desktop-linux-${arch}-${version}.${ext}"

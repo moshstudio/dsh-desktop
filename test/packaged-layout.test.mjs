@@ -31,7 +31,7 @@ function linuxContext(config, metadata = packageJson) {
   return { appOutDir: root, electronPlatformName: 'linux', packager }
 }
 
-it.each([['production', packageJson.build, 'dsh-desktop'], ['development', devConfig, 'dsh-desktop-dev']])(
+it.each([['production', packageJson.build, 'taichi-dsh'], ['development', devConfig, 'taichi-dsh-dev']])(
   'uses the actual %s Linux builder executableName', (_name, config, executableName) => {
     const context = linuxContext(config)
     expect(context.packager.executableName).toBe(executableName)
@@ -49,7 +49,7 @@ it.each([['production', packageJson.build, 'dsh-desktop'], ['development', devCo
     // so their failures cannot escape as unhandled background rejections.
     await target.scriptFiles
     expect(await target.computeFpmMetaInfoOptions()).toEqual({
-      name: packageName, maintainer: 'DataElement', vendor: 'DataElement', url: packageJson.homepage
+      name: packageName, maintainer: '陌上网络', vendor: '陌上网络', url: packageJson.homepage
     })
     delete target.options.maintainer
     await expect(target.computeFpmMetaInfoOptions()).rejects.toThrow('email')

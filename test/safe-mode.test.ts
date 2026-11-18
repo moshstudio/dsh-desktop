@@ -108,7 +108,7 @@ describe('Safe Mode', () => {
       applyLabel: 'Disable selected plugins',
       agentLabel: 'Close',
       restartLabel: 'Restart and verify',
-      quitLabel: 'Quit DSH Desktop'
+      quitLabel: 'Quit taichi-dsh'
     })
   })
 

@@ -306,7 +306,7 @@ describe('LAN mobile page', () => {
     expect(phone).toContain("fetch('/pair/verify'")
     expect(phone).toContain('Enter pairing password')
     expect(phone).toContain('Show password on the computer')
-    expect(phone).toContain('Cannot reach the desktop. Start DSH Desktop and try again.')
+    expect(phone).toContain('Cannot reach the desktop. Start taichi-dsh and try again.')
     expect(phone).toContain("location.replace('/')")
     expect(phone).not.toContain("location.href='/'")
   })
@@ -539,7 +539,7 @@ describe('LAN mobile page', () => {
     expect(desktop).not.toContain('id="copyToast"')
     expect(phone).toContain('输入连接密码')
     expect(phone).toContain('在电脑上查看密码')
-    expect(phone).toContain('暂时无法连接桌面端，请先启动 DSH Desktop。')
+    expect(phone).toContain('暂时无法连接桌面端，请先启动 太极-dsh。')
   })
 
   it('renders the temporary pin hint with remaining seconds from one helper', () => {

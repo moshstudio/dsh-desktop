@@ -24,8 +24,8 @@ describe('Linux native packaging', () => {
 
   it('ships a deb with a stable executable and retains every runtime gate', () => {
     expect(manifest.build.linux).toMatchObject({
-      executableName: 'dsh-desktop',
-      maintainer: 'DataElement',
+      executableName: 'taichi-dsh',
+      maintainer: '陌上网络',
       category: 'Utility',
       target: [{ target: 'deb', arch: ['x64'] }]
     })
@@ -36,7 +36,7 @@ describe('Linux native packaging', () => {
 
   it('keeps development executable and desktop identity separate', () => {
     expect(development.appId).not.toBe(manifest.build.appId)
-    expect(development.linux.executableName).toBe('dsh-desktop-dev')
+    expect(development.linux.executableName).toBe('taichi-dsh-dev')
     expect(development.extraMetadata.dshDesktopChannel).toBe('development')
     expect(development.linux.target).toEqual(manifest.build.linux.target)
     expect(development.afterPack).toBe(manifest.build.afterPack)

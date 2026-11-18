@@ -10,8 +10,8 @@ describe('main window title', () => {
     const chrome = await readFile(join(sourceRoot, 'src/main/shell/window-chrome.ts'), 'utf8')
 
     expect(source).toContain('...desktopWindowChrome(process.platform, nativeTheme.shouldUseDarkColors)')
-    expect(source).toContain('title: app.getName()')
-    expect(source).toContain('window.setTitle(app.getName())')
+    expect(source).toContain('title: currentProductTitle()')
+    expect(source).toContain('window.setTitle(currentProductTitle())')
     expect(source).toContain('window.setMenuBarVisibility(false)')
     expect(source).toContain('buildWindowsApplicationMenu(')
     expect(source).toContain('windowsChromeBackground(isDark)')
@@ -25,6 +25,6 @@ describe('main window title', () => {
   it('does not give the startup page an empty document title', async () => {
     const splash = await readFile(join(sourceRoot, 'build/splash.html'), 'utf8')
 
-    expect(splash).toContain('<title>DSH Desktop</title>')
+    expect(splash).toContain('<title>taichi-dsh</title>')
   })
 })

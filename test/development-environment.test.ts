@@ -4,9 +4,9 @@ import { developmentEnvironment, skipBlockingWindowsDevHmr } from '../src/main/d
 describe('development worktree isolation', () => {
   it('keeps defaults and ignores development overrides in production', () => {
     expect(developmentEnvironment(false, 43129, { DSH_DEV_PROFILE: '../unsafe', DSH_DEV_HARNESS_PORT: 'invalid' }))
-      .toEqual({ profile: 'dsh-desktop', harnessPort: 43129, mobilePort: 43127 })
+      .toEqual({ profile: 'taichi-dsh', harnessPort: 43129, mobilePort: 43127 })
     expect(developmentEnvironment(true, 43129, {}))
-      .toEqual({ profile: 'dsh-desktop-dev', harnessPort: 43130, mobilePort: 43128 })
+      .toEqual({ profile: 'taichi-dsh-dev', harnessPort: 43130, mobilePort: 43128 })
   })
 
   it('uses distinct profile and loopback ports for a second worktree', () => {
@@ -15,7 +15,7 @@ describe('development worktree isolation', () => {
     })).toEqual({ profile: 'dsh-desktop-dev-workbench', harnessPort: 43132, mobilePort: 43133 })
   })
 
-  it.each(['../profile', '/tmp/profile', 'a/b', 'a\\b', 'dsh-desktop', '..'])('rejects unsafe profile %s', profile => {
+  it.each(['../profile', '/tmp/profile', 'a/b', 'a\\b', 'taichi-dsh', '..'])('rejects unsafe profile %s', profile => {
     expect(() => developmentEnvironment(true, 43129, { DSH_DEV_PROFILE: profile })).toThrow('DSH_DEV_PROFILE')
   })
 

@@ -2,21 +2,21 @@ const packageJson = require('./package.json')
 
 module.exports = {
   ...packageJson.build,
-  appId: 'io.dsh.desktop.dev',
-  productName: 'DSH Desktop Dev',
+  appId: 'io.taichi.dsh.dev',
+  productName: 'taichi-dsh Dev',
   directories: {
     ...packageJson.build.directories,
     output: 'dist-dev'
   },
   extraMetadata: {
     name: 'dsh-desktop-dev',
-    productName: 'DSH Desktop Dev',
+    productName: 'taichi-dsh Dev',
     dshDesktopChannel: 'development'
   },
   artifactName: 'dsh-desktop-dev-${os}-${arch}.${ext}',
   linux: {
     ...packageJson.build.linux,
-    executableName: 'dsh-desktop-dev',
+    executableName: 'taichi-dsh-dev',
     artifactName: 'dsh-desktop-dev-linux-${arch}-${version}.${ext}'
   },
   nsis: {

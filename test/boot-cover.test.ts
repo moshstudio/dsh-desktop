@@ -80,7 +80,7 @@ describe('boot cover lifecycle', () => {
     doc.documentElement.lang = 'ja'
     await Promise.resolve()
     const root = doc.getElementById(BOOT_COVER_ID)?.shadowRoot
-    expect(root?.querySelector('h1')?.textContent).toBe('DSH Desktop を起動中')
+    expect(root?.querySelector('h1')?.textContent).toBe('taichi-dsh を起動中')
     timers.fire()
     expect(root?.querySelector('h1')?.textContent).toBe('起動に通常より時間がかかっています')
     doc.documentElement.lang = 'de'
@@ -104,7 +104,7 @@ describe('boot cover lifecycle', () => {
     expect(harness.doc.querySelectorAll(`#${BOOT_COVER_ID}`)).toHaveLength(1)
     expect(repeat).toBe(harness.cover)
     const shadow = first?.shadowRoot
-    expect(shadow?.querySelector('h1')?.textContent).toBe('Starting DSH Desktop')
+    expect(shadow?.querySelector('h1')?.textContent).toBe('Starting taichi-dsh')
     expect(shadow?.querySelector('img.mark')?.getAttribute('src')).toBe(BOOT_COVER_MARK_URL)
     expect(shadow?.querySelectorAll('img')).toHaveLength(1)
     expect(BOOT_COVER_MARK_URL).toBe('dsh-desktop://desktop/startup-whale.gif')
@@ -129,7 +129,7 @@ describe('boot cover lifecycle', () => {
     })
     expect(doc.body).toBeNull()
     const painted = doc.getElementById(BOOT_COVER_ID)
-    expect(painted?.shadowRoot?.querySelector('h1')?.textContent).toBe('正在启动 DSH Desktop')
+    expect(painted?.shadowRoot?.querySelector('h1')?.textContent).toBe('正在启动 太极-dsh')
     expect(painted?.shadowRoot?.querySelector('img.mark')?.getAttribute('src')).toBe(BOOT_COVER_MARK_URL)
     expect(doc.getElementById(BOOT_COVER_STYLE_ID)?.textContent).toContain('body, body *')
 
@@ -150,7 +150,7 @@ describe('boot cover lifecycle', () => {
 
   it('uses the Chinese startup copy', () => {
     const { doc, cover } = mountHarnessCover({ locale: 'zh' })
-    expect(doc.getElementById(BOOT_COVER_ID)?.shadowRoot?.querySelector('h1')?.textContent).toBe('正在启动 DSH Desktop')
+    expect(doc.getElementById(BOOT_COVER_ID)?.shadowRoot?.querySelector('h1')?.textContent).toBe('正在启动 太极-dsh')
     cover?.dispose()
   })
 
@@ -165,7 +165,7 @@ describe('boot cover lifecycle', () => {
     expect(css).not.toContain('pixelated')
     expect(css).not.toContain('brightness')
     expect(root?.hasAttribute('data-stalled')).toBe(false)
-    expect(root?.shadowRoot?.querySelector('.startupCopy h1')?.textContent).toBe('Starting DSH Desktop')
+    expect(root?.shadowRoot?.querySelector('.startupCopy h1')?.textContent).toBe('Starting taichi-dsh')
     cover?.dispose()
   })
 

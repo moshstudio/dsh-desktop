@@ -115,6 +115,38 @@ async function stripUnusedPythonPayload(dependencies, pythonLib, sitePackages) {
   }
 }
 
+function filesystemErrorCode(error) {
+  return error && typeof error === 'object' && 'code' in error ? error.code : undefined
+}
+
+/** Windows often refuses to rename a directory a watcher or scanner still has open. */
+async function publishOfficeRuntime(staging, output) {
+  const delays = [0, 400, 1200]
+  let last
+  for (const delay of delays) {
+    if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
+    try {
+      await rm(output, { recursive: true, force: true })
+      await rename(staging, output)
+      return
+    } catch (error) {
+      last = error
+      const code = filesystemErrorCode(error)
+      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY' && code !== 'ENOTEMPTY') throw error
+    }
+  }
+  try {
+    await rm(output, { recursive: true, force: true })
+    await cp(staging, output, { recursive: true, dereference: true })
+  } catch (error) {
+    const code = filesystemErrorCode(error)
+    if (code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') {
+      throw new Error(`Office runtime is locked (${last instanceof Error ? last.message : 'rename failed'}). Close the app that is using .build/office-runtime and start again.`, { cause: error })
+    }
+    throw error
+  }
+}
+
 /** Always assemble this build's payload. Keep only verified downloads as cache. */
 export async function prepareOfficeRuntime({ target = officeTarget(), output = join(project, '.build/office-runtime'), cache = join(project, '.build/office-downloads') } = {}) {
   const artifact = lock.targets[target]
@@ -159,7 +191,7 @@ export async function prepareOfficeRuntime({ target = officeTarget(), output = j
         : skill === 'office-docx' ? '\n\n## Desktop Word template workflow\n\nWhen the current Desktop Word composer selects a template, call office_template and use its editable_paragraphs with office_template_write. Fill current issuing organizations and content using replacements, additions cloned from template paragraphs, and removals for unused paragraphs. The Host preserves native page geometry, embedded fonts, borders and page-number footers and checks the current DOCX again at present. Use office-docx for native chart/image updates, content review and rendering of that resulting DOCX. Ordinary Word tasks use the general creation workflow.\n' : ''
       await writeFile(path, `${source}${route}\n\n## Desktop runtime\n\nCall load_workspace_dependencies and use its absolute Python path. For the general Office workflow, generate files with python-docx, python-pptx, openpyxl or XlsxWriter; active Desktop templates use pptd_* tools for PPT and office_template_write for Word. Do not hand-assemble OOXML with Windows PowerShell Compress-Archive: its ZIP entries can contain backslashes and fail Office preview. For deliberate low-level OOXML work, use Python zipfile with forward-slash entry names.\n\nThe supplied LibreOffice Kit node is the Desktop Electron runtime in Node mode. Set ELECTRON_RUN_AS_NODE=1 when invoking it (POSIX: prefix the command with ELECTRON_RUN_AS_NODE=1; PowerShell: set $env:ELECTRON_RUN_AS_NODE='1' before & <node> <cli>). Keep the supplied CLI path; it resolves the bundled engine outside ASAR.\n`)
     }
-    await rename(staging, output)
+    await publishOfficeRuntime(staging, output)
     console.log(`Office runtime prepared: ${manifest.platform}/${manifest.arch}, Python ${manifest.python}`)
   } finally {
     await rm(staging, { recursive: true, force: true })

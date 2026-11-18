@@ -1,6 +1,7 @@
 import type { ProcessFailureKind, ProcessRecoveryAction } from './process-recovery'
 import type { MessageBoxOptions } from 'electron'
 import { applicationText, type HarnessLocale } from './application-locale'
+import { productDisplayName } from '../shared/product-name'
 
 export interface WindowRestartPromptOptions {
   locale: HarnessLocale
@@ -41,7 +42,7 @@ export async function requestWindowRestart(
   if (kind !== 'window') {
     const memory = kind === 'memory'
     const { response } = await options.show({
-      type: 'error', title: 'DSH Desktop', noLink: true, defaultId: 0, cancelId: 0,
+      type: 'error', title: productDisplayName(options.locale), noLink: true, defaultId: 0, cancelId: 0,
       message: memory
         ? applicationText(options.locale, 'memoryRecovery.heading')
         : applicationText(options.locale, 'graphicsRecovery.heading'),
@@ -58,7 +59,7 @@ export async function requestWindowRestart(
   }
   const { response } = await options.show({
     type: 'none',
-    title: 'DSH Desktop',
+    title: productDisplayName(options.locale),
     message: applicationText(options.locale, 'windowRecovery.heading'),
     detail: applicationText(options.locale, 'windowRecovery.description'),
     buttons: [applicationText(options.locale, 'common.restart')],

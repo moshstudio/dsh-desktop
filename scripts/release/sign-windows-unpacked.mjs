@@ -108,8 +108,8 @@ export function buildJsignArgs({
   pinFile,
   targetFile,
   tsaUrl = 'http://timestamp.digicert.com',
-  name = 'DSH Desktop',
-  url = 'https://www.dshdesktop.com'
+  name = 'taichi-dsh',
+  url = 'https://moshangwangluo.com'
 }) {
   return [
     '-jar',

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, session, shell, Tray, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, screen, session, shell, Tray, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
 import { DesktopStorageManager } from '../profile/desktop-storage'
 import { prepareGenerationsForLaunch } from '../profile/generation-launch'
 import { FATAL_REPORT_NAME, recordFatalFailure, redactFatalText } from '../recovery/fatal-entry'
@@ -26,6 +26,7 @@ import {
 } from '../application-locale'
 import { defaultWebHome, type WebHomePreview } from '../profile/web-home-import'
 import { developmentEnvironment, skipBlockingWindowsDevHmr } from '../development-environment'
+import { windowsTrayIconFile, windowsTrayPixels } from './brand-icon'
 import { desktopBrandLogoPaths } from './brand-logo'
 import { workspaceDirectoryPrompt } from './directory-picker'
 import { clearNativeLocaleAttempt, confirmNativeLocaleRestart, NativeDirectoryPicker, nativeLocaleRelaunchArguments, shouldCalibrateNativeLocale } from './native-locale'
@@ -34,6 +35,7 @@ import { savedDesktopLocaleValue } from './desktop-locale-preference'
 import { desktopLocale as matchDesktopLocale, desktopLanguageState, effectiveNativeLocale, legacyLocale } from '../../shared/desktop-locale'
 import { updateText } from '../../shared/desktop-update-messages'
 import { desktopDailyText } from '../../shared/desktop-daily-messages'
+import { applyProductDisplayName, productDisplayName } from '../../shared/product-name'
 import { desktopMenuMessages } from './menu-messages'
 import { usesDesktopCaption, type DesktopMenuCommand } from '../../shared/desktop-menu'
 import { parseWindowsMenuRequest, windowsMenuTemplate } from '../windows-menu'
@@ -45,7 +47,7 @@ import { DesktopHostFatalError, DesktopHostProcess } from './backend/host-proces
 import { continueAfterHostStartup, createHostFailureIntake } from './host-failure-intake'
 import { readDesktopLoginShellEnvironment, resolveDesktopLoginShellConfig } from './backend/login-shell-environment'
 import { attachDesktopStorage } from './desktop-storage-bridge'
-import { ENTERPRISE_URL, aboutUsesPage, buildDarwinDesktopMenu, buildWindowsApplicationMenu, externalUrlToOpen, insertFileMenu, shortcutFileMenuLabels } from './enterprise-menu'
+import { aboutUsesPage, buildDarwinDesktopMenu, buildWindowsApplicationMenu, externalUrlToOpen, insertFileMenu, shortcutFileMenuLabels } from './enterprise-menu'
 import { installDesktopShortcuts, type DesktopShortcutController } from './keyboard'
 import { installDesktopFileDrag } from './file-drag'
 import { runQuitSteps } from './quit-steps'
@@ -163,10 +165,17 @@ function configureDesktopIdentity(): void {
     process.execPath.toLowerCase().includes('bisheng') ||
     hasEnterprisePlugin()
   )
-  const defaultProdName = isBisheng ? 'BISHENG' : 'DSH Desktop'
+  const defaultProdName = isBisheng ? 'BISHENG' : 'taichi-dsh'
 
   const development = desktopDevelopmentBuild(metadata)
   const environment = developmentEnvironment(development, 43129)
+  if (process.platform === 'win32') {
+    const packagedId = metadata.build?.appId
+    const appUserModelId = isBisheng && packagedId !== undefined && packagedId.length > 0
+      ? packagedId
+      : development ? 'io.taichi.dsh.dev' : 'io.taichi.dsh'
+    app.setAppUserModelId(appUserModelId)
+  }
   if (development) {
     app.setName(`${defaultProdName} Dev`)
     const devDir = isBisheng
@@ -176,10 +185,9 @@ function configureDesktopIdentity(): void {
     return
   }
   if (!isBisheng) {
-    app.setName('DSH Desktop')
-    // Keep the historical lowercase directory. Deriving it from the product name
-    // would hide the existing sessions on an ordinary upgrade.
-    app.setPath('userData', join(app.getPath('appData'), 'dsh-desktop'))
+    app.setName('taichi-dsh')
+    // Own directory so this product does not share sessions with DSH Desktop.
+    app.setPath('userData', join(app.getPath('appData'), 'taichi-dsh'))
     return
   }
   app.setName('BISHENG')
@@ -193,6 +201,7 @@ applyPersistedGpuFallback(app.getPath('userData'), app.commandLine, () => { app.
 let quitting = false
 let pageRecovery: PageRecovery | undefined
 let windowsTray: Tray | undefined
+let productLocale: HarnessLocale = 'en'
 let backendReady = false
 let recoveryReceiver: ((url: string) => void) | undefined
 const rendererConsole = new RendererConsoleTail()
@@ -200,6 +209,10 @@ let activeOperationJournal: OperationJournal | undefined
 let operationReportJob: Promise<OperationReportJobResult> | undefined
 let operationReportAbort: AbortController | undefined
 let operationReportsStopping = false
+
+function currentProductTitle(): string {
+  return productDisplayName(productLocale, app.name)
+}
 
 function harnessHome(): string {
   return join(app.getPath('userData'), 'harness')
@@ -323,19 +336,42 @@ function packagedPagePath(name: string): string {
   return fileURLToPath(new URL(`../../build/${name}`, import.meta.url))
 }
 
+function windowIconPath(): string | undefined {
+  const preferred = packagedPagePath(process.platform === 'win32' ? 'icon.ico' : 'app-icon.png')
+  if (existsSync(preferred)) return preferred
+  const png = packagedPagePath('app-icon.png')
+  return existsSync(png) ? png : undefined
+}
+
+function windowsTrayIcon(): Electron.NativeImage | undefined {
+  const pixels = windowsTrayPixels(screen.getPrimaryDisplay().scaleFactor)
+  const rendered = packagedPagePath(windowsTrayIconFile(pixels))
+  const file = existsSync(rendered)
+    ? rendered
+    : packagedPagePath(app.isPackaged ? 'icon.png' : 'app-icon.png')
+  if (!existsSync(file)) return undefined
+  const source = nativeImage.createFromPath(file)
+  if (source.isEmpty()) return undefined
+  const size = source.getSize()
+  if (size.width === pixels && size.height === pixels) return source
+  return source.resize({ width: pixels, height: pixels, quality: 'best' })
+}
+
 function createWindow(
   preload: string,
   importPage: string,
   splashPage: string,
   extraArguments: readonly string[]
 ): BrowserWindow {
+  const icon = windowIconPath()
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 520,
     minHeight: 600,
     show: false,
-    title: app.getName(),
+    title: currentProductTitle(),
+    ...(icon === undefined ? {} : { icon }),
     ...desktopWindowChrome(process.platform, nativeTheme.shouldUseDarkColors),
     webPreferences: {
       preload,
@@ -348,9 +384,10 @@ function createWindow(
       additionalArguments: [...extraArguments]
     }
   })
+  if (icon !== undefined) window.setIcon(icon)
   window.on('page-title-updated', event => {
     event.preventDefault()
-    window.setTitle(app.getName())
+    window.setTitle(currentProductTitle())
   })
   if (usesDesktopCaption(process.platform)) window.setMenuBarVisibility(false)
   window.webContents.on('console-message', details => {
@@ -404,8 +441,8 @@ async function presentAbout(window: BrowserWindow, locale: HarnessLocale): Promi
   }
   const result = await dialog.showMessageBox(window, {
     type: 'info',
-    title: app.name,
-    message: updateText(locale, 'about').replace('DSH Desktop', app.name),
+    title: productDisplayName(locale, app.name),
+    message: applyProductDisplayName(updateText(locale, 'about'), locale, app.name),
     detail: aboutDetail(desktopVersion, harnessVersion, locale),
     buttons: [updateText(locale, 'checkForUpdates'), updateText(locale, 'close')],
     defaultId: 1,
@@ -548,6 +585,7 @@ async function main(): Promise<void> {
   const dshHome = harnessHome()
   const safeMode = process.env.DSH_DESKTOP_SAFE_MODE === '1' || shouldStartInSafeMode(process.argv)
   menuLocale = await savedDesktopMenuLocale(dshHome, safeMode, reportedLocale)
+  productLocale = menuLocale
   const refreshApplicationMenu = (): void => {
     if (usesDesktopCaption(process.platform)) {
       const template = buildWindowsApplicationMenu({
@@ -568,10 +606,7 @@ async function main(): Promise<void> {
     if (process.platform !== 'darwin') return
     const template = insertFileMenu(buildDarwinDesktopMenu({
       locale: menuLocale,
-      appName: app.name,
-      openEnterprise: () => {
-        void shell.openExternal(ENTERPRISE_URL).catch((error: unknown) => { console.error(error) })
-      },
+      appName: productDisplayName(menuLocale, app.name),
       showAbout: () => {
         const target = desktopWindow
         if (target === undefined || target.isDestroyed()) return
@@ -638,15 +673,17 @@ async function main(): Promise<void> {
   }
   const refreshWindowsTray = (): void => {
     if (process.platform !== 'win32') return
-    const icon = packagedPagePath(app.isPackaged ? 'icon.png' : 'app-icon.png')
-    if (!existsSync(icon)) return
+    const icon = windowsTrayIcon()
+    if (icon === undefined) return
     if (windowsTray === undefined || windowsTray.isDestroyed()) {
       windowsTray = new Tray(icon)
       windowsTray.on('click', showMainWindow)
+    } else {
+      windowsTray.setImage(icon)
     }
-    windowsTray.setToolTip(app.name)
+    windowsTray.setToolTip(currentProductTitle())
     windowsTray.setContextMenu(Menu.buildFromTemplate([
-      { label: desktopDailyText(menuLocale, 'trayShow').replace('DSH Desktop', app.name), click: showMainWindow },
+      { label: applyProductDisplayName(desktopDailyText(menuLocale, 'trayShow'), menuLocale, app.name), click: showMainWindow },
       { type: 'separator' },
       { label: desktopMenuMessages(menuLocale).exit, click: () => { app.quit() } }
     ]))
@@ -978,9 +1015,11 @@ async function main(): Promise<void> {
     const resolved = state.display
     if (resolved === menuLocale) return
     menuLocale = resolved
+    productLocale = resolved
     refreshApplicationMenu()
     refreshWindowsTray()
     if (!window.isDestroyed()) {
+      window.setTitle(currentProductTitle())
       window.webContents.send('desktop:ui-locale', menuLocale)
       window.webContents.send('updates:status-changed', getUpdateStatus())
     }
@@ -1294,9 +1333,6 @@ async function main(): Promise<void> {
         return
       case 'about':
         await presentAbout(owner, menuLocale)
-        return
-      case 'explore-enterprise':
-        await shell.openExternal(ENTERPRISE_URL)
         return
       case 'quit':
         app.quit()

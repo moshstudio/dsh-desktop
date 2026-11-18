@@ -2,6 +2,14 @@ import type { IpcRenderer } from 'electron'
 import { WINDOWS_TITLEBAR_HEIGHT } from '../shared/desktop-menu'
 import { mountWindowsMenuBar } from './windows-menu-bar'
 
+/** Pages that may paint the native caption. Embedded account pages must not. */
+export function isDesktopCaptionDocument(location: Pick<Location, 'protocol' | 'href'>): boolean {
+  return location.protocol === 'dsh-app:'
+    || location.protocol === 'file:'
+    || location.protocol === 'dsh-desktop:'
+    || location.href === 'about:blank'
+}
+
 const LAYOUT_STYLE_ID = 'dsh-desktop-windows-titlebar-layout-style'
 const DRAG_REGION_ID = 'dsh-desktop-windows-drag-region'
 const MODAL_OPEN_ATTRIBUTE = 'data-dsh-modal-open'

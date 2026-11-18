@@ -7,6 +7,22 @@ export function skipBlockingWindowsDevHmr(packaged: boolean, platform: NodeJS.Pl
   return !packaged && platform === 'win32'
 }
 
+/**
+ * Local account HTTP API used by unpackaged development when none is configured.
+ * 5432 is the gateway's Postgres; the HTTP routes listen on 8787.
+ */
+export const DEVELOPMENT_GATEWAY_URL = 'http://127.0.0.1:8787'
+
+/**
+ * Production keeps the process environment. Development fills the local gateway
+ * only when `TAICHI_GATEWAY_URL` is absent, so an explicit address still wins.
+ */
+export function developmentGatewayUrl(development: boolean, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const configured = env.TAICHI_GATEWAY_URL?.trim()
+  if (configured) return configured
+  return development ? DEVELOPMENT_GATEWAY_URL : undefined
+}
+
 /** Development overrides isolate concurrent worktrees without changing production identity. */
 export function developmentEnvironment(development: boolean, defaultHarnessPort: number, env: NodeJS.ProcessEnv = process.env): {
   profile: string

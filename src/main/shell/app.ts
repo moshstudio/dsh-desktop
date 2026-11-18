@@ -25,7 +25,7 @@ import {
   type HarnessLocale
 } from '../application-locale'
 import { defaultWebHome, type WebHomePreview } from '../profile/web-home-import'
-import { developmentEnvironment, skipBlockingWindowsDevHmr } from '../development-environment'
+import { developmentEnvironment, developmentGatewayUrl, skipBlockingWindowsDevHmr } from '../development-environment'
 import { windowsTrayIconFile, windowsTrayPixels } from './brand-icon'
 import { desktopBrandLogoPaths } from './brand-logo'
 import { workspaceDirectoryPrompt } from './directory-picker'
@@ -39,6 +39,7 @@ import { applyProductDisplayName, productDisplayName } from '../../shared/produc
 import { desktopMenuMessages } from './menu-messages'
 import { usesDesktopCaption, type DesktopMenuCommand } from '../../shared/desktop-menu'
 import { parseWindowsMenuRequest, windowsMenuTemplate } from '../windows-menu'
+import { isDesktopTitlebarDocument } from './titlebar-document'
 import { desktopWindowChrome, windowsChromeBackground, windowsTitleBarOverlay } from './window-chrome'
 import { buildWebImportViewModel } from '../web-import-view'
 import { DesktopBackendController } from './backend/backend-controller'
@@ -59,6 +60,9 @@ import { HarnessRestartSessions, resumeHarnessRestart, runHarnessRestart, type H
 import { isWebImportPageUrl, offerWebHomeImport, readWebImportAction, type WebImportChoice } from './web-import-offer'
 import { resolveDesktopPaths } from './paths'
 import { writeDesktopProductPatch } from './product-patch'
+import { DesktopAccountService, electronSecretBox } from '../enterprise/account-service'
+import { registerAccountIpc } from '../enterprise/account-ipc'
+import { prepareAccountHostEnvironment } from './account-host-environment'
 import {
   desktopMobilePort,
   hostSessionCookie,
@@ -696,6 +700,30 @@ async function main(): Promise<void> {
     onClose: () => { flushOnClose() },
     onHidden: refreshWindowsTray
   })
+  // Splash, web import, and plugin recovery share this window's preload and
+  // sync the caption before the application document exists. Privileged app
+  // commands stay on assertMain; this only paints or opens the caption.
+  function assertTitlebarOwner(event: IpcMainInvokeEvent, allowBlank: boolean): BrowserWindow {
+    const frame = event.senderFrame
+    if (window.isDestroyed() || event.sender !== window.webContents
+      || frame === null || frame !== window.webContents.mainFrame
+      || !isDesktopTitlebarDocument(frame.url, { splashPage, importPage }, allowBlank)) {
+      throw new Error('dsh desktop: rejected IPC from an unowned renderer')
+    }
+    return window
+  }
+  // The caption preload asks for the native theme as soon as the splash document
+  // loads. That is before host setup finishes, so the handler has to exist now.
+  ipcMain.removeHandler('desktop-titlebar:set-theme')
+  ipcMain.handle('desktop-titlebar:set-theme', (event, isDark: unknown) => {
+    const owner = assertTitlebarOwner(event, true)
+    if (typeof isDark !== 'boolean') throw new Error('The DSH Desktop titlebar theme must be a boolean.')
+    if (usesDesktopCaption(process.platform)) {
+      owner.setTitleBarOverlay(windowsTitleBarOverlay(isDark))
+      owner.setBackgroundColor(windowsChromeBackground(isDark))
+    }
+    return { ok: true }
+  })
   await showSplash(window, splashPage)
   mainWindow = window
   shortcuts = installDesktopShortcuts(
@@ -889,7 +917,7 @@ async function main(): Promise<void> {
         }),
         restartHost: async () => {
           try {
-            await currentBackend.start(async () => {})
+            await currentBackend.start(prepareHostAccount)
           } catch (error: unknown) {
             // The failed retry publishes its own error. Do not enqueue it here.
             console.error(error)
@@ -967,12 +995,29 @@ async function main(): Promise<void> {
     assertDesktopSender(event, ['app'])
     return window
   }, (address, signal) => desktopHost?.resolveDragResource(address, signal) ?? Promise.resolve(null))
+  const account = new DesktopAccountService({
+    gatewayUrl: developmentGatewayUrl(desktopDevelopmentBuild()),
+    sessionFile: join(app.getPath('userData'), 'account-session.json'),
+    profileDir: projectDir,
+    secretBox: electronSecretBox(),
+    hostReady: () => backend.state.phase === 'ready'
+  })
+  async function prepareHostAccount(): Promise<void> {
+    hostEnvironment = await prepareAccountHostEnvironment(
+      hostEnvironment,
+      () => account.prepareHost(),
+      error => {
+        console.error(`[account] host preparation failed: ${error instanceof Error ? error.name : 'error'}`)
+      }
+    )
+  }
   const startup = backend.start(async () => {
     const result = await loginShell
     hostEnvironment = result.environment
     if (result.failures.length > 0) {
       console.error(`[desktop] login shell: ${result.failures.map(item => `${item.shell} (${item.reason})`).join('; ')}`)
     }
+    await prepareHostAccount()
   })
   bootSession.track(startup)
   installDesktopProtocol(name => packagedPagePath(name))
@@ -985,6 +1030,7 @@ async function main(): Promise<void> {
     }
     return mainWindow
   }
+  registerAccountIpc(ipcMain, assertMain, account)
   const iconPath = existsSync(packagedPagePath('app-icon.png')) ? packagedPagePath('app-icon.png') : undefined
   const brandLogos = desktopBrandLogoPaths([runtimeDir, primaryRuntime])
   async function explicitDesktopLocale(): Promise<string | undefined> {
@@ -1221,7 +1267,7 @@ async function main(): Promise<void> {
       stop: () => backend.stop(),
       start: async () => {
         try {
-          await backend.start(async () => {})
+          await backend.start(prepareHostAccount)
         } catch (error: unknown) {
           console.error(error)
           throw error
@@ -1268,7 +1314,7 @@ async function main(): Promise<void> {
   })
   ipcMain.removeHandler('desktop-titlebar:popup-menu')
   ipcMain.handle('desktop-titlebar:popup-menu', (event, name: unknown, x: unknown, y: unknown) => {
-    const owner = assertMain(event)
+    const owner = assertTitlebarOwner(event, false)
     if (!usesDesktopCaption(process.platform)) throw new Error('The caption menu is only available on Windows and Linux.')
     const request = parseWindowsMenuRequest(name, x, y)
     const zoomFactor = owner.webContents.getZoomFactor()
@@ -1284,16 +1330,6 @@ async function main(): Promise<void> {
         callback: () => resolve()
       })
     })
-  })
-  ipcMain.removeHandler('desktop-titlebar:set-theme')
-  ipcMain.handle('desktop-titlebar:set-theme', (event, isDark: unknown) => {
-    const owner = assertMain(event)
-    if (typeof isDark !== 'boolean') throw new Error('The DSH Desktop titlebar theme must be a boolean.')
-    if (usesDesktopCaption(process.platform)) {
-      owner.setTitleBarOverlay(windowsTitleBarOverlay(isDark))
-      owner.setBackgroundColor(windowsChromeBackground(isDark))
-    }
-    return { ok: true }
   })
   async function runWindowsCaptionCommand(owner: BrowserWindow, command: DesktopMenuCommand): Promise<void> {
     const contents = owner.webContents

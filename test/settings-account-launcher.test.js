@@ -38,6 +38,7 @@ describe('Desktop account UI composition', () => {
       expect(entries.find((entry) => entry.id === 'product-analytics')?.disabled).toBe(true)
       expect(entries.find((entry) => entry.id === 'ui-brand-official')?.disabled).toBe(true)
       expect(entries.find((entry) => entry.id === 'dsh-desktop-client-ui')?.name).toBe('dsh-desktop-client-ui')
+      expect(entries.find((entry) => entry.id === 'dsh-desktop-account')?.name).toBe('dsh-desktop-account')
       expect(entries.find((entry) => entry.id === 'dsh-desktop-workbenches')).toMatchObject({
         name: 'dsh-desktop-workbenches',
         config: { root: { __jsExpr: "dshHomePath('desktop-workbenches')" } }
@@ -58,6 +59,7 @@ describe('Desktop account UI composition', () => {
       })
       const safePatch = await writeDesktopProductPatch(home, 'safe')
       const safeEntries = composeEntries([base, web, loadOverlayPatches('test', safePatch)])
+      expect(safeEntries.find((entry) => entry.id === 'dsh-desktop-account')?.name).toBe('dsh-desktop-account')
       expect(safeEntries.find((entry) => entry.id === 'dsh-desktop-workbenches')).toBeUndefined()
       expect(safeEntries.find((entry) => entry.id === 'dsh-desktop-market-installer')).toBeUndefined()
       expect(safeEntries.find((entry) => entry.id === 'dsh-desktop-office')).toBeUndefined()

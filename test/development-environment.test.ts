@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { developmentEnvironment, skipBlockingWindowsDevHmr } from '../src/main/development-environment'
+import { DEVELOPMENT_GATEWAY_URL, developmentEnvironment, developmentGatewayUrl, skipBlockingWindowsDevHmr } from '../src/main/development-environment'
 
 describe('development worktree isolation', () => {
   it('keeps defaults and ignores development overrides in production', () => {
@@ -29,6 +29,13 @@ describe('development worktree isolation', () => {
     expect(skipBlockingWindowsDevHmr(false, 'darwin')).toBe(false)
     expect(skipBlockingWindowsDevHmr(false, 'linux')).toBe(false)
     expect(skipBlockingWindowsDevHmr(false, 'win32')).toBe(true)
+  })
+
+  it('points unpackaged development at the local account gateway', () => {
+    expect(developmentGatewayUrl(false, {})).toBeUndefined()
+    expect(developmentGatewayUrl(true, {})).toBe(DEVELOPMENT_GATEWAY_URL)
+    expect(developmentGatewayUrl(true, { TAICHI_GATEWAY_URL: ' https://gateway.example ' })).toBe('https://gateway.example')
+    expect(DEVELOPMENT_GATEWAY_URL).toBe('http://127.0.0.1:8787')
   })
 
   it('rejects colliding service ports', () => {

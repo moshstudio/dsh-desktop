@@ -16,8 +16,18 @@ const button = (name: string): HTMLButtonElement | null =>
 
 it('marks the Windows caption from the shell preload before the page paints', async () => {
   const preload = await readFile(resolve(import.meta.dirname, '../src/preload/app.ts'), 'utf8')
+  expect(preload).toContain('isDesktopCaptionDocument(location)')
   expect(preload).toContain('markWindowsTitlebar(document)')
   expect(preload).toContain('mountWindowsTitlebarLayout(')
+})
+
+it('does not treat an embedded account page as a desktop caption document', async () => {
+  const { isDesktopCaptionDocument } = await import('../src/preload/windows-titlebar')
+  expect(isDesktopCaptionDocument({ protocol: 'dsh-app:', href: 'dsh-app://app/' })).toBe(true)
+  expect(isDesktopCaptionDocument({ protocol: 'file:', href: 'file:///splash.html' })).toBe(true)
+  expect(isDesktopCaptionDocument({ protocol: 'dsh-desktop:', href: 'dsh-desktop://desktop/plugin-recovery.html' })).toBe(true)
+  expect(isDesktopCaptionDocument({ protocol: 'about:', href: 'about:blank' })).toBe(true)
+  expect(isDesktopCaptionDocument({ protocol: 'https:', href: 'https://account.example/usage' })).toBe(false)
 })
 
 it('waits for the Harness shell overlay before taking the caption seat', async () => {

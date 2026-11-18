@@ -1,4 +1,5 @@
 import type { IpcMainInvokeEvent } from 'electron'
+import { ACCOUNT_IPC } from '../../../shared/account-gateway'
 
 /** IPC channel names private to the desktop bundle. Product handlers arrive with their modules. */
 export const DESKTOP_IPC = {
@@ -42,7 +43,16 @@ export const DESKTOP_IPC = {
   nativeThemeSet: 'dsh-desktop:native-theme-set',
   windowFullscreen: 'dsh-desktop:window-fullscreen',
   windowsAppearance: 'dsh-desktop:windows-appearance',
-  windowsMenu: 'dsh-desktop:windows-menu'
+  windowsMenu: 'dsh-desktop:windows-menu',
+  accountStatus: ACCOUNT_IPC.status,
+  accountRegister: ACCOUNT_IPC.register,
+  accountVerify: ACCOUNT_IPC.verify,
+  accountLogin: ACCOUNT_IPC.login,
+  accountLogout: ACCOUNT_IPC.logout,
+  accountResetRequest: ACCOUNT_IPC.resetRequest,
+  accountResetConfirm: ACCOUNT_IPC.resetConfirm,
+  accountCheckIn: ACCOUNT_IPC.checkIn,
+  accountRefresh: ACCOUNT_IPC.refresh
 } as const
 
 /** Platform bridge channels. They live here until `platform-ipc.ts` is ported. */

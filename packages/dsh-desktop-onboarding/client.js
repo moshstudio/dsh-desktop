@@ -62,6 +62,7 @@ window.__ModuleLoader__.load({
       officialSiteUrl: 'https://moshangwangluo.com',
       desktopIntroFeedback: 'Found a bug or have a suggestion? Reach us through the official site.',
       configureModel: 'Configure a model',
+      signIn: 'Sign in for models',
       later: 'Maybe later',
       saveFailed: 'Could not save your acknowledgment. Please try again.'
     }
@@ -77,6 +78,7 @@ window.__ModuleLoader__.load({
       officialSiteUrl: 'https://moshangwangluo.com',
       desktopIntroFeedback: '遇到问题或有功能建议？欢迎通过官网联系我们。',
       configureModel: '去配置模型',
+      signIn: '登录并使用模型',
       later: '稍后再说',
       saveFailed: '未能保存确认，请重试。'
     }
@@ -267,10 +269,14 @@ window.__ModuleLoader__.load({
                 variant: 'primary',
                 disabled: saving,
                 onClick: () => finish(() => {
+                  if (window.dshDesktop?.account) {
+                    window.dispatchEvent(new CustomEvent('dsh-desktop-account-open'))
+                    return
+                  }
                   if (typeof openSection === 'function') openSection(MODELS_SECTION_ID)
                 })
               },
-              t('configureModel')
+              window.dshDesktop?.account ? t('signIn') : t('configureModel')
             )
           )
         )

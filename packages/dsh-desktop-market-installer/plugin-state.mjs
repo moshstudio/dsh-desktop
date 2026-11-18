@@ -26,6 +26,13 @@ import { isMap, isScalar, isSeq, parseDocument } from 'yaml'
 
 export const MARKET_STATE_FILE = join('.dsh-market', 'state.json')
 export const USER_PATCH_FILE = 'cordis.patch.yml'
+const PROTECTED_PLUGINS = new Set(['dsh-desktop-account'])
+
+function refuseProtectedDisable(pluginName, enabled) {
+  if (PROTECTED_PLUGINS.has(pluginName) && enabled === false) {
+    throw new Error(`${pluginName} is built into the desktop and cannot be disabled`)
+  }
+}
 
 /** Row ids the market will write; anything else is left alone. */
 const ROW_ID = /^[A-Za-z0-9_.-]+$/u
@@ -123,6 +130,7 @@ export function removePatchRowOverrides(text, rowIds, disabled) {
 
 /** Side-effect-free preflight; persistence must revalidate the then-current patch. */
 export async function validatePluginSwitch(profileDir, pluginName, enabled, { rowIds = [] } = {}) {
+  refuseProtectedDisable(pluginName, enabled)
   const text = await readTextIfPresent(join(profileDir, USER_PATCH_FILE))
   if (text !== undefined) removePatchRowOverrides(text, rowIds, enabled)
 }
@@ -171,6 +179,7 @@ export async function readDisabledPlugins(profileDir) {
 
 /** Add or drop one package in the disable list; returns whether the file changed. */
 export async function setPluginDisabled(profileDir, pluginName, disabled) {
+  refuseProtectedDisable(pluginName, !disabled)
   const { state, disabled: current } = await readMarketState(profileDir)
   const next = disabled
     ? current.includes(pluginName) ? current : [...current, pluginName]
@@ -189,6 +198,7 @@ export async function setPluginDisabled(profileDir, pluginName, disabled) {
  * @param options.rowIds - loader rows the package inserts, when known.
  */
 export async function recordPluginSwitch(profileDir, pluginName, enabled, { rowIds = [] } = {}) {
+  refuseProtectedDisable(pluginName, enabled)
   const patchPath = join(profileDir, USER_PATCH_FILE)
   const original = await readTextIfPresent(patchPath)
   let rewritten

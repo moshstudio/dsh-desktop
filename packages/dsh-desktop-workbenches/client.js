@@ -85,8 +85,8 @@ Start by asking for the first piece of information still missing.`,
     }
     const RESTART_NS = 'dsh-desktop-restart'
     const restartCopy = {
-      zh: { title: '有更改需重启 Harness 后生效', description: '会话记录和数据将保留', operationFailed: '工作台操作未完成', registrationFailed: '有工作台加载失败', diagnostics: '查看详情以获取完整原因；修复后重新加载工作台。', restart: '重启 Harness', restarting: '正在重启…', details: '查看详情', hide: '收起详情', failed: '无法重启 Harness，请重试。', unavailable: '请从菜单 Harness → 重启 Harness。', workbenches: '工作台安装变更', market: '插件市场安装变更', image: '内置生图插件变更', interrupted: '重启将中断正在执行的任务。' },
-      en: { title: 'Restart Harness to apply changes', description: 'Session history and data will be preserved', operationFailed: 'Workbench operation could not finish', registrationFailed: 'A workbench could not load', diagnostics: 'View details for the full reason. Fix the issue, then reload workbenches.', restart: 'Restart Harness', restarting: 'Restarting…', details: 'View details', hide: 'Hide details', failed: 'Could not restart Harness. Please try again.', unavailable: 'Use Harness → Restart Harness in the menu.', workbenches: 'Workbench installation changes', market: 'Plugin market installation changes', image: 'Built-in image plugin changes', interrupted: 'Restarting interrupts running tasks.' }
+      zh: { title: '有更改需重启 Harness 后生效', description: '会话记录和数据将保留', operationFailed: '工作台操作未完成', registrationFailed: '有工作台加载失败', diagnostics: '查看详情以获取完整原因；修复后重新加载工作台。', restart: '重启 Harness', restarting: '正在重启…', details: '查看详情', hide: '收起详情', failed: '无法重启 Harness，请重试。', unavailable: '请从菜单 Harness → 重启 Harness。', workbenches: '工作台安装变更', market: '插件市场安装变更', image: '内置生图插件变更', account: '账号登录', interrupted: '重启将中断正在执行的任务。' },
+      en: { title: 'Restart Harness to apply changes', description: 'Session history and data will be preserved', operationFailed: 'Workbench operation could not finish', registrationFailed: 'A workbench could not load', diagnostics: 'View details for the full reason. Fix the issue, then reload workbenches.', restart: 'Restart Harness', restarting: 'Restarting…', details: 'View details', hide: 'Hide details', failed: 'Could not restart Harness. Please try again.', unavailable: 'Use Harness → Restart Harness in the menu.', workbenches: 'Workbench installation changes', market: 'Plugin market installation changes', image: 'Built-in image plugin changes', account: 'Account sign-in', interrupted: 'Restarting interrupts running tasks.' }
     }
     const registrationText = (ctx, key) => ctx.locale?.bind
       ? ctx.locale.bind(REGISTRATION_NS)(key)
@@ -474,8 +474,9 @@ Start by asking for the first piece of information still missing.`,
           if (!stopped && !this.disposed) timer = setTimeout(poll, 5000)
         }
         const changed = (event) => {
-          if (event.detail?.source !== 'image' || event.detail?.restartRequired !== true) return
-          this.extraRestartSources.add('image')
+          const source = event.detail?.source
+          if ((source !== 'image' && source !== 'account') || event.detail?.restartRequired !== true) return
+          this.extraRestartSources.add(source)
           this.publish()
         }
         window.addEventListener?.('dsh-desktop-restart-required', changed)
@@ -516,7 +517,10 @@ Start by asking for the first piece of information still missing.`,
           const before = JSON.stringify(this.restartReasons())
           if (typeof data.restartRequired === 'boolean') this.hostRestartNeeded = data.restartRequired
           if (Array.isArray(data.packages)) this.restartPackages = data.packages.filter(name => typeof name === 'string')
-          if (restarted) this.extraRestartSources.delete('image')
+          if (restarted) {
+            this.extraRestartSources.delete('image')
+            this.extraRestartSources.delete('account')
+          }
           if (restarted && data.restartRequired === false) {
             this.hostRestartNeeded = false
             this.extraRestartSources.clear()
@@ -2185,7 +2189,7 @@ Start by asking for the first piece of information still missing.`,
           h('div', { className: 'dshRestartActions' },
             h('button', { type: 'button', className: 'dshRestartToggle', disabled: busy, 'aria-expanded': expanded, 'aria-controls': details, onClick: () => setExpanded(value => !value) }, t(expanded ? 'hide' : 'details')),
             h('button', { type: 'button', className: 'dshRestartPrimary', disabled: busy || workbenchPending > 0, onClick: () => void restart() }, t(busy ? 'restarting' : 'restart')))),
-        expanded && h('div', { id: details, className: 'dshRestartDetails' }, h('ul', null, ...restartReasons.map(reason => h('li', { key: reason }, ['workbenches', 'market', 'image'].includes(reason) ? t(reason) : reason))), h('p', null, t('interrupted')), ...diagnosticItems()),
+        expanded && h('div', { id: details, className: 'dshRestartDetails' }, h('ul', null, ...restartReasons.map(reason => h('li', { key: reason }, ['workbenches', 'market', 'image', 'account'].includes(reason) ? t(reason) : reason))), h('p', null, t('interrupted')), ...diagnosticItems()),
         error && h('p', { className: 'dshRestartError', role: 'alert' }, error))
     }
     function screenshotsFor(entry) {

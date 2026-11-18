@@ -31,6 +31,9 @@
     - id: dsh-desktop-client-ui
       name: dsh-desktop-client-ui
 
+    - id: dsh-desktop-account
+      name: dsh-desktop-account
+
     - id: dsh-desktop-workbenches
       name: dsh-desktop-workbenches
       config:

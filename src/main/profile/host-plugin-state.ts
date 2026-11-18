@@ -5,6 +5,7 @@ import { disableProfilePlugin, isProfilePluginDisabledByPatch, readMarketDisable
 
 const STATE_FILE = 'desktop-host-plugins.json'
 export const BUILTIN_IMAGE_GENERATION = 'dsh-image-generation'
+const PROTECTED_HOST_PLUGINS = new Set(['dsh-desktop-account'])
 const DEFAULT_DISABLED_HOST_PLUGINS = [BUILTIN_IMAGE_GENERATION]
 
 export async function readDisabledHostPlugins(dshHome: string): Promise<string[]> {
@@ -23,7 +24,7 @@ export async function readDisabledHostPlugins(dshHome: string): Promise<string[]
   if (version !== 1 || !Array.isArray(disabled) || !disabled.every((name) => typeof name === 'string')) {
     throw new Error('Desktop host plugin state has an unsupported format')
   }
-  return [...new Set(disabled)]
+  return [...new Set(disabled)].filter(name => !PROTECTED_HOST_PLUGINS.has(name))
 }
 
 /** Enabling a host package while an active Profile bundle owns the same name
@@ -66,6 +67,7 @@ let pendingWrite: Promise<void> = Promise.resolve()
 /** State is Desktop-owned, outside Profile bundles and market disable records. */
 export function setHostPluginEnabled(dshHome: string, name: string, enabled: boolean): Promise<void> {
   const write = async (): Promise<void> => {
+    if (!enabled && PROTECTED_HOST_PLUGINS.has(name)) return
     const disabled = new Set(await readDisabledHostPlugins(dshHome))
     if (enabled) disabled.delete(name)
     else disabled.add(name)

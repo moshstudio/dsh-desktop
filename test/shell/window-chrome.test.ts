@@ -1,9 +1,11 @@
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { desktopBrandLogoPaths } from '../../src/main/shell/brand-logo'
 import { workspaceDirectoryPrompt } from '../../src/main/shell/directory-picker'
+import { isDesktopTitlebarDocument } from '../../src/main/shell/titlebar-document'
 import { desktopWindowChrome, windowsChromeBackground, windowsTitleBarOverlay } from '../../src/main/shell/window-chrome'
 import { usesDesktopCaption, WINDOWS_TITLEBAR_HEIGHT } from '../../src/shared/desktop-menu'
 
@@ -51,6 +53,36 @@ describe('desktop brand logos', () => {
     expect(logos?.light.endsWith('dsh-desktop-logo-light.png')).toBe(true)
     expect(logos?.dark.endsWith('dsh-desktop-logo-dark.png')).toBe(true)
     expect(desktopBrandLogoPaths(['/missing'])).toBeUndefined()
+  })
+})
+
+describe('desktop titlebar documents', () => {
+  const pages = {
+    splashPage: join(tmpdir(), 'splash.html'),
+    importPage: join(tmpdir(), 'web-import.html')
+  }
+
+  it('accepts the application page and the local desktop pages that share its preload', () => {
+    const splash = new URL(pathToFileURL(pages.splashPage))
+    splash.searchParams.set('theme', 'dark')
+    const importer = new URL(pathToFileURL(pages.importPage))
+    importer.searchParams.set('state', '{}')
+    expect(isDesktopTitlebarDocument('dsh-app://app/', pages)).toBe(true)
+    expect(isDesktopTitlebarDocument('dsh-app://app/?session=1', pages)).toBe(true)
+    expect(isDesktopTitlebarDocument(splash.href, pages)).toBe(true)
+    expect(isDesktopTitlebarDocument(importer.href, pages)).toBe(true)
+    expect(isDesktopTitlebarDocument('dsh-desktop://desktop/plugin-recovery.html?seq=1', pages)).toBe(true)
+    expect(isDesktopTitlebarDocument('about:blank', pages)).toBe(false)
+    expect(isDesktopTitlebarDocument('about:blank', pages, true)).toBe(true)
+  })
+
+  it('rejects other windows, embedded account pages, and a different file', () => {
+    expect(isDesktopTitlebarDocument('dsh-app://other/', pages)).toBe(false)
+    expect(isDesktopTitlebarDocument('dsh-app://app:3000/', pages)).toBe(false)
+    expect(isDesktopTitlebarDocument('https://account.example/usage', pages)).toBe(false)
+    expect(isDesktopTitlebarDocument('dsh-desktop://desktop/safe-mode.html', pages)).toBe(false)
+    expect(isDesktopTitlebarDocument('dsh-desktop://harness/', pages)).toBe(false)
+    expect(isDesktopTitlebarDocument(pathToFileURL(join(tmpdir(), 'other.html')).href, pages)).toBe(false)
   })
 })
 

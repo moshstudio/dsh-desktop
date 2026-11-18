@@ -7,20 +7,21 @@ import type {
   ShortcutSaveResult
 } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import type { DesktopFileSource, FileDragHandle, FileDragRequestId } from '@deepseek-ai/dsh-util-file-drag'
+import type { AccountStatus } from '../shared/account-gateway'
 import { DESKTOP_IPC, PLATFORM_IPC, SCHEME } from '../main/shell/window/ipc'
 import { setupDesktopStoragePersistence } from './desktop-storage'
 import { createSidebarBrowserBridge } from './sidebar-browser'
 import { usesDesktopCaption } from '../shared/desktop-menu'
 import { markDesktopPlatform } from './desktop-platform'
 import { mountDesktopUpdateUi } from './desktop-update-ui'
-import { markWindowsTitlebar, mountWindowsTitlebarLayout } from './windows-titlebar'
+import { isDesktopCaptionDocument, markWindowsTitlebar, mountWindowsTitlebarLayout } from './windows-titlebar'
 import { mountSafeModeFrame } from './safe-mode-frame'
 import { isSafeModeRenderer } from '../main/shell/mobile-pairing'
 
 const appDocument = location.protocol === `${SCHEME}:` && location.hostname === 'app'
 const webImportDocument = location.protocol === 'file:' && location.pathname.endsWith('/web-import.html')
 
-if (usesDesktopCaption(process.platform)) {
+if (usesDesktopCaption(process.platform) && isDesktopCaptionDocument(location)) {
   // This preload runs before <html> exists. Harness reads the marker while
   // creating its first frame, so the attribute has to land as soon as the
   // element appears. The caption menu itself waits until the body exists.
@@ -86,6 +87,17 @@ const desktopBridge: {
     edit: (edit: ShortcutEdit, revision: ShortcutRevision) => Promise<ShortcutSaveResult>
     recording: (active: boolean) => Promise<void>
     subscribe: (listener: (snapshot: ShortcutConfigSnapshot) => void) => () => void
+  }
+  account?: {
+    status: () => Promise<AccountStatus>
+    register: (email: string, password: string) => Promise<AccountStatus>
+    verify: (token: string) => Promise<AccountStatus>
+    login: (email: string, password: string) => Promise<AccountStatus>
+    logout: () => Promise<AccountStatus>
+    requestReset: (email: string) => Promise<AccountStatus>
+    confirmReset: (token: string, password: string) => Promise<AccountStatus>
+    checkIn: () => Promise<AccountStatus>
+    refresh: () => Promise<AccountStatus>
   }
 } = { protocolVersion: 1 }
 if (appDocument) {
@@ -155,5 +167,19 @@ if (appDocument) {
       if (typeof locale === 'string') ipcRenderer.send(DESKTOP_IPC.localeChanged, locale)
     }
   })
+}
+if (appDocument) {
+  const accountStatus = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args) as Promise<AccountStatus>
+  desktopBridge.account = {
+    status: () => accountStatus(DESKTOP_IPC.accountStatus),
+    register: (email, password) => accountStatus(DESKTOP_IPC.accountRegister, email, password),
+    verify: token => accountStatus(DESKTOP_IPC.accountVerify, token),
+    login: (email, password) => accountStatus(DESKTOP_IPC.accountLogin, email, password),
+    logout: () => accountStatus(DESKTOP_IPC.accountLogout),
+    requestReset: email => accountStatus(DESKTOP_IPC.accountResetRequest, email),
+    confirmReset: (token, password) => accountStatus(DESKTOP_IPC.accountResetConfirm, token, password),
+    checkIn: () => accountStatus(DESKTOP_IPC.accountCheckIn),
+    refresh: () => accountStatus(DESKTOP_IPC.accountRefresh)
+  }
 }
 contextBridge.exposeInMainWorld('dshDesktop', desktopBridge)

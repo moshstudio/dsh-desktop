@@ -4464,6 +4464,33 @@ describe('local workbench installation restart notice', () => {
     service.dispose()
   })
 
+  it('shows the shared restart notice for an account sign-in and ignores unrelated sources', async () => {
+    vi.useFakeTimers()
+    const { service, request } = await fixture()
+    const listeners = new Set()
+    clientWindow.addEventListener = (type, listener) => { if (type === 'dsh-desktop-restart-required') listeners.add(listener) }
+    clientWindow.removeEventListener = (type, listener) => { if (type === 'dsh-desktop-restart-required') listeners.delete(listener) }
+    request.mockResolvedValue(Response.json({ restartRequired: false, runtimeId: 'before' }))
+    const stop = service.watchRestartStatus()
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      const emit = detail => { for (const listener of listeners) listener({ detail }) }
+      emit({ source: 'account', restartRequired: true })
+      expect(service.restartNeeded).toBe(true)
+      expect(service.restartReasons()).toContain('account')
+      emit({ source: 'other', restartRequired: true })
+      expect(service.restartReasons()).not.toContain('other')
+      request.mockResolvedValue(Response.json({ restartRequired: false, runtimeId: 'after' }))
+      await service.refreshRestartStatus()
+      expect(service.restartReasons()).not.toContain('account')
+    } finally {
+      stop()
+      delete clientWindow.addEventListener
+      delete clientWindow.removeEventListener
+      service.dispose()
+    }
+  })
+
   it('persists image changes arriving before the first runtime snapshot and clears them after restart', async () => {
     const { service, ctx, request } = await fixture()
     service.extraRestartSources.add('image')

@@ -1,10 +1,12 @@
-import type { AccountStatus } from '../../shared/account-gateway'
+import { isRechargeYuan, type AccountCredits, type AccountModel, type AccountPurchaseResult, type AccountStatus } from '../../shared/account-gateway'
 import { validModelEndpoint } from '../recovery/startup-config-recovery'
 import {
   GatewayClient,
   readBalance,
+  readCreditSummary,
   readError,
   readGatewayModels,
+  readPurchaseOrder,
   readTokenPair
 } from './gateway-client'
 import { restoreBuiltinAccount } from './provider-config'
@@ -14,6 +16,26 @@ export { electronSecretBox }
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function shanghaiDate(instant: Date): string | undefined {
+  if (Number.isNaN(instant.getTime())) return undefined
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(instant)
+}
+
+/** The ledger grants one check-in per Shanghai day. The summary lists that grant with the other credits. */
+function checkedInToday(credits: AccountCredits, now = new Date()): boolean {
+  const today = shanghaiDate(now)
+  if (!today) return false
+  return credits.recharge.some(entry => {
+    if (entry.kind !== 'checkin') return false
+    return shanghaiDate(new Date(entry.createdAt)) === today
+  })
 }
 
 class AccountResponseError extends Error {
@@ -54,7 +76,8 @@ export class DesktopAccountService {
   private balance: number | null = null
   private needsRestart = false
   private message = ''
-  private models: string[] = []
+  private models: AccountModel[] = []
+  private credits: AccountCredits | null = null
   private modelsFailed = false
   private balanceFailed = false
   private checkedIn = false
@@ -73,7 +96,19 @@ export class DesktopAccountService {
       balance: this.balance,
       needsRestart: this.needsRestart,
       message: this.message,
-      models: [...this.models],
+      models: this.models.map(model => ({
+        id: model.id,
+        name: model.name,
+        ...(model.price ? { price: { ...model.price } } : {})
+      })),
+      credits: this.credits ? {
+        consumed: this.credits.consumed,
+        recharged: this.credits.recharged,
+        usageCount: this.credits.usageCount,
+        consumption: this.credits.consumption.map(entry => ({ ...entry })),
+        recharge: this.credits.recharge.map(entry => ({ ...entry })),
+        daily: this.credits.daily.map(day => ({ ...day }))
+      } : null,
       profile: {
         models: this.modelsFailed ? 'failed' : 'ready',
         balance: this.balanceFailed ? 'failed' : 'ready'
@@ -160,7 +195,33 @@ export class DesktopAccountService {
     this.balanceFailed = false
     this.checkedIn = true
     this.message = this.modelsFailed ? 'profile_unavailable' : 'checked_in'
+    await this.loadCredits(this.accessToken)
     return this.status()
+  }
+
+  async purchase(yuan: unknown): Promise<AccountPurchaseResult> {
+    const amount = typeof yuan === 'number' ? yuan : typeof yuan === 'string' && /^\d+$/u.test(yuan) ? Number(yuan) : undefined
+    if (amount === undefined || !isRechargeYuan(amount)) return { ok: false, message: 'invalid_amount', order: null }
+    const client = this.requireClient()
+    if (!client || !this.accessToken) return { ok: false, message: this.accessToken ? 'unavailable' : 'unauthorized', order: null }
+    const result = await client.createOrder(this.accessToken, amount)
+    if (result.status !== 200) return { ok: false, message: readError(result.body), order: null }
+    const order = readPurchaseOrder(result.body)
+    if (!order?.qrCode || order.yuan !== amount) return { ok: false, message: 'unavailable', order: null }
+    return { ok: true, message: '', order }
+  }
+
+  async purchaseStatus(orderId: unknown): Promise<AccountPurchaseResult> {
+    if (typeof orderId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(orderId)) {
+      return { ok: false, message: 'unavailable', order: null }
+    }
+    const client = this.requireClient()
+    if (!client || !this.accessToken) return { ok: false, message: this.accessToken ? 'unavailable' : 'unauthorized', order: null }
+    const result = await client.order(this.accessToken, orderId)
+    if (result.status !== 200) return { ok: false, message: readError(result.body), order: null }
+    const order = readPurchaseOrder(result.body)
+    if (!order || order.orderId !== orderId) return { ok: false, message: 'unavailable', order: null }
+    return { ok: true, message: '', order: { orderId: order.orderId, yuan: order.yuan, credits: order.credits, status: order.status } }
   }
 
   async refresh(): Promise<AccountStatus> {
@@ -186,6 +247,7 @@ export class DesktopAccountService {
     this.email = email
     this.balance = null
     this.models = []
+    this.credits = null
     this.modelsFailed = false
     this.balanceFailed = false
     this.checkedIn = false
@@ -207,7 +269,11 @@ export class DesktopAccountService {
         baseURL: `${base}/v1`,
         models
       })
-      this.models = models.map(model => model.id)
+      this.models = models.map(model => ({
+        id: model.id,
+        name: model.name,
+        ...(model.price ? { price: { ...model.price } } : {})
+      }))
       this.modelsFailed = false
     } catch (error) {
       console.error('[account] model profile could not be synchronized', safeDiagnostic(error))
@@ -229,7 +295,23 @@ export class DesktopAccountService {
       this.balanceFailed = true
       this.message = 'profile_unavailable'
     }
+    await this.loadCredits(accessToken)
     if (!this.modelsFailed && !this.balanceFailed && this.message === 'profile_unavailable') this.message = ''
+  }
+
+  private async loadCredits(accessToken: string): Promise<void> {
+    if (!this.client) return
+    try {
+      const result = await this.client.summary(accessToken)
+      if (result.status !== 200) throw new AccountResponseError(result.status)
+      const credits = readCreditSummary(result.body) ?? null
+      this.credits = credits
+      // A missing grant must not clear a check-in that just succeeded: the list is capped, and a failed summary leaves credits null.
+      if (credits && checkedInToday(credits)) this.checkedIn = true
+    } catch (error) {
+      console.error('[account] credit summary could not be read', safeDiagnostic(error))
+      this.credits = null
+    }
   }
 
   private async readSession(): Promise<StoredSession | undefined> {
@@ -259,6 +341,7 @@ export class DesktopAccountService {
     this.email = ''
     this.balance = null
     this.models = []
+    this.credits = null
     this.modelsFailed = false
     this.balanceFailed = false
     this.checkedIn = false

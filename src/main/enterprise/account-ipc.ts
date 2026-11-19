@@ -1,6 +1,8 @@
+import QRCode from 'qrcode'
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { ACCOUNT_IPC } from '../../shared/account-gateway'
 import type { DesktopAccountService } from './account-service'
+import { alipayQrPayload } from './payment-link'
 
 export function registerAccountIpc(
   ipcMain: IpcMain,
@@ -22,4 +24,24 @@ export function registerAccountIpc(
   handle(ACCOUNT_IPC.resetConfirm, args => account.confirmPasswordReset(args[0], args[1]))
   handle(ACCOUNT_IPC.checkIn, () => account.checkIn())
   handle(ACCOUNT_IPC.refresh, () => account.refresh())
+  handle(ACCOUNT_IPC.purchase, async args => {
+    const result = await account.purchase(args[0])
+    const source = result.order
+    if (!result.ok || !source) return { ok: false, message: result.ok ? 'unavailable' : result.message, order: null }
+    const payload = alipayQrPayload(source.qrCode ?? '')
+    if (!payload) return { ok: false, message: 'unavailable', order: null }
+    try {
+      const qrImage = await QRCode.toDataURL(payload, { margin: 1, width: 240, errorCorrectionLevel: 'M' })
+      if (!qrImage.startsWith('data:image/png;base64,')) return { ok: false, message: 'unavailable', order: null }
+      return {
+        ok: true,
+        message: '',
+        order: { orderId: source.orderId, yuan: source.yuan, credits: source.credits, status: source.status, qrImage }
+      }
+    } catch (error) {
+      console.error('[account] Alipay code could not be drawn', error instanceof Error ? error.name : 'Error')
+      return { ok: false, message: 'unavailable', order: null }
+    }
+  })
+  handle(ACCOUNT_IPC.order, args => account.purchaseStatus(args[0]))
 }

@@ -1,5 +1,5 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js
-index e5a03f0..208b7de 100644
+index e5a03f0..ad736ce 100644
 --- a/node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js
 @@ -64,6 +64,38 @@ window.__ModuleLoader__.load({
@@ -333,7 +333,50 @@ index e5a03f0..208b7de 100644
  					}),
  					(0, react_jsx_runtime.jsxs)("button", {
  						type: "button",
-@@ -1670,10 +1848,10 @@ window.__ModuleLoader__.load({
+@@ -1316,10 +1494,32 @@ window.__ModuleLoader__.load({
+ 		*/
+ 		const PROBE_ROUTE = "\0probe";
+ 		/**
++		* Desktop account routes stay above the catalog. `taichi` is the host-managed
++		* gateway and is not a user-edited provider; `deepseek-account` keeps the
++		* upstream account seat directly under it.
++		* @param provider - provider route id.
++		* @returns sort rank, lower first.
++		*/
++		function settingsProviderRank(provider) {
++			if (provider === "taichi") return 0;
++			if (provider === "deepseek-account") return 1;
++			if (provider === "deepseek-official") return 2;
++			return 3;
++		}
++		/**
++		* Host-owned account routes expose no editor, removal, custom tag, or API-key
++		* affordance. Their credentials and model lists are written outside this page.
++		* @param provider - provider route id.
++		* @returns whether the models page must keep the row read-only.
++		*/
++		function settingsProviderLocked(provider) {
++			return provider === "taichi" || provider === "deepseek-account";
++		}
++		/**
+ 		* Join declared configurable providers with the currently registered routes.
+ 		* @param registered - live provider routes in registration order.
+ 		* @param directory - declared configurable providers in declaration order.
+-		* @returns account and official routes first, then other routes in their original order.
++		* @returns the host account route, then the DeepSeek account and official routes, then other routes in their original order.
+ 		*/
+ 		function joinProviderDirectory(registered, directory) {
+ 			const active = new Set(registered.map((provider) => provider.id));
+@@ -1346,7 +1546,7 @@ window.__ModuleLoader__.load({
+ 					active: true
+ 				});
+ 			}
+-			return rows.toSorted((left, right) => (left.provider === "deepseek-account" ? 0 : left.provider === "deepseek-official" ? 1 : 2) - (right.provider === "deepseek-account" ? 0 : right.provider === "deepseek-official" ? 1 : 2));
++			return rows.toSorted((left, right) => settingsProviderRank(left.provider) - settingsProviderRank(right.provider));
+ 		}
+ 		/**
+ 		* Derive the conventional credential reference for a provider route: the v1
+@@ -1670,10 +1870,10 @@ window.__ModuleLoader__.load({
  		* credential seam with a raw regular expression the user cannot act on.
  		*/
  		const ROUTE_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
@@ -347,7 +390,7 @@ index e5a03f0..208b7de 100644
  			} catch {
  				return false;
  			}
-@@ -1692,6 +1870,7 @@ window.__ModuleLoader__.load({
+@@ -1692,6 +1892,7 @@ window.__ModuleLoader__.load({
  			const [protocol, setProtocol] = (0, react.useState)(protocols[0] ?? "");
  			const [keyDraft, setKeyDraft] = (0, react.useState)("");
  			const [models, setModels] = (0, react.useState)([]);
@@ -355,7 +398,7 @@ index e5a03f0..208b7de 100644
  			const [busy, setBusy] = (0, react.useState)(false);
  			const [listBusy, setListBusy] = (0, react.useState)(false);
  			(0, react.useEffect)(() => {
-@@ -1759,6 +1938,11 @@ window.__ModuleLoader__.load({
+@@ -1759,6 +1960,11 @@ window.__ModuleLoader__.load({
  					setBusy(false);
  				}
  			};
@@ -367,7 +410,7 @@ index e5a03f0..208b7de 100644
  			return (0, react_jsx_runtime.jsxs)("div", {
  				className: ModelsSection_module_css_default["editor"],
  				children: [
-@@ -1871,6 +2055,8 @@ window.__ModuleLoader__.load({
+@@ -1871,6 +2077,8 @@ window.__ModuleLoader__.load({
  						models,
  						onChange: setModels,
  						reasoningLevels,
@@ -376,7 +419,7 @@ index e5a03f0..208b7de 100644
  						probe: {
  							settingsNs: NS$1,
  							baseURL: normalizedBaseURL,
-@@ -1891,18 +2077,27 @@ window.__ModuleLoader__.load({
+@@ -1891,18 +2099,27 @@ window.__ModuleLoader__.load({
  						className: ModelsSection_module_css_default["advancedHint"],
  						children: hint
  					}),
@@ -416,7 +459,7 @@ index e5a03f0..208b7de 100644
  					})
  				]
  			});
-@@ -1996,6 +2191,8 @@ window.__ModuleLoader__.load({
+@@ -1996,6 +2213,8 @@ window.__ModuleLoader__.load({
  				onBusyChange
  			]);
  			const [failure, setFailure] = (0, react.useState)(void 0);
@@ -425,7 +468,7 @@ index e5a03f0..208b7de 100644
  			const [committedOriginal, setCommittedOriginal] = (0, react.useState)(() => schema.getPath(namespace.user, settingsPath));
  			const [expectedRevision, setExpectedRevision] = (0, react.useState)(() => namespace.revision);
  			const root = (0, react.useMemo)(() => schema.rehydrate(namespace.schema), [namespace.schema, schema]);
-@@ -2035,6 +2232,7 @@ window.__ModuleLoader__.load({
+@@ -2035,6 +2254,7 @@ window.__ModuleLoader__.load({
  			const shownKeyFailure = (props.credentialRequired === true && keyDraft.length > 0 && keyValue.length === 0 ? "keyRequired" : void 0) ?? keyFailure;
  			const probeApi = stringAt(draft, "api") ?? stringAt(fallback, "api");
  			const probeBaseURL = stringAt(draft, "baseURL") ?? stringAt(fallback, "baseURL");
@@ -433,7 +476,7 @@ index e5a03f0..208b7de 100644
  			const probe = {
  				settingsNs: namespace.ns,
  				provider: props.provider,
-@@ -2049,6 +2247,7 @@ window.__ModuleLoader__.load({
+@@ -2049,6 +2269,7 @@ window.__ModuleLoader__.load({
  			* outside the card. Ops name only the fields this card can see.
  			*/
  			const applyOnce = async () => {
@@ -441,7 +484,7 @@ index e5a03f0..208b7de 100644
  				const ns = namespace.ns;
  				const next = layout === "pi-ai" && stringAt(draft, "apiKeyEnv") === void 0 && stringAt(fallback, "apiKeyEnv") === void 0 && keyValue.length > 0 ? schema.setPath(draft, ["apiKeyEnv"], keyRef) : draft;
  				if (props.credentialOnly !== true) {
-@@ -2112,6 +2311,15 @@ window.__ModuleLoader__.load({
+@@ -2112,6 +2333,15 @@ window.__ModuleLoader__.load({
  			const inheritedModels = () => {
  				return schema.getPath(namespace.base, [...settingsPath, "models"]) ?? schema.nodeAtPath(root, [...settingsPath, "models"])?.meta.default;
  			};
@@ -457,7 +500,7 @@ index e5a03f0..208b7de 100644
  			/**
  			* The curated fields of one known adapter family. The family arrives
  			* narrowed so the per-family branches below are total: an unknown namespace
-@@ -2161,6 +2369,8 @@ window.__ModuleLoader__.load({
+@@ -2161,6 +2391,8 @@ window.__ModuleLoader__.load({
  				const catalogProps = {
  					models,
  					overridden: modelsOverridden,
@@ -466,7 +509,7 @@ index e5a03f0..208b7de 100644
  					t,
  					disabled,
  					onChange: (next) => {
-@@ -2203,6 +2413,10 @@ window.__ModuleLoader__.load({
+@@ -2203,6 +2435,10 @@ window.__ModuleLoader__.load({
  					]
  				}), props.credentialOnly === true ? null : (0, react_jsx_runtime.jsxs)("details", {
  					className: ModelsSection_module_css_default["customized"],
@@ -477,7 +520,7 @@ index e5a03f0..208b7de 100644
  					children: [(0, react_jsx_runtime.jsx)("summary", {
  						className: ModelsSection_module_css_default["customizedSummary"],
  						children: t("customized")
-@@ -2242,7 +2456,7 @@ window.__ModuleLoader__.load({
+@@ -2242,7 +2478,7 @@ window.__ModuleLoader__.load({
  										"aria-label": t("baseUrl"),
  										disabled,
  										onChange: (event) => {
@@ -486,7 +529,7 @@ index e5a03f0..208b7de 100644
  										}
  									}),
  									endpointHint === void 0 ? null : (0, react_jsx_runtime.jsx)("span", {
-@@ -2292,8 +2506,23 @@ window.__ModuleLoader__.load({
+@@ -2292,8 +2528,23 @@ window.__ModuleLoader__.load({
  					})]
  				})] });
  			};
@@ -511,7 +554,7 @@ index e5a03f0..208b7de 100644
  				children: [
  					props.hideTitle === true ? null : (0, react_jsx_runtime.jsxs)("div", {
  						className: ModelsSection_module_css_default["editorHeader"],
-@@ -2313,24 +2542,20 @@ window.__ModuleLoader__.load({
+@@ -2313,24 +2564,20 @@ window.__ModuleLoader__.load({
  						className: ModelsSection_module_css_default["error"],
  						children: failure
  					}) : null,
@@ -546,7 +589,16 @@ index e5a03f0..208b7de 100644
  					})
  				]
  			});
-@@ -2444,6 +2669,26 @@ window.__ModuleLoader__.load({
+@@ -2407,7 +2654,7 @@ window.__ModuleLoader__.load({
+ 		* @returns whether to render the setup card.
+ 		*/
+ 		function needsSetup(row, anyUsable) {
+-			if (anyUsable || row.entry.provider === "deepseek-account") return false;
++			if (anyUsable || settingsProviderLocked(row.entry.provider)) return false;
+ 			if (row.entry.settingsPath.length > 0) return false;
+ 			return row.credential?.configured !== true;
+ 		}
+@@ -2444,6 +2691,26 @@ window.__ModuleLoader__.load({
  		function providerCopy(template, target) {
  			return template.replace("{provider}", () => providerTargetLabel(target));
  		}
@@ -573,7 +625,7 @@ index e5a03f0..208b7de 100644
  		/**
  		* Render the Models section content column.
  		* @param props - slot-delivered injected dependencies.
-@@ -2494,6 +2739,7 @@ window.__ModuleLoader__.load({
+@@ -2494,6 +2761,7 @@ window.__ModuleLoader__.load({
  			const [deleting, setDeleting] = (0, react.useState)(false);
  			const [deleteFailure, setDeleteFailure] = (0, react.useState)(void 0);
  			const [savedTarget, setSavedTarget] = (0, react.useState)(void 0);
@@ -581,7 +633,7 @@ index e5a03f0..208b7de 100644
  			const [dismissedSetup, setDismissedSetup] = (0, react.useState)(() => /* @__PURE__ */ new Set());
  			const announceSaved = (target) => {
  				controller.load().then(() => {
-@@ -2591,6 +2837,10 @@ window.__ModuleLoader__.load({
+@@ -2591,6 +2859,10 @@ window.__ModuleLoader__.load({
  					row,
  					namespace
  				}];
@@ -592,7 +644,52 @@ index e5a03f0..208b7de 100644
  			});
  			const piAi = state.namespaces.get("llm-pi-ai");
  			const protocols = protocolChoices(piAi, schema);
-@@ -3013,9 +3263,24 @@ window.__ModuleLoader__.load({
+@@ -2688,7 +2960,7 @@ window.__ModuleLoader__.load({
+ 													className: ModelsSection_module_css_default["rowName"],
+ 													children: row.entry.displayName
+ 												}),
+-												row.entry.declared === true ? (0, react_jsx_runtime.jsx)("span", {
++												row.entry.declared === true && !settingsProviderLocked(row.entry.provider) ? (0, react_jsx_runtime.jsx)("span", {
+ 													className: ModelsSection_module_css_default["rowTag"],
+ 													children: t("customTag")
+ 												}) : null,
+@@ -2699,7 +2971,7 @@ window.__ModuleLoader__.load({
+ 														"aria-hidden": "true"
+ 													}), t("accountSignedIn")]
+ 												}) : null,
+-												credentialConfigured ? (0, react_jsx_runtime.jsx)("span", {
++												settingsProviderLocked(row.entry.provider) ? null : credentialConfigured ? (0, react_jsx_runtime.jsx)("span", {
+ 													className: `${ModelsSection_module_css_default["credentialDot"]} ${ModelsSection_module_css_default["credentialDotConfigured"]}`,
+ 													role: "img",
+ 													"aria-label": t("credentialConfigured"),
+@@ -2713,7 +2985,7 @@ window.__ModuleLoader__.load({
+ 											]
+ 										}), (0, react_jsx_runtime.jsxs)("span", {
+ 											className: ModelsSection_module_css_default["rowActions"],
+-											children: [row.entry.provider === "deepseek-account" ? null : (0, react_jsx_runtime.jsx)("button", {
++											children: [settingsProviderLocked(row.entry.provider) ? null : (0, react_jsx_runtime.jsx)("button", {
+ 												type: "button",
+ 												className: ModelsSection_module_css_default["secondaryButton"],
+ 												"aria-label": providerCopy(t("editProvider"), target),
+@@ -2725,7 +2997,7 @@ window.__ModuleLoader__.load({
+ 													setEditing(open ? void 0 : target);
+ 												},
+ 												children: t("edit")
+-											}), row.removable ? (0, react_jsx_runtime.jsx)("button", {
++											}), row.removable && !settingsProviderLocked(row.entry.provider) ? (0, react_jsx_runtime.jsx)("button", {
+ 												type: "button",
+ 												className: ModelsSection_module_css_default["dangerButton"],
+ 												"aria-label": providerCopy(t("removeProvider"), target),
+@@ -2746,7 +3018,7 @@ window.__ModuleLoader__.load({
+ 										configured: row.configured,
+ 										keyConfigured: keyConfiguredOf(row)
+ 									}, { entryKey: row.entry.settingsNs }),
+-									open ? renderProviderEditor({
++									open && !settingsProviderLocked(row.entry.provider) ? renderProviderEditor({
+ 										target,
+ 										row,
+ 										namespace,
+@@ -3013,9 +3285,24 @@ window.__ModuleLoader__.load({
  		function assertNever$1(_value) {
  			throw new Error("unexpected DeepSeek onboarding state");
  		}
@@ -619,7 +716,7 @@ index e5a03f0..208b7de 100644
  		* @param props - settings-shell owner state and Models feature dependencies.
  		* @returns the onboarding modal or null when onboarding needs no intervention.
  		*/
-@@ -3024,6 +3289,16 @@ window.__ModuleLoader__.load({
+@@ -3024,6 +3311,16 @@ window.__ModuleLoader__.load({
  			const [apiKey, setApiKey] = (0, react.useState)(explicit);
  			const state = useModels((snapshot) => snapshot);
  			const readiness = onboardingReadiness(state);
@@ -636,7 +733,7 @@ index e5a03f0..208b7de 100644
  			(0, react.useEffect)(() => {
  				if ((automatic || explicit) && state.status === "idle") controller.load();
  			}, [
-@@ -3376,6 +3651,8 @@ window.__ModuleLoader__.load({
+@@ -3376,6 +3673,8 @@ window.__ModuleLoader__.load({
  			addCatalogExhausted: "Every catalog provider is already configured.",
  			addCustomUnavailable: "No API protocol is available to declare.",
  			provider: "Provider",
@@ -645,7 +742,7 @@ index e5a03f0..208b7de 100644
  			close: "Close",
  			cancel: "Cancel",
  			apply: "Apply",
-@@ -3434,6 +3711,14 @@ window.__ModuleLoader__.load({
+@@ -3434,6 +3733,14 @@ window.__ModuleLoader__.load({
  			modelReasoningAdd: "Add level",
  			modelReasoningRemove: "Delete level",
  			modelReasoningOffValuePlaceholder: "Turns reasoning off",
@@ -660,7 +757,7 @@ index e5a03f0..208b7de 100644
  			addModel: "Add model",
  			removeModel: "Delete model",
  			reorderModel: "Reorder model",
-@@ -3485,10 +3770,14 @@ window.__ModuleLoader__.load({
+@@ -3485,10 +3792,14 @@ window.__ModuleLoader__.load({
  			welcomeBody: "DeepSeek Harness 0.2 is still in preview, and many areas need continued improvement and refinement. We welcome feedback and suggestions from all developers and users. The new desktop app now targets a broad range of users, while developer-related advanced features can be enabled in the settings. DeepSeek Harness’s product features and plugin APIs are expected to continue rapid iteration and evolution, and will gradually stabilize over time.\n\nWe look forward to exploring the limits of intelligence together with users and developers around the world, building on open-source, reusable, and composable infrastructure. We welcome everyone to bring their ideas to life with DeepSeek Harness and participate in the community to enrich the plugin ecosystem.",
  			welcomeContinue: "Continue",
  			welcomeError: "The acknowledgement could not be saved. Please try again.",
@@ -678,7 +775,7 @@ index e5a03f0..208b7de 100644
  			onboardingSaving: "Saving…",
  			keyRequired: "Enter an API key to continue."
  		};
-@@ -3574,6 +3863,14 @@ window.__ModuleLoader__.load({
+@@ -3574,6 +3885,14 @@ window.__ModuleLoader__.load({
  			modelReasoningAdd: "添加档位",
  			modelReasoningRemove: "删除档位",
  			modelReasoningOffValuePlaceholder: "关闭思考",
@@ -693,7 +790,7 @@ index e5a03f0..208b7de 100644
  			addModel: "添加模型",
  			removeModel: "删除模型",
  			reorderModel: "调整模型顺序",
-@@ -3625,10 +3922,14 @@ window.__ModuleLoader__.load({
+@@ -3625,10 +3944,14 @@ window.__ModuleLoader__.load({
  			welcomeBody: "DeepSeek Harness 目前的 0.2 版本仍处于预览阶段，还有许多地方需要持续改进和打磨，希望听取广大开发者和用户的反馈建议。现在，新的桌面端面向广泛用户，开发者相关的进阶功能可在配置中开启使用。预计 DeepSeek Harness 的产品功能以及插件 API 都会继续快速迭代、持续演化，并逐渐趋于稳定。\n\n我们期待与全球用户和开发者一起，在开源、可复用、可组合的基础设施之上，共同探索智能上限。欢迎大家用 DeepSeek Harness 将想法变成现实，与社区一起丰富插件生态。",
  			welcomeContinue: "继续",
  			welcomeError: "暂时无法保存确认状态，请重试。",
@@ -711,7 +808,7 @@ index e5a03f0..208b7de 100644
  			onboardingSaving: "保存中…",
  			keyRequired: "请输入 API 密钥后继续。"
  		};
-@@ -5479,22 +5780,7 @@ window.__ModuleLoader__.load({
+@@ -5479,22 +5802,7 @@ window.__ModuleLoader__.load({
  					}
  				}
  			}, ModelsSection));

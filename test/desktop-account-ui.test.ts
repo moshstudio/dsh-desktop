@@ -29,6 +29,20 @@ interface AccountApi {
   confirmReset: (token: string, password: string) => Promise<AccountStatus>
   checkIn: () => Promise<AccountStatus>
   refresh: () => Promise<AccountStatus>
+  purchase?: (yuan: number) => Promise<{ ok: boolean; message: string; order: { orderId: string; yuan: number; credits: number; status: string } | null }>
+  order?: (orderId: string) => Promise<{ ok: boolean; message: string; order: { orderId: string; status: string } | null }>
+}
+
+function shanghaiDay(offset = 0): string {
+  const formatted = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date())
+  const [year, month, day] = formatted.split('-').map(Number)
+  const date = new Date(Date.UTC(year ?? 2026, (month ?? 1) - 1, (day ?? 1) + offset))
+  return date.toISOString().slice(0, 10)
 }
 
 const emptyStatus = (overrides: Partial<AccountStatus> = {}): AccountStatus => ({
@@ -39,6 +53,7 @@ const emptyStatus = (overrides: Partial<AccountStatus> = {}): AccountStatus => (
   needsRestart: false,
   message: '',
   models: [],
+  credits: null,
   profile: { models: 'ready', balance: 'ready' },
   checkedIn: false,
   ...overrides
@@ -120,6 +135,11 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
     createElement: vi.fn(() => ({ id: '', dataset: {}, textContent: '' })),
     head: { appendChild: (node: { textContent?: string }) => { styles.push(node) } }
   }
+  const listeners = new Map<string, Set<(event: { type: string }) => void>>()
+  const dispatchEvent = (event: { type: string }) => {
+    for (const listener of listeners.get(event.type) ?? []) listener(event)
+    return true
+  }
   const sandboxWindow = {
     __ModuleLoader__: {
       load: (value: { id: string, chunk?: string, factory: (require: (id: string) => unknown) => Record<string, unknown> }) => {
@@ -127,10 +147,16 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
         registrations.set(value.chunk ?? '', value)
       }
     },
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
+    addEventListener: (type: string, listener: (event: { type: string }) => void) => {
+      const group = listeners.get(type) ?? new Set()
+      group.add(listener)
+      listeners.set(type, group)
+    },
+    removeEventListener: (type: string, listener: (event: { type: string }) => void) => {
+      listeners.get(type)?.delete(listener)
+    },
     CustomEvent: undefined as unknown as typeof CustomEvent,
-    dispatchEvent: undefined as unknown as typeof window.dispatchEvent,
+    dispatchEvent: dispatchEvent as unknown as typeof window.dispatchEvent,
     localStorage: {
       getItem: (key: string) => stored.has(key) ? stored.get(key) ?? null : null,
       setItem: (key: string, value: string) => { stored.set(key, String(value)) },
@@ -148,7 +174,7 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
   }
   const definition = registrations.get('')
   if (!definition) throw new Error('client.js did not register a plugin definition')
-  const primitiveNames = ['Button', 'Input', 'Modal', 'RiskConfirmation', 'Tooltip', 'IconCloseOutlineRegular', 'IconUserOutlineRegular']
+  const primitiveNames = ['Button', 'Input', 'Modal', 'RiskConfirmation', 'Tooltip', 'IconChevronLeftOutlineRegular', 'IconInfoOutlineRegular', 'IconUserOutlineRegular']
   const primitives = Object.fromEntries(primitiveNames.map(name => [name, () => null]))
   const require = (id: string): unknown => {
     if (id === 'react') return React
@@ -173,10 +199,15 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
   if (typeof apply !== 'function') throw new Error('account client did not export apply')
   return {
     window: sandboxWindow,
+    dispatchEvent,
     styles,
     plugin: {
       // The plugin factory runs in a vm realm, so its Promise fails instanceof here.
-      apply: (ctx: unknown) => Promise.resolve(apply(ctx))
+      apply: (ctx: unknown) => Promise.resolve(apply(ctx)),
+      resetStatus: () => {
+        const reset = plugin.resetStatus
+        if (typeof reset === 'function') reset()
+      }
     }
   }
 }
@@ -227,11 +258,21 @@ interface AccountCtx {
     register: (ns: string, dicts: Record<string, Record<string, string>>) => void
     bind: () => (key: string) => string
   }
+  layout: {
+    selectPanel: (id: string | null) => void
+    panelInfo: {
+      getSnapshot: () => { activePanelId: string | null }
+      subscribe: (listener: () => void) => () => void
+    }
+  }
   slots: {
     inject: (name: string, callback: () => void) => void
     register: (
       config: {
-        inject: () => { t: (key: string) => string }
+        name?: string
+        id?: string
+        key?: string
+        inject: () => { t: (key: string) => string, onStatus?: (next: AccountStatus) => void }
         select?: (owner: { code?: string, dismiss?: () => void }) => unknown
       },
       component: (props: Record<string, unknown>) => unknown
@@ -239,19 +280,48 @@ interface AccountCtx {
   }
 }
 
-describe('desktop account dialog', () => {
+describe('desktop account page', () => {
   const react = createReact()
   const loaded = loadPlugin(react.React)
+  const layout = {
+    active: null as string | null,
+    calls: [] as Array<string | null>,
+    listeners: new Set<() => void>(),
+    selectPanel(id: string | null) {
+      layout.active = id
+      layout.calls.push(id)
+      for (const listener of layout.listeners) listener()
+    },
+    panelInfo: {
+      getSnapshot: () => ({ activePanelId: layout.active }),
+      subscribe(listener: () => void) {
+        layout.listeners.add(listener)
+        return () => { layout.listeners.delete(listener) }
+      }
+    }
+  }
   beforeEach(() => {
     react.reset()
+    layout.active = null
+    layout.calls.length = 0
+    loaded.plugin.resetStatus()
+    loaded.window.dispatchEvent = loaded.dispatchEvent as typeof window.dispatchEvent
     loaded.window.localStorage.clear()
     loaded.window.dshDesktop = {}
   })
   const plugin = loaded.plugin
   const dictionaries: Record<string, Record<string, string>> = {}
   const registrations: Array<{
+    name?: string
+    id?: string
+    key?: string
     component: (props: Record<string, unknown>) => unknown
-    inject: () => { t: (key: string, vars?: Record<string, unknown>) => string }
+    inject: () => {
+      t: (key: string, vars?: Record<string, unknown>) => string
+      onStatus?: (next: AccountStatus) => void
+      onClose?: () => void
+      initialStatus?: AccountStatus | null
+    }
     select?: (owner: { code?: string, dismiss?: () => void }) => unknown
   }> = []
   const ctx: AccountCtx = {
@@ -260,42 +330,53 @@ describe('desktop account dialog', () => {
       register: (_ns, dicts) => { Object.assign(dictionaries, dicts) },
       bind: () => (key: string) => key
     },
+    layout,
     slots: {
       inject: (_name, callback) => { callback() },
       register: (config, component) => {
-        registrations.push({ component, inject: config.inject, select: config.select })
+        registrations.push({
+          name: config.name,
+          id: config.id,
+          key: config.key,
+          component,
+          inject: config.inject,
+          select: config.select
+        })
       }
     }
   }
   let AccountButton: (props: Record<string, unknown>) => unknown = () => {
     throw new Error('account button was not registered')
   }
-  let buttonProps: { t: (key: string, vars?: Record<string, unknown>) => string } = {
-    t: key => key
+  let AccountPanel: (props: Record<string, unknown>) => unknown = () => {
+    throw new Error('account page was not registered')
   }
+  let buttonProps: Record<string, unknown> = {}
+  let panelInject: () => {
+    t: (key: string, vars?: Record<string, unknown>) => string
+    onStatus?: (next: AccountStatus) => void
+    onClose?: () => void
+    initialStatus?: AccountStatus | null
+  } = () => { throw new Error('account page was not registered') }
   beforeAll(async () => {
     await plugin.apply(ctx)
-    const registered = registrations[0]
-    if (registered === undefined) throw new Error('account button was not registered')
-    AccountButton = registered.component
-    buttonProps = registered.inject()
+    const button = registrations.find(item => item.name === 'sidebar.settings.action' && item.id === 'desktop-account')
+    const panel = registrations.find(item => item.name === 'main' && item.key === 'desktop-account')
+    if (button === undefined || panel === undefined) throw new Error('account page was not registered')
+    AccountButton = button.component
+    buttonProps = button.inject()
+    AccountPanel = panel.component
+    panelInject = panel.inject
   })
 
-  function mountDialog(account: AccountApi, translate?: (key: string) => string) {
+  function mountAccount(account: AccountApi, translate?: (key: string) => string) {
     loaded.window.dshDesktop.account = account
-    const button = react.render(AccountButton, buttonProps)
-    const opener = nodes(button.tree, node => node.props['data-dsh-desktop-account'] === 'true')[0]
-    const onClick = opener?.props.onClick
-    if (typeof onClick !== 'function') throw new Error('account button has no click handler')
-    onClick()
-    const opened = react.render(AccountButton, buttonProps)
-    const dialog = nodes(opened.tree, node => (node.type as { name?: string }).name === 'AccountDialog')[0]
-    if (dialog === undefined || typeof dialog.type !== 'function') throw new Error('account dialog did not open')
-    const publish = dialog.props.onStatus
+    const injected = panelInject()
+    const publish = injected.onStatus
     const onStatus = vi.fn((next: AccountStatus) => { if (typeof publish === 'function') publish(next) })
-    const props = { ...dialog.props, ...(translate ? { t: translate } : {}), onStatus }
-    const view = react.render(dialog.type as (props: Record<string, unknown>) => unknown, props)
-    return { view, onStatus, rerender: () => react.render(dialog.type as (props: Record<string, unknown>) => unknown, props) }
+    const props = { ...injected, initialStatus: null, ...(translate ? { t: translate } : {}), onStatus }
+    const view = react.render(AccountPanel, props)
+    return { view, onStatus, rerender: () => react.render(AccountPanel, props) }
   }
 
   it('shows a recharge dialog when the conversation cannot continue', () => {
@@ -354,7 +435,7 @@ describe('desktop account dialog', () => {
   const risk = (tree: unknown) => nodes(tree, node => 'acknowledgeLabel' in node.props)[0]
 
   async function mountReady(overrides: Partial<AccountApi> = {}) {
-    const mounted = mountDialog(api(overrides))
+    const mounted = mountAccount(api(overrides))
     for (const effect of mounted.view.effects) effect()
     await flush()
     return mounted
@@ -366,7 +447,16 @@ describe('desktop account dialog', () => {
     const keys = Object.keys(dictionaries.zh ?? {}).sort()
     expect(keys.length).toBeGreaterThan(20)
     for (const language of expected) expect(Object.keys(dictionaries[language] ?? {}).sort()).toEqual(keys)
-    expect(loaded.styles.map(style => style.textContent ?? '').join('\n')).toContain('[data-dsh-sidebar-settings-actions]{display:flex;flex-direction:row;align-items:center}')
+    const css = loaded.styles.map(style => style.textContent ?? '').join('\n')
+    expect(css).toContain('[data-dsh-sidebar-settings-actions]{display:flex;flex-direction:row;align-items:center}')
+    expect(css).toContain('.dshDeskAccountPanel{box-sizing:border-box;display:flex;flex:1;flex-direction:column;width:100%;height:100%')
+    expect(css).toContain('.dshDeskAccountContent{box-sizing:border-box;display:flex;flex-direction:column;flex:1;width:100%;min-width:0')
+    expect(css).toContain('.dshDeskAccountContent>:not(.dshDeskAccountBody),.dshDeskAccountStage{box-sizing:border-box;min-width:0;padding-inline:32px}')
+    expect(css).toContain('.dshDeskAccountBody{flex:1;min-height:0;margin-top:16px;overflow-y:auto}')
+    expect(css).not.toContain('width:min(960px,100%)')
+    expect(css).toContain('.dshDeskAccountBack{')
+    expect(css).not.toContain('.dshDeskAccountDialog')
+    expect(css).not.toContain('width:min(520px,100%)')
   })
 
   it('keeps account motion short and optional', async () => {
@@ -377,7 +467,8 @@ describe('desktop account dialog', () => {
     const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'))
     for (const selector of [
       '.dshDeskAccountButton',
-      '.dshDeskAccountClose',
+      '.dshDeskAccountInfo',
+      '.dshDeskAccountBack',
       '.dshDeskAccountReveal',
       '.dshDeskAccountLinks button',
       '.dshDeskAccountInput',
@@ -404,7 +495,7 @@ describe('desktop account dialog', () => {
 
   it('shows a reading state before the account form', async () => {
     let resolveStatus: (status: AccountStatus) => void = () => undefined
-    const { view, rerender } = mountDialog({
+    const { view, rerender } = mountAccount({
       status: () => new Promise(resolve => { resolveStatus = resolve }),
       register: async () => emptyStatus(),
       verify: async () => emptyStatus(),
@@ -424,7 +515,7 @@ describe('desktop account dialog', () => {
   })
 
   it('keeps reset to the email until the code step, and blocks an empty sign-in', async () => {
-    const { view, rerender } = mountDialog({
+    const { view, rerender } = mountAccount({
       status: async () => emptyStatus(),
       register: async () => emptyStatus(),
       verify: async () => emptyStatus(),
@@ -451,7 +542,7 @@ describe('desktop account dialog', () => {
   })
 
   it('hides the form when the gateway is not configured', async () => {
-    const { view, rerender } = mountDialog({
+    const { view, rerender } = mountAccount({
       status: async () => emptyStatus({ configured: false }),
       register: async () => emptyStatus(),
       verify: async () => emptyStatus(),
@@ -470,12 +561,15 @@ describe('desktop account dialog', () => {
   })
 
   it('shows credits and models for a signed-in account without the password field', async () => {
-    const { view, rerender } = mountDialog({
+    const { view, rerender } = mountAccount({
       status: async () => emptyStatus({
         signedIn: true,
         email: 'owner@example.com',
         balance: 0,
-        models: ['demo-chat', 'long-model']
+        models: [
+          { id: 'demo-chat', name: 'demo-chat' },
+          { id: 'long-model', name: 'long-model' }
+        ]
       }),
       register: async () => emptyStatus(),
       verify: async () => emptyStatus(),
@@ -501,11 +595,167 @@ describe('desktop account dialog', () => {
     expect(text).not.toContain('signedIn')
     expect(text).not.toContain('descAccount')
     expect(nodes(home.tree, node => node.type === 'form')).toHaveLength(0)
-    expect(nodes(home.tree, node => node.type === 'li').map(node => node.children)).toEqual([['demo-chat'], ['long-model']])
+    expect(nodes(home.tree, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children)).toEqual([['demo-chat'], ['long-model']])
+    expect(nodes(home.tree, node => node.type === 'article')).toHaveLength(2)
+    expect(nodes(home.tree, node => node.children.includes('priceUnavailable'))).toHaveLength(2)
+    expect(nodes(home.tree, node => node.children.includes('creditsUnread'))).toHaveLength(1)
+  })
+
+  it('reloads the model list each time the account page is opened', async () => {
+    const refresh = vi.fn(async () => emptyStatus({
+      signedIn: true,
+      email: 'owner@example.com',
+      models: [{ id: 'fresh', name: 'Fresh' }]
+    }))
+    const { view, rerender } = mountAccount(api({
+      status: async () => emptyStatus({
+        signedIn: true,
+        email: 'owner@example.com',
+        models: [{ id: 'cached', name: 'Cached' }]
+      }),
+      refresh
+    }))
+    for (const effect of view.effects) effect()
+    await flush()
+    expect(refresh).not.toHaveBeenCalled()
+    layout.selectPanel('desktop-account')
+    for (const effect of rerender().effects) effect()
+    await flush()
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children)).toEqual([['Fresh']])
+    layout.selectPanel(null)
+    for (const effect of rerender().effects) effect()
+    layout.selectPanel('desktop-account')
+    for (const effect of rerender().effects) effect()
+    await flush()
+    expect(refresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows model prices on cards and keeps credit activity behind tabs', async () => {
+    const { rerender } = await mountReady({
+      status: async () => emptyStatus({
+        signedIn: true,
+        email: 'a@example.com',
+        balance: 12,
+        models: [
+          {
+            id: 'demo-chat',
+            name: 'Demo Chat',
+            price: {
+              inputPerMillion: 2500,
+              outputPerMillion: 10000,
+              cachePerMillion: 250,
+              cacheWrite5mPerMillion: 3125,
+              cacheWrite1hPerMillion: 5000,
+              listInputPerMillion: 14000,
+              listOutputPerMillion: 70000,
+              savingsRatio: 0.98,
+              longContext: { minInputTokens: 272001, input: 2, output: 1.5, cache: 2, cacheWrite: 2 },
+              peak: { multiplier: 2, weekdays: [0, 1, 2, 3, 4], windows: [['01:00', '04:00'], ['06:00', '10:00']] }
+            }
+          },
+          { id: 'plain', name: 'Plain' }
+        ],
+        credits: {
+          consumed: 30,
+          recharged: 700,
+          usageCount: 1,
+          consumption: [{ id: 'request-used', amount: 30, createdAt: '2026-11-18T15:40:00.000Z', model: 'demo-chat' }],
+          recharge: [
+            { id: 'checkin-1', amount: 100, createdAt: '2026-11-18T15:30:00.000Z', kind: 'checkin' },
+            { id: 'signup-1', amount: 600, createdAt: '2026-11-18T15:00:00.000Z', kind: 'signup' }
+          ],
+          daily: [
+            { date: shanghaiDay(-1), consumed: 0, recharged: 600, count: 0 },
+            { date: shanghaiDay(0), consumed: 30, recharged: 100, count: 1 }
+          ]
+        }
+      })
+    })
+    const open = rerender().tree
+    expect(nodes(open, node => node.props.role === 'tab' && node.props['aria-selected'] === 'true').map(node => node.children[0])).toEqual(['models'])
+    expect(nodes(open, node => node.type === 'article')).toHaveLength(2)
+    expect(nodes(open, node => node.props.className === 'dshDeskAccountRateNow').flatMap(node => node.children)).toEqual(['2,500', '10,000'])
+    expect(nodes(open, node => node.props.className === 'dshDeskAccountRateList').flatMap(node => node.children)).toEqual(['14,000', '70,000'])
+    expect(nodes(open, node => node.props.className === 'dshDeskAccountSave').flatMap(node => node.children)).toEqual(['priceSave 98%'])
+    expect(nodes(open, node => node.props.className === 'dshDeskAccountBill')).toHaveLength(1)
+    const cacheText: unknown[] = []
+    walk(nodes(open, node => node.props.className === 'dshDeskAccountCache')[0], node => { cacheText.push(...node.children) })
+    expect(cacheText).toEqual([
+      'cacheReadBrief', ' ', '250', 'perMillion',
+      ' · ',
+      'cacheWriteBrief', ' ', '3,125', 'perMillionTokens'
+    ])
+    expect(nodes(open, node => node.props.className === 'dshDeskAccountInfo')).toHaveLength(1)
+    expect(nodes(open, node => node.props.label === 'longContext longContextFrom 272,001 tokens inputPrice ×2 outputPrice ×1.5 cachePrice ×2 cacheWritePrice ×2')).toHaveLength(1)
+    const noteText: unknown[] = []
+    for (const note of nodes(open, node => node.props.className === 'dshDeskAccountPriceNote')) {
+      walk(note, node => { noteText.push(...node.children.filter(child => typeof child === 'string')) })
+    }
+    expect(noteText.join(' ')).not.toContain('longContext')
+    expect(noteText).toEqual(expect.arrayContaining([
+      'peakPrice', 'weekdayMon', 'weekdayFri', '01:00–04:00', '06:00–10:00'
+    ]))
+    expect(nodes(open, node => node.children.includes('priceUnavailable'))).toHaveLength(1)
+    expect(nodes(open, node => node.props.className === 'dshDeskAccountRateUnit')).toHaveLength(2)
+    expect(nodes(open, node => node.type === 'svg')).toHaveLength(1)
+    expect(nodes(open, node => node.props.className === 'dshDeskAccountChartTip').flatMap(node => node.children)).toContain('30')
+    expect(nodes(open, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['30'], ['700'], ['1']])
+    click(open, 'rangeYesterday')
+    const yesterday = rerender().tree
+    expect(nodes(yesterday, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['0'], ['600'], ['0']])
+    expect(nodes(yesterday, node => node.children.includes('chartEmpty'))).toHaveLength(1)
+    click(yesterday, 'rangeToday')
+    const today = rerender().tree
+    expect(nodes(today, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['30'], ['100'], ['1']])
+    expect(nodes(today, node => node.type === 'svg')).toHaveLength(1)
+    click(today, 'rangeAll')
+    const entire = rerender().tree
+    expect(nodes(entire, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['30'], ['700'], ['1']])
+    expect(nodes(open, node => node.children.includes('−30'))).toHaveLength(0)
+    click(entire, 'consumption')
+    const usage = rerender().tree
+    expect(nodes(usage, node => node.type === 'article')).toHaveLength(0)
+    expect(nodes(usage, node => node.children.includes('demo-chat')).length).toBeGreaterThan(0)
+    expect(nodes(usage, node => node.children.includes('−30'))).toHaveLength(1)
+    click(usage, 'recharge')
+    const grants = rerender().tree
+    expect(nodes(grants, node => node.children.includes('+100'))).toHaveLength(1)
+    expect(nodes(grants, node => node.children.includes('+600'))).toHaveLength(1)
+    expect(nodes(grants, node => node.children.includes('kindCheckin'))).toHaveLength(1)
+    expect(nodes(grants, node => node.children.includes('kindSignup'))).toHaveLength(1)
+    expect(nodes(grants, node => node.props.role === 'tab' && node.props['aria-selected'] === 'true').map(node => node.children[0])).toEqual(['recharge'])
+  })
+
+  it('sorts the model list by vendor or by input price', async () => {
+    const { rerender } = await mountReady({
+      status: async () => emptyStatus({
+        signedIn: true,
+        email: 'a@example.com',
+        balance: 1,
+        models: [
+          { id: 'openai/gpt', name: 'GPT', price: { inputPerMillion: 5000, outputPerMillion: 8000 } },
+          { id: 'anthropic/claude', name: 'Claude', price: { inputPerMillion: 1000, outputPerMillion: 2000 } },
+          { id: 'openai/mini', name: 'Mini', price: { inputPerMillion: 200, outputPerMillion: 200 } },
+          { id: 'openai/o1', name: 'o1' },
+          { id: 'plain', name: 'Plain', price: { inputPerMillion: 100, outputPerMillion: 100 } }
+        ]
+      })
+    })
+    const names = (tree: unknown) => nodes(tree, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children[0])
+    const home = rerender().tree
+    expect(nodes(home, node => node.props['aria-pressed'] === 'true').map(node => node.children[0])).toContain('sortByVendor')
+    expect(nodes(home, node => node.props.className === 'dshDeskAccountVendorName').map(node => node.children[0])).toEqual(['OpenAI', 'Anthropic', 'vendorOther'])
+    expect(names(home)).toEqual(['Mini', 'GPT', 'o1', 'Claude', 'Plain'])
+    click(home, 'sortByPrice')
+    const priced = rerender().tree
+    expect(nodes(priced, node => node.props['aria-pressed'] === 'true').map(node => node.children[0])).toContain('sortByPrice')
+    expect(nodes(priced, node => node.props.className === 'dshDeskAccountVendorName')).toHaveLength(0)
+    expect(names(priced)).toEqual(['Plain', 'Mini', 'Claude', 'GPT', 'o1'])
   })
 
   it('turns an unknown service code into the unavailable message', async () => {
-    const { view, rerender } = mountDialog({
+    const { view, rerender } = mountAccount({
       status: async () => emptyStatus({ message: 'nope' }),
       register: async () => emptyStatus(),
       verify: async () => emptyStatus(),
@@ -575,13 +825,41 @@ describe('desktop account dialog', () => {
         balance: 4,
         checkedIn: true,
         message: 'checked_in',
-        models: ['demo-chat']
+        models: [{ id: 'demo-chat', name: 'demo-chat' }]
       })
     })
     const caption = nodes(rerender().tree, node => node.props.className === 'dshDeskAccountCaption')[0]
     expect(caption?.children).toEqual(['checked_in'])
     expect(caption?.props.role).toBe('status')
+    const checked = nodes(rerender().tree, node => node.children.includes('checkedInDone'))[0]
+    expect(checked?.props.disabled).toBe(true)
     expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountBalance')[0]?.children).toEqual(['4'])
+  })
+
+  it('opens the listed Alipay packages and starts a purchase', async () => {
+    const qrImage = 'data:image/png;base64,aaaa'
+    const purchase = vi.fn(async () => ({
+      ok: true,
+      message: '',
+      order: { orderId: '11111111-1111-4111-8111-111111111111', yuan: 39, credits: 39000, status: 'pending', qrImage }
+    }))
+    const { rerender } = await mountReady({
+      status: async () => emptyStatus({ signedIn: true, email: 'a@example.com', balance: 4 }),
+      purchase
+    })
+    expect(nodes(rerender().tree, node => node.props['data-yuan'] === '39')).toHaveLength(0)
+    click(rerender().tree, 'rechargeAction')
+    const packs = nodes(rerender().tree, node => node.props.className === 'dshDeskAccountPack')
+    expect(packs.map(node => node.props['data-yuan'])).toEqual(['39', '99', '199', '299'])
+    expect(packs.map(node => node.props['data-credits'])).toEqual(['39000', '99000', '199000', '299000'])
+    invoke(packs[0], 'onClick')
+    await flush()
+    expect(purchase).toHaveBeenCalledWith(39)
+    const waiting = rerender().tree
+    expect(nodes(waiting, node => node.children.includes('rechargeWaiting'))).toHaveLength(1)
+    const image = nodes(waiting, node => node.type === 'img' && node.props.className === 'dshDeskAccountQr')[0]
+    expect(image?.props.src).toBe(qrImage)
+    expect(image?.props.alt).toBe('rechargeScan')
   })
 
   it('retries a failed profile instead of describing the catalog as empty', async () => {
@@ -589,7 +867,7 @@ describe('desktop account dialog', () => {
       signedIn: true,
       email: 'a@example.com',
       balance: 2,
-      models: ['demo-chat'],
+      models: [{ id: 'demo-chat', name: 'demo-chat' }],
       checkedIn: true
     }))
     const { rerender } = await mountReady({
@@ -616,23 +894,45 @@ describe('desktop account dialog', () => {
     expect(nodes(recovered, node => node.children.includes('retry'))).toHaveLength(0)
   })
 
-  it('opens a signed-in dialog from the cached status without the loading screen', async () => {
+  it('opens the account page in the main content area and returns to the previous panel', () => {
+    loaded.window.dshDesktop.account = api()
+    const button = react.render(AccountButton, buttonProps)
+    expect(nodes(button.tree, node => (node.type as { name?: string }).name === 'Modal')).toHaveLength(0)
+    for (const effect of button.effects) effect()
+    const opener = () => nodes(react.render(AccountButton, buttonProps).tree, node => node.props['data-dsh-desktop-account'] === 'true')[0]
+    invoke(opener(), 'onClick')
+    expect(layout.calls).toEqual(['desktop-account'])
+    expect(opener()?.props['data-selected']).toBe('true')
+    expect(opener()?.props['aria-pressed']).toBe('true')
+    invoke(opener(), 'onClick')
+    expect(layout.calls).toEqual(['desktop-account', null])
+    expect(opener()?.props['data-selected']).toBe('false')
+    loaded.window.dispatchEvent({ type: 'dsh-desktop-account-open' } as unknown as Event)
+    expect(layout.calls).toEqual(['desktop-account', null, 'desktop-account'])
+    invoke(opener(), 'onClick')
+    layout.active = 'desktop-workbenches'
+    invoke(opener(), 'onClick')
+    invoke(opener(), 'onClick')
+    expect(layout.calls.at(-2)).toBe('desktop-account')
+    expect(layout.calls.at(-1)).toBe('desktop-workbenches')
+    const page = react.render(AccountPanel, panelInject())
+    expect(nodes(page.tree, node => (node.type as { name?: string }).name === 'Modal')).toHaveLength(0)
+    expect(nodes(page.tree, node => node.props['data-dsh-account-panel'] === 'true')).toHaveLength(1)
+  })
+
+  it('opens a signed-in page from the cached status without the loading screen', async () => {
     loaded.window.dshDesktop.account = api({
       status: async () => emptyStatus({
         signedIn: true,
         email: 'owner@example.com',
         balance: 3,
-        models: ['demo-chat']
+        models: [{ id: 'demo-chat', name: 'demo-chat' }]
       })
     })
     const button = react.render(AccountButton, buttonProps)
     for (const effect of button.effects) effect()
     await flush()
-    invoke(nodes(react.render(AccountButton, buttonProps).tree, node => node.props['data-dsh-desktop-account'] === 'true')[0], 'onClick')
-    const opened = react.render(AccountButton, buttonProps)
-    const dialog = nodes(opened.tree, node => (node.type as { name?: string }).name === 'AccountDialog')[0]
-    if (dialog === undefined || typeof dialog.type !== 'function') throw new Error('account dialog did not open')
-    const view = react.render(dialog.type as (props: Record<string, unknown>) => unknown, dialog.props)
+    const view = react.render(AccountPanel, panelInject())
     expect(screenOf(view.tree)).toBe('home')
     expect(nodes(view.tree, node => node.children.includes('descLoading'))).toHaveLength(0)
     expect(nodes(view.tree, node => node.children.includes('owner@example.com'))).toHaveLength(1)
@@ -692,7 +992,7 @@ describe('desktop account dialog', () => {
     const dictionary = dictionaries.zh ?? {}
     const register = vi.fn(async () => emptyStatus({ message: 'invalid_request' }))
     const confirmReset = vi.fn(async () => emptyStatus({ message: 'accepted' }))
-    const { view, rerender } = mountDialog(api({
+    const { view, rerender } = mountAccount(api({
       register,
       confirmReset,
       requestReset: async () => emptyStatus({ message: 'accepted' })
@@ -790,7 +1090,7 @@ describe('desktop account dialog', () => {
   it('explains that a short password such as cf1234 is below the 8 character minimum', async () => {
     const dictionary = dictionaries.zh ?? {}
     const register = vi.fn(async () => emptyStatus({ message: 'invalid_request' }))
-    const { view, rerender } = mountDialog(api({ register }), key => dictionary[key] ?? key)
+    const { view, rerender } = mountAccount(api({ register }), key => dictionary[key] ?? key)
     for (const effect of view.effects) effect()
     await flush()
     click(rerender().tree, dictionary.needAccount ?? '')
@@ -806,7 +1106,7 @@ describe('desktop account dialog', () => {
 
   it('keeps the generic request error when a formatted password is rejected', async () => {
     const dictionary = dictionaries.zh ?? {}
-    const { view, rerender } = mountDialog(api({
+    const { view, rerender } = mountAccount(api({
       login: async () => emptyStatus({ message: 'invalid_request' })
     }), key => dictionary[key] ?? key)
     for (const effect of view.effects) effect()
@@ -837,7 +1137,7 @@ describe('desktop account dialog', () => {
     expect(nodes(rerender().tree, node => node.children.includes('unavailable'))).toHaveLength(1)
   })
 
-  it('ignores pending actions after unmount and keeps a fresh dialog isolated', async () => {
+  it('ignores pending actions after unmount and keeps a fresh page isolated', async () => {
     let complete: (value: AccountStatus) => void = () => undefined
     const { rerender, onStatus } = await mountReady({ login: () => new Promise(resolve => { complete = resolve }) })
     invoke(field(rerender().tree, 'email'), 'onChange', 'a@example.com')
@@ -854,12 +1154,7 @@ describe('desktop account dialog', () => {
     expect(nodes(button.tree, node => node.props['data-dsh-desktop-account'] === 'true')[0]?.props['data-signed-in']).toBe('false')
   })
 
-  function dialogStillOpen(): boolean {
-    const button = react.render(AccountButton, buttonProps)
-    return nodes(button.tree, node => (node.type as { name?: string }).name === 'AccountDialog').length === 1
-  }
-
-  it('opens the shared Harness restart notice after sign-in and closes the account dialog', async () => {
+  it('opens the shared Harness restart notice after sign-in and leaves the account page', async () => {
     const events: Array<{ type: string, detail?: { source?: string, restartRequired?: boolean } }> = []
     loaded.window.CustomEvent = class CustomEvent {
       type: string
@@ -880,7 +1175,7 @@ describe('desktop account dialog', () => {
     submit(rerender().tree)
     await flush()
     expect(events).toEqual([{ type: 'dsh-desktop-restart-required', detail: { source: 'account', restartRequired: true } }])
-    expect(dialogStillOpen()).toBe(false)
+    expect(layout.calls).toEqual([null])
     expect(nodes(rerender().tree, node => (node.type as { name?: string }).name === 'RestartNotice')).toHaveLength(0)
   })
 
@@ -915,16 +1210,18 @@ describe('desktop account dialog', () => {
     const notice = nodes(tree, node => (node.type as { name?: string }).name === 'RestartNotice')[0]
     expect(notice?.props.kind).toBe('signOut')
     expect(nodes(tree, node => node.children.includes('unavailable'))).toHaveLength(1)
-    expect(nodes(tree, node => node.props.className === 'dshDeskAccountClose')[0]?.props.disabled).toBe(true)
-    invoke(nodes(tree, node => node.props.className === 'dshDeskAccountDialog')[0], 'onClose')
-    expect(dialogStillOpen()).toBe(true)
+    expect(nodes(tree, node => node.props.className === 'dshDeskAccountBack')[0]?.props.disabled).toBe(true)
+    invoke(nodes(tree, node => node.props.className === 'dshDeskAccountBack')[0], 'onClick')
+    expect(layout.calls).toEqual([])
   })
 
-  it('still closes the account dialog when no Harness restart is required', async () => {
+  it('leaves the account page when no Harness restart is required', async () => {
     const { rerender } = await mountReady()
-    expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountClose')[0]?.props.disabled).toBe(false)
-    invoke(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountDialog')[0], 'onClose')
-    expect(dialogStillOpen()).toBe(false)
+    const back = nodes(rerender().tree, node => node.props.className === 'dshDeskAccountBack')[0]
+    expect(back?.props.disabled).toBe(false)
+    expect(back?.props['aria-label']).toBe('back')
+    invoke(back, 'onClick')
+    expect(layout.calls).toEqual([null])
   })
 
   it('reports a rejected restart result and allows retry', async () => {
@@ -939,15 +1236,12 @@ describe('desktop account dialog', () => {
     expect(nodes(rerender().tree, node => node.props.role === 'alert')).toHaveLength(0)
   })
 
-  it('does not let a delayed sidebar status replace a newer dialog result', async () => {
+  it('does not let a delayed sidebar status replace a newer page result', async () => {
     let complete: (value: AccountStatus) => void = () => undefined
     loaded.window.dshDesktop.account = api({ status: () => new Promise(resolve => { complete = resolve }) })
     const button = react.render(AccountButton, buttonProps)
     for (const effect of button.effects) effect()
-    invoke(nodes(button.tree, node => node.props['data-dsh-desktop-account'] === 'true')[0], 'onClick')
-    const opened = react.render(AccountButton, buttonProps)
-    const dialog = nodes(opened.tree, node => (node.type as { name?: string }).name === 'AccountDialog')[0]
-    invoke(dialog, 'onStatus', emptyStatus({ signedIn: true, email: 'new@example.com' }))
+    panelInject().onStatus?.(emptyStatus({ signedIn: true, email: 'new@example.com' }))
     complete(emptyStatus())
     await flush()
     const updated = react.render(AccountButton, buttonProps)
@@ -956,7 +1250,7 @@ describe('desktop account dialog', () => {
 
   it.each(['zh', 'en', 'ja', 'es', 'fr', 'de', 'ru', 'pt'])('shows partial account failure while staying signed in (%s)', async language => {
     const dictionary = dictionaries[language] ?? {}
-    const { view, rerender } = mountDialog(api({
+    const { view, rerender } = mountAccount(api({
       status: async () => emptyStatus({
         signedIn: true,
         email: 'owner@example.com',

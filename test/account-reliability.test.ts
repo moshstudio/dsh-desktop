@@ -88,7 +88,7 @@ describe('account profile partial failures', () => {
     if (failure === 'transport') expect(diagnostic.mock.calls[0]?.[1]).toMatchObject({ cause: { kind: 'Error' } })
     recovered = true
     await expect(account.prepareHost()).resolves.toEqual({ TAICHI_GATEWAY_ACCESS_TOKEN: 'access' })
-    expect(account.status()).toMatchObject({ models: ['recovered'], message: '' })
+    expect(account.status()).toMatchObject({ models: [{ id: 'recovered', name: 'recovered' }], message: '' })
     expect(await readFile(patchPath, 'utf8')).toContain('recovered')
   })
 
@@ -110,7 +110,7 @@ describe('account profile partial failures', () => {
     expect((await account.login('first@example.com', 'password')).balance).toBe(40)
     failBalance = true
     await expect(account.login('second@example.com', 'password')).resolves.toMatchObject({
-      signedIn: true, email: 'second@example.com', balance: null, models: ['demo'], message: 'profile_unavailable',
+      signedIn: true, email: 'second@example.com', balance: null, models: [{ id: 'demo', name: 'demo' }], message: 'profile_unavailable',
       profile: { models: 'ready', balance: 'failed' }, checkedIn: false
     })
   })
@@ -140,8 +140,45 @@ describe('account profile partial failures', () => {
     })
     modelsReady = true
     await expect(account.refresh()).resolves.toMatchObject({
-      balance: 3, models: ['demo'], message: '',
+      balance: 3, models: [{ id: 'demo', name: 'demo' }], message: '',
       profile: { models: 'ready', balance: 'ready' }, checkedIn: true
+    })
+  })
+
+  it.each([
+    ['today', () => new Date().toISOString(), true],
+    ['an earlier day', () => '2020-01-01T00:00:00.000Z', false]
+  ])('reports checkedIn from a check-in grant dated %s when the signed-in summary loads', async (_label, createdAt, checkedIn) => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-account-checkin-known-'))
+    directories.push(home)
+    const fetchImpl: typeof fetch = async input => {
+      const url = String(input)
+      if (url.endsWith('/login')) return Response.json({ accessToken: 'access', refreshToken: 'refresh' })
+      if (url.endsWith('/models')) return Response.json({ data: [listed('demo')] })
+      if (url.endsWith('/summary')) {
+        return Response.json({
+          consumed: 0,
+          recharged: 100,
+          usageCount: 0,
+          consumption: [],
+          recharge: [{ id: 'checkin-1', amount: 100, createdAt: createdAt(), kind: 'checkin' }]
+        })
+      }
+      return Response.json({ balance: 40 })
+    }
+    const account = new DesktopAccountService({
+      gatewayUrl: 'https://gateway.test',
+      sessionFile: join(home, 'session.json'),
+      profileDir: join(home, 'profile'),
+      secretBox: box,
+      fetchImpl
+    })
+    await expect(account.login('owner@example.com', 'password')).resolves.toMatchObject({
+      signedIn: true,
+      balance: 40,
+      message: '',
+      checkedIn,
+      credits: { recharge: [{ id: 'checkin-1', kind: 'checkin' }] }
     })
   })
 })

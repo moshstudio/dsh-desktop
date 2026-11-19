@@ -52,7 +52,9 @@ export const DESKTOP_IPC = {
   accountResetRequest: ACCOUNT_IPC.resetRequest,
   accountResetConfirm: ACCOUNT_IPC.resetConfirm,
   accountCheckIn: ACCOUNT_IPC.checkIn,
-  accountRefresh: ACCOUNT_IPC.refresh
+  accountRefresh: ACCOUNT_IPC.refresh,
+  accountPurchase: ACCOUNT_IPC.purchase,
+  accountOrder: ACCOUNT_IPC.order
 } as const
 
 /** Platform bridge channels. They live here until `platform-ipc.ts` is ported. */

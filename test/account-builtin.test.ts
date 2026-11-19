@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { validatePluginSwitch } from 'dsh-desktop-market-installer/plugin-state'
 import { DesktopAccountService } from '../src/main/enterprise/account-service'
-import { readGatewayModels } from '../src/main/enterprise/gateway-client'
+import { readCreditSummary, readGatewayModels } from '../src/main/enterprise/gateway-client'
 import { ensureTaichiProvider, restoreBuiltinAccount, stripDisabledAccountRows } from '../src/main/enterprise/provider-config'
 import { AccountSessionStore, type SecretBox } from '../src/main/enterprise/session-store'
 import { readDisabledHostPlugins, setHostPluginEnabled } from '../src/main/profile/host-plugin-state'
@@ -32,6 +32,85 @@ describe('builtin account gateway', () => {
   it('reads the display name the official listing uses when name is absent', () => {
     const models = readGatewayModels({ data: [listed('gpt-6.1-sol', { display_name: 'GPT 6.1 Sol' })] })
     expect(models.map(model => model.name)).toEqual(['GPT 6.1 Sol'])
+    expect(models[0]?.price).toBeUndefined()
+  })
+
+  it('reads a credit summary and rejects a list that contains an invalid entry', () => {
+    expect(readCreditSummary({
+      consumed: 30,
+      recharged: 700,
+      usageCount: 1,
+      consumption: [{ id: 'request-used', amount: 30, createdAt: '2026-11-18T15:40:00.000Z', model: 'demo-chat' }],
+      recharge: [{ id: 'signup-1', amount: 600, createdAt: '2026-11-18T15:00:00.000Z', kind: 'signup' }],
+      daily: [{ date: '2026-11-18', consumed: 30, recharged: 700, count: 1 }]
+    })).toEqual({
+      consumed: 30,
+      recharged: 700,
+      usageCount: 1,
+      consumption: [{ id: 'request-used', amount: 30, createdAt: '2026-11-18T15:40:00.000Z', model: 'demo-chat' }],
+      recharge: [{ id: 'signup-1', amount: 600, createdAt: '2026-11-18T15:00:00.000Z', kind: 'signup' }],
+      daily: [{ date: '2026-11-18', consumed: 30, recharged: 700, count: 1 }]
+    })
+    expect(readCreditSummary({ balance: 40 })).toBeUndefined()
+    expect(readCreditSummary({
+      consumed: 1,
+      recharged: 1,
+      usageCount: 0,
+      consumption: [{ id: 'bad', amount: -1, createdAt: '2026-11-18T15:40:00.000Z' }],
+      recharge: []
+    })).toBeUndefined()
+    expect(readCreditSummary({
+      consumed: 1,
+      recharged: 0,
+      usageCount: 0,
+      consumption: [],
+      recharge: [],
+      daily: [{ date: '2026-11-18', consumed: 1, recharged: 0, count: 0.5 }]
+    })).toBeUndefined()
+  })
+
+  it('reads credit prices and ignores a listing price that is not a complete credit rate', () => {
+    const models = readGatewayModels({
+      data: [
+        listed('priced', {
+          name: 'Priced',
+          pricing: {
+            input_credits_per_million: 2500,
+            output_credits_per_million: 10000,
+            cache_credits_per_million: 250,
+            cache_write_5m_credits_per_million: 3125,
+            cache_write_1h_credits_per_million: 1.25,
+            input_list_credits_per_million: 14000,
+            output_list_credits_per_million: 10000,
+            savings_ratio: 0.98,
+            official_input_yuan_per_million: 14,
+            long_context: { min_input_tokens: 272001, input: 2, output: 1.5, cache: 2, cache_write: 2 },
+            peak: { multiplier: 2, weekdays: [0, 4], windows: [['01:00', '04:00']] },
+            ignored: true
+          }
+        }),
+        listed('partial', { pricing: { input_credits_per_million: 1 } }),
+        listed('plain')
+      ]
+    })
+    expect(models.map(model => ({ id: model.id, price: model.price }))).toEqual([
+      {
+        id: 'priced',
+        price: {
+          inputPerMillion: 2500,
+          outputPerMillion: 10000,
+          cachePerMillion: 250,
+          cacheWrite5mPerMillion: 3125,
+          cacheWrite1hPerMillion: 1.25,
+          listInputPerMillion: 14000,
+          savingsRatio: 0.98,
+          longContext: { minInputTokens: 272001, input: 2, output: 1.5, cache: 2, cacheWrite: 2 },
+          peak: { multiplier: 2, weekdays: [0, 4], windows: [['01:00', '04:00']] }
+        }
+      },
+      { id: 'partial', price: undefined },
+      { id: 'plain', price: undefined }
+    ])
   })
 
   it('mounts the account plugin in both product patches and refuses removal', async () => {
@@ -112,7 +191,7 @@ describe('builtin account gateway', () => {
     expect(status.signedIn).toBe(true)
     expect(status.needsRestart).toBe(true)
     expect(status.balance).toBe(40)
-    expect(status.models).toEqual(['demo-chat'])
+    expect(status.models).toEqual([{ id: 'demo-chat', name: 'Demo Chat' }])
     const patch = await readFile(join(profile, 'cordis.patch.yml'), 'utf8')
     expect(patch).toContain('https://gateway.test/v1')
     expect(patch).toContain('demo-chat')
@@ -164,13 +243,13 @@ describe('builtin account gateway', () => {
     const confirmed = await account.confirmPasswordReset('123456', 'new-horse')
     expect(confirmed.message).toBe('accepted')
     const signedIn = await account.login('owner@example.com', 'new-horse')
-    expect(signedIn.models).toEqual(['demo-chat'])
+    expect(signedIn.models).toEqual([{ id: 'demo-chat', name: 'demo-chat' }])
     const checked = await account.checkIn()
     expect(checked).toMatchObject({
       signedIn: true,
       balance: 41,
       message: 'checked_in',
-      models: ['demo-chat'],
+      models: [{ id: 'demo-chat', name: 'demo-chat' }],
       checkedIn: true,
       profile: { models: 'ready', balance: 'ready' }
     })
@@ -241,7 +320,7 @@ describe('builtin account gateway', () => {
       fetchImpl
     })
     const status = await account.login('owner@example.com', 'correct-horse')
-    expect(status.models).toEqual(['kept'])
+    expect(status.models).toEqual([{ id: 'kept', name: 'kept' }])
     const patch = await readFile(join(profile, 'cordis.patch.yml'), 'utf8')
     expect(patch).toContain('id: kept')
     expect(patch).not.toContain('bare')

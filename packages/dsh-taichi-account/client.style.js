@@ -1,13 +1,13 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-desktop-account',
+  id: 'dsh-taichi-account',
   chunk: 'client.style.js',
   factory: () => {
-    const STYLE_ID = 'dsh-desktop-account-style'
+    const STYLE_ID = 'dsh-taichi-account-style'
     const STYLE = `
       [data-dsh-sidebar-settings-actions]{display:flex;flex-direction:row;align-items:center}
       [data-dsh-sidebar-settings]:has([data-dsh-desktop-utilities][data-wide="false"]) [data-dsh-sidebar-settings-actions]{justify-content:center}
-      [data-dsh-desktop-account-entry]{display:flex;align-items:center;flex:none;padding:4px}
-      [data-dsh-desktop-account-entry][data-wide="false"]{justify-content:center}
+      [data-dsh-taichi-account-entry]{display:flex;align-items:center;flex:none;padding:4px}
+      [data-dsh-taichi-account-entry][data-wide="false"]{justify-content:center}
       .dshDeskAccountButton{position:relative;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background .15s ease,color .15s ease}
       .dshDeskAccountButton:hover,.dshDeskAccountButton[data-selected="true"]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
       .dshDeskAccountButton:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
@@ -163,7 +163,7 @@ window.__ModuleLoader__.load({
       }
       const style = document.createElement('style')
       style.id = STYLE_ID
-      style.dataset.plugin = 'dsh-desktop-account'
+      style.dataset.plugin = 'dsh-taichi-account'
       style.textContent = STYLE
       document.head.appendChild(style)
     }

@@ -120,7 +120,7 @@ export interface AccountPurchaseResult {
   order: AccountOrder | null
 }
 
-export const ACCOUNT_PLUGIN_NAME = 'dsh-desktop-account'
+export const ACCOUNT_PLUGIN_NAME = 'dsh-taichi-account'
 export const ACCOUNT_PROVIDER_ID = 'taichi'
 export const ACCOUNT_ACCESS_ENV = 'TAICHI_GATEWAY_ACCESS_TOKEN'
 

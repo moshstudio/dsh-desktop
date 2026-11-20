@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-desktop-account',
+  id: 'dsh-taichi-account',
   chunk: 'client.locale.js',
   factory: () => {
     const INFO_CODES = new Set(['accepted', 'checked_in', 'restart_to_sign_out', 'verified', 'passwordReset', 'profile_unavailable'])

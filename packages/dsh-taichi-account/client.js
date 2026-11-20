@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-desktop-account',
+  id: 'dsh-taichi-account',
   factory: (require) => {
     const module = { exports: {} }
     const exports = module.exports
@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
     const PANEL = 'desktop-account'
 
     async function apply(ctx) {
-      if (typeof require.async !== 'function') throw new Error('dsh-desktop-account: client chunks need require.async')
+      if (typeof require.async !== 'function') throw new Error('dsh-taichi-account: client chunks need require.async')
       const [copy, style, form, dialog] = await Promise.all(CHUNKS.map(specifier => require.async(specifier)))
       const { AccountButton, AccountPanel, QuotaRechargeNotice, publishStatus, resetStatus } = dialog.createUi(form, copy)
       exports.resetStatus = resetStatus

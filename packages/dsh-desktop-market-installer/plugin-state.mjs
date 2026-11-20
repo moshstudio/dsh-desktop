@@ -26,7 +26,7 @@ import { isMap, isScalar, isSeq, parseDocument } from 'yaml'
 
 export const MARKET_STATE_FILE = join('.dsh-market', 'state.json')
 export const USER_PATCH_FILE = 'cordis.patch.yml'
-const PROTECTED_PLUGINS = new Set(['dsh-desktop-account'])
+const PROTECTED_PLUGINS = new Set(['dsh-taichi-account'])
 
 function refuseProtectedDisable(pluginName, enabled) {
   if (PROTECTED_PLUGINS.has(pluginName) && enabled === false) {

@@ -21,7 +21,7 @@
 - insert:
     - id: dsh-desktop-client-ui
       name: dsh-desktop-client-ui
-    - id: dsh-desktop-account
-      name: dsh-desktop-account
+    - id: dsh-taichi-account
+      name: dsh-taichi-account
     - id: dsh-desktop-hmr-fallback
       name: dsh-desktop-hmr-fallback

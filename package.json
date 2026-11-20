@@ -279,7 +279,7 @@
     "@deepseek-ai/dsh-workflow-ptc": "0.2.2-rc.1",
     "@deepseek-ai/dsh-workspace": "0.2.2-rc.1",
     "@deepseek-ai/schemastery": "3.19.0",
-    "dsh-desktop-account": "file:packages/dsh-desktop-account",
+    "dsh-taichi-account": "file:packages/dsh-taichi-account",
     "dsh-desktop-client-ui": "file:packages/dsh-desktop-client-ui",
     "dsh-desktop-hmr-fallback": "file:packages/dsh-desktop-hmr-fallback",
     "dsh-desktop-log-bridge": "file:packages/dsh-desktop-log-bridge",

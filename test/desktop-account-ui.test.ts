@@ -121,7 +121,7 @@ function createReact() {
 }
 
 function loadPlugin(React: ReturnType<typeof createReact>['React']) {
-  const directory = path.join(projectRoot, 'packages', 'dsh-desktop-account')
+  const directory = path.join(projectRoot, 'packages', 'dsh-taichi-account')
   const files = ['client.locale.js', 'client.style.js', 'client.form.js', 'client.dialog.js', 'client.js']
   const registrations = new Map<string, {
     id: string
@@ -143,7 +143,7 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
   const sandboxWindow = {
     __ModuleLoader__: {
       load: (value: { id: string, chunk?: string, factory: (require: (id: string) => unknown) => Record<string, unknown> }) => {
-        if (value.id !== 'dsh-desktop-account') throw new Error(`Unexpected account module id: ${value.id}`)
+        if (value.id !== 'dsh-taichi-account') throw new Error(`Unexpected account module id: ${value.id}`)
         registrations.set(value.chunk ?? '', value)
       }
     },
@@ -899,7 +899,7 @@ describe('desktop account page', () => {
     const button = react.render(AccountButton, buttonProps)
     expect(nodes(button.tree, node => (node.type as { name?: string }).name === 'Modal')).toHaveLength(0)
     for (const effect of button.effects) effect()
-    const opener = () => nodes(react.render(AccountButton, buttonProps).tree, node => node.props['data-dsh-desktop-account'] === 'true')[0]
+    const opener = () => nodes(react.render(AccountButton, buttonProps).tree, node => node.props['data-dsh-taichi-account'] === 'true')[0]
     invoke(opener(), 'onClick')
     expect(layout.calls).toEqual(['desktop-account'])
     expect(opener()?.props['data-selected']).toBe('true')
@@ -907,7 +907,7 @@ describe('desktop account page', () => {
     invoke(opener(), 'onClick')
     expect(layout.calls).toEqual(['desktop-account', null])
     expect(opener()?.props['data-selected']).toBe('false')
-    loaded.window.dispatchEvent({ type: 'dsh-desktop-account-open' } as unknown as Event)
+    loaded.window.dispatchEvent({ type: 'dsh-taichi-account-open' } as unknown as Event)
     expect(layout.calls).toEqual(['desktop-account', null, 'desktop-account'])
     invoke(opener(), 'onClick')
     layout.active = 'desktop-workbenches'
@@ -1055,8 +1055,8 @@ describe('desktop account page', () => {
     invoke(field(first.rerender().tree, 'password'), 'onChange', 'onlyletters')
     submit(first.rerender().tree)
     await flush()
-    expect(loaded.window.localStorage.getItem('dsh-desktop-account-email')).toBe('user@example.com')
-    expect(JSON.stringify(loaded.window.localStorage.getItem('dsh-desktop-account-email'))).not.toContain('onlyletters')
+    expect(loaded.window.localStorage.getItem('dsh-taichi-account-email')).toBe('user@example.com')
+    expect(JSON.stringify(loaded.window.localStorage.getItem('dsh-taichi-account-email'))).not.toContain('onlyletters')
     react.reset()
     const second = await mountReady()
     expect(field(second.rerender().tree, 'email')?.props.value).toBe('user@example.com')
@@ -1070,8 +1070,8 @@ describe('desktop account page', () => {
     submit(second.rerender().tree)
     await flush()
     expect(register).toHaveBeenCalledWith('next@example.com', 'onlyletters')
-    expect(loaded.window.localStorage.getItem('dsh-desktop-account-email')).toBe('next@example.com')
-    loaded.window.localStorage.setItem('dsh-desktop-account-email', 'not-an-email')
+    expect(loaded.window.localStorage.getItem('dsh-taichi-account-email')).toBe('next@example.com')
+    loaded.window.localStorage.setItem('dsh-taichi-account-email', 'not-an-email')
     react.reset()
     const ignored = await mountReady()
     expect(field(ignored.rerender().tree, 'email')?.props.value).toBe('')
@@ -1151,7 +1151,7 @@ describe('desktop account page', () => {
     expect(onStatus).not.toHaveBeenCalled()
     expect(screenOf(fresh.rerender().tree)).toBe('auth')
     const button = react.render(AccountButton, buttonProps)
-    expect(nodes(button.tree, node => node.props['data-dsh-desktop-account'] === 'true')[0]?.props['data-signed-in']).toBe('false')
+    expect(nodes(button.tree, node => node.props['data-dsh-taichi-account'] === 'true')[0]?.props['data-signed-in']).toBe('false')
   })
 
   it('opens the shared Harness restart notice after sign-in and leaves the account page', async () => {
@@ -1245,7 +1245,7 @@ describe('desktop account page', () => {
     complete(emptyStatus())
     await flush()
     const updated = react.render(AccountButton, buttonProps)
-    expect(nodes(updated.tree, node => node.props['data-dsh-desktop-account'] === 'true')[0]?.props['data-signed-in']).toBe('true')
+    expect(nodes(updated.tree, node => node.props['data-dsh-taichi-account'] === 'true')[0]?.props['data-signed-in']).toBe('true')
   })
 
   it.each(['zh', 'en', 'ja', 'es', 'fr', 'de', 'ru', 'pt'])('shows partial account failure while staying signed in (%s)', async language => {

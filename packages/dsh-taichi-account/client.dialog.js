@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-desktop-account',
+  id: 'dsh-taichi-account',
   chunk: 'client.dialog.js',
   factory: (require) => {
     const React = require('react')
@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
       IconUserOutlineRegular
     } = require('@deepseek-ai/dsh-client-ui-primitives')
 
-    const OPEN_EVENT = 'dsh-desktop-account-open'
+    const OPEN_EVENT = 'dsh-taichi-account-open'
     const statusBus = {
       current: null,
       revision: 0,
@@ -72,7 +72,7 @@ window.__ModuleLoader__.load({
         canSubmit
       } = form
       const { messageText, isErrorCode } = copy
-      const EMAIL_MEMORY_KEY = 'dsh-desktop-account-email'
+      const EMAIL_MEMORY_KEY = 'dsh-taichi-account-email'
 
       function rememberedEmail() {
         try {
@@ -1601,7 +1601,7 @@ window.__ModuleLoader__.load({
         const label = signedIn ? t('signedInName', { email: status.email }) : t('open')
         return React.createElement(
           'div',
-          { 'data-dsh-desktop-account-entry': 'true', 'data-wide': wide === false ? 'false' : 'true' },
+          { 'data-dsh-taichi-account-entry': 'true', 'data-wide': wide === false ? 'false' : 'true' },
           React.createElement(
             Tooltip,
             { label, side: 'top', align: 'end', portal: true, maxWidth: 280, delayMs: 0, focusDelayMs: 0 },
@@ -1610,7 +1610,7 @@ window.__ModuleLoader__.load({
               {
                 type: 'button',
                 className: 'dshDeskAccountButton',
-                'data-dsh-desktop-account': 'true',
+                'data-dsh-taichi-account': 'true',
                 'data-signed-in': signedIn ? 'true' : 'false',
                 'data-selected': selected ? 'true' : 'false',
                 'aria-pressed': selected ? 'true' : 'false',

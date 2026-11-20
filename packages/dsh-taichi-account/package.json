@@ -1,5 +1,5 @@
 {
-  "name": "dsh-desktop-account",
+  "name": "dsh-taichi-account",
   "version": "0.1.0",
   "description": "Built-in taichi-dsh account and model gateway connection.",
   "private": true,

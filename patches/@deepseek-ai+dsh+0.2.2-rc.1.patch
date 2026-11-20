@@ -24,7 +24,7 @@ index f41b2d4..f004613 100644
 +    "@deepseek-ai/dsh-deepseek-account": "0.2.2-rc.1",
 +    "dsh-ppt-composer": "0.1.1-rc.2",
 +    "dsh-desktop-client-ui": "0.1.0",
-+    "dsh-desktop-account": "0.1.0",
++    "dsh-taichi-account": "0.1.0",
 +    "dsh-desktop-hmr-fallback": "0.1.0",
 +    "dsh-desktop-log-bridge": "0.1.0",
 +    "dsh-desktop-market-installer": "0.1.0",

@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-desktop-account',
+  id: 'dsh-taichi-account',
   chunk: 'client.form.js',
   factory: (require) => {
     const React = require('react')

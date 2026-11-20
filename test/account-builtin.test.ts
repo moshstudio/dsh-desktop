@@ -114,8 +114,8 @@ describe('builtin account gateway', () => {
   })
 
   it('mounts the account plugin in both product patches and refuses removal', async () => {
-    expect(buildDesktopProductPatch()).toContain('name: dsh-desktop-account')
-    expect(DESKTOP_SAFE_PRODUCT_PATCH).toContain('name: dsh-desktop-account')
+    expect(buildDesktopProductPatch()).toContain('name: dsh-taichi-account')
+    expect(DESKTOP_SAFE_PRODUCT_PATCH).toContain('name: dsh-taichi-account')
     const home = await mkdtemp(join(tmpdir(), 'dsh-account-'))
     directories.push(home)
     await expect(validatePluginSwitch(home, ACCOUNT_PLUGIN_NAME, false)).rejects.toThrow(/cannot be disabled/u)

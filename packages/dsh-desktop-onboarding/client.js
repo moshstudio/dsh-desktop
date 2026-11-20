@@ -270,7 +270,7 @@ window.__ModuleLoader__.load({
                 disabled: saving,
                 onClick: () => finish(() => {
                   if (window.dshDesktop?.account) {
-                    window.dispatchEvent(new CustomEvent('dsh-desktop-account-open'))
+                    window.dispatchEvent(new CustomEvent('dsh-taichi-account-open'))
                     return
                   }
                   if (typeof openSection === 'function') openSection(MODELS_SECTION_ID)

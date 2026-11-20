@@ -155,6 +155,7 @@ export function buildWindowsApplicationMenu(options: {
   showHarnessLog: () => void
   checkForUpdates: () => void
   quit: () => void
+  toggleFullScreen: () => void
 }): DesktopMenuItem[] {
   const text = desktopMenuMessages(options.locale)
   const standard = standardMenuLabels(options.locale)
@@ -207,7 +208,7 @@ export function buildWindowsApplicationMenu(options: {
         { role: 'zoomIn', label: text.zoomIn },
         { role: 'zoomOut', label: text.zoomOut },
         { type: 'separator' },
-        { role: 'togglefullscreen', label: text.fullscreen }
+        { label: text.fullscreen, accelerator: 'F11', click: options.toggleFullScreen }
       ]
     },
     {

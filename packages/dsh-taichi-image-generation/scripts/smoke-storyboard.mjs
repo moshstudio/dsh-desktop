@@ -1,0 +1,458 @@
+/**
+ * Storyboard node: offline checks for the parts that decide what gets saved,
+ * what gets run and what gets stitched.
+ *
+ * The whole point of this node type is that a shot's clip is an ORDINARY video
+ * node, so the checks here are about the edges that could break that promise:
+ * a board that cannot be saved (which would lose the shot list on reload), a
+ * board that counts a clip as ready when the canvas shows a spinner, and a
+ * stitch that would hand ffmpeg a clip with no bytes.
+ *
+ * Two halves, both offline:
+ *
+ *  H*  the host store round-trips a document holding a storyboard node, refuses
+ *      a malformed board instead of bricking the save, and accepts a board
+ *      whose optional fields are missing (a document written by an older build).
+ *  P*  the pure state functions the node renderer, the run button and the
+ *      stitch all read, driven directly against the real module — no DOM, no
+ *      server. The canvas has exactly one definition of "is this shot done",
+ *      and these checks pin it.
+ *
+ * Run: node scripts/smoke-storyboard.mjs   (from the package root)
+ */
+
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import assert from 'node:assert/strict'
+
+const results = []
+const checks = []
+function check(name, fn) {
+  checks.push({ name, fn })
+}
+
+const root = mkdtempSync(join(tmpdir(), 'gal-storyboard-'))
+process.env.DSH_HOME = root
+
+/**
+ * Load the store from SOURCE rather than the package entry.
+ *
+ * `CanvasStore` is not re-exported by `lib/index.js` (the plugin exposes a
+ * singleton, not the class), and the store is written in TypeScript with a
+ * constructor parameter property — which Node's default strip-only mode
+ * refuses. Re-executing this script once with `--experimental-transform-types`
+ * is what makes the real store testable here instead of a copy of its rules.
+ */
+async function loadStoreClass() {
+  try {
+    const module = await import(new URL('../src/canvas-store.ts', import.meta.url).href)
+    return module.CanvasStore
+  } catch (error) {
+    if (!/parameter property is not supported/.test(String(error?.message))) throw error
+    const { spawnSync } = await import('node:child_process')
+    // `new URL(...).pathname` is not a file path: on Windows it answers
+    // `/E:/%E3%80%90...` — a leading slash and percent-encoded — which the child
+    // then reads as `E:\E:\...` and cannot find.
+    const result = spawnSync(process.execPath, ['--experimental-transform-types', '--no-warnings', ...process.execArgv, fileURLToPath(import.meta.url)], { stdio: 'inherit' })
+    process.exit(result.status ?? 0)
+  }
+}
+const CanvasStore = await loadStoreClass()
+
+/** One canvas node of each shape the board talks about. */
+const node = (overrides) => ({
+  id: 'node', type: 'video', title: '视频节点',
+  x: 0, y: 0, width: 240, height: 160,
+  metadata: { status: 'success' },
+  ...overrides,
+})
+const shot = (id, prompt, extra = {}) => ({ id, prompt, seconds: 5, ...extra })
+
+/** A clip node that is playable. */
+const clip = (id, extra = {}) => node({
+  id,
+  metadata: {
+    status: 'success',
+    video: { url: `/api/dsh-imagegen/videos/file/${id}.mp4`, mime: 'video/mp4', duration: 5, entryId: `entry-${id}` },
+    ...extra,
+  },
+})
+
+// ------------------------------------------------------------ host storage
+
+await check('H1 a storyboard document saves and reads back intact', async () => {
+  const { CanvasStore } = await import(new URL('../src/canvas-store.ts', import.meta.url).href)
+  const store = new CanvasStore(join(root, 'canvas-h1'))
+  const created = await store.create('分镜')
+  const board = {
+    id: 'board-1', type: 'storyboard', title: '分镜',
+    x: 10, y: 20, width: 380, height: 420,
+    metadata: {
+      storyboard: {
+        shots: [shot('shot-1', 'a cat', { nodeId: 'clip-1' }), shot('shot-2', 'the same cat, closer', { seconds: 8 })],
+        aspectRatio: '16:9', resolution: '720P', continuity: 'carry',
+      },
+    },
+  }
+  const produced = clip('clip-1', { shot: { storyboardId: 'board-1', shotId: 'shot-1', index: 1 } })
+  const saved = await store.save({ ...created, nodes: [board, produced] }, created.revision)
+  const read = await store.read(saved.id)
+  assert.ok(read !== undefined, 'the canvas reads back')
+  const storedBoard = read.nodes.find(item => item.id === 'board-1')
+  assert.ok(storedBoard !== undefined, 'the storyboard node survived')
+  assert.equal(storedBoard.metadata.storyboard.shots.length, 2, 'both shots survived')
+  assert.equal(storedBoard.metadata.storyboard.continuity, 'carry', 'continuity survived')
+  assert.equal(storedBoard.metadata.storyboard.shots[0].nodeId, 'clip-1', 'the shot -> clip link survived')
+  assert.equal(read.nodes.find(item => item.id === 'clip-1').metadata.shot.shotId, 'shot-1', 'clip provenance survived')
+})
+
+await check('H2 a board with missing optional fields is still savable', async () => {
+  const { CanvasStore } = await import(new URL('../src/canvas-store.ts', import.meta.url).href)
+  const store = new CanvasStore(join(root, 'canvas-h2'))
+  const created = await store.create('旧文档')
+  // What an older build would write: a shot list and nothing else.
+  const board = {
+    id: 'board-2', type: 'storyboard', title: '分镜',
+    x: 0, y: 0, width: 380, height: 420,
+    metadata: { storyboard: { shots: [shot('shot-1', '')] } },
+  }
+  const saved = await store.save({ ...created, nodes: [board] }, created.revision)
+  const read = await store.read(saved.id)
+  assert.ok(read !== undefined && read.nodes.length === 1, 'the minimal board saves')
+})
+
+await check('H3 a malformed board makes the save FAIL LOUDLY, not silently', async () => {
+  const { CanvasStore } = await import(new URL('../src/canvas-store.ts', import.meta.url).href)
+  const store = new CanvasStore(join(root, 'canvas-h3'))
+  const created = await store.create('坏文档')
+  const broken = {
+    id: 'board-3', type: 'storyboard', title: '分镜',
+    x: 0, y: 0, width: 380, height: 420,
+    // seconds is a string: not something the renderer can honour.
+    metadata: { storyboard: { shots: [{ id: 'shot-1', prompt: 'x', seconds: '5' }] } },
+  }
+  let failed = false
+  try {
+    await store.save({ ...created, nodes: [broken] }, created.revision)
+  } catch (error) {
+    failed = true
+    assert.match(String(error.message), /malformed canvas document/, 'the failure names the document')
+  }
+  assert.ok(failed, 'a half-valid board must not be written')
+})
+
+await check('H4 a shot count over the cap is refused, not silently truncated', async () => {
+  const { CanvasStore } = await import(new URL('../src/canvas-store.ts', import.meta.url).href)
+  const store = new CanvasStore(join(root, 'canvas-h4'))
+  const created = await store.create('超长')
+  const shots = Array.from({ length: 41 }, (_value, index) => shot(`shot-${index + 1}`, 'x'))
+  const board = {
+    id: 'board-4', type: 'storyboard', title: '分镜',
+    x: 0, y: 0, width: 380, height: 420,
+    metadata: { storyboard: { shots } },
+  }
+  let failed = false
+  try {
+    await store.save({ ...created, nodes: [board] }, created.revision)
+  } catch { failed = true }
+  assert.ok(failed, '41 shots is past the documented cap')
+})
+
+await check('H5 an invalidated shot survives a save and reload', async () => {
+  const { CanvasStore } = await import(new URL('../src/canvas-store.ts', import.meta.url).href)
+  const store = new CanvasStore(join(root, 'canvas-h5'))
+  const created = await store.create('作废标记')
+  // The document `submitShot` writes after a carry re-run: shot 2 was framed
+  // from the tail frame shot 1 just replaced, so it is marked invalid.
+  const board = {
+    id: 'board-5', type: 'storyboard', title: '分镜',
+    x: 0, y: 0, width: 380, height: 420,
+    metadata: {
+      storyboard: {
+        shots: [shot('shot-1', 'a cat', { nodeId: 'clip-1' }), shot('shot-2', 'the same cat', { nodeId: 'clip-2', stale: true })],
+        aspectRatio: '16:9', resolution: '720P', continuity: 'carry',
+      },
+    },
+  }
+  const saved = await store.save({ ...created, nodes: [board] }, created.revision)
+  const read = await store.read(saved.id)
+  assert.ok(read !== undefined, 'the canvas reads back')
+  const reloaded = read.nodes.find(item => item.id === 'board-5')
+  assert.ok(reloaded !== undefined, 'the board survived')
+  // The flag has to reach disk: a shot that reloads as valid would be stitched
+  // in again on the next page open, which is exactly the silent break this
+  // whole change removes.
+  assert.equal(reloaded.metadata.storyboard.shots[1].stale, true, 'the invalid marker is persisted')
+  assert.equal(reloaded.metadata.storyboard.shots[0].stale, undefined, 'a valid shot carries no marker')
+})
+
+// ------------------------------------------------------------ pure state
+
+const state = await import(new URL('../src/client/storyboard.ts', import.meta.url).href)
+
+await check('P1 a fresh board has one blank row and normalizes every field', async () => {
+  const fresh = state.defaultStoryboard()
+  assert.equal(fresh.shots.length, 1, 'a new board opens with one row to type into')
+  assert.equal(fresh.continuity, 'cut', 'shots are independent by default')
+  const normalized = state.storyboardOf({ id: 'b', type: 'storyboard', title: '', x: 0, y: 0, width: 1, height: 1, metadata: { storyboard: { shots: [] } } })
+  assert.equal(normalized.shots.length, 1, 'an empty stored list is replaced, not rendered as an empty board')
+  assert.equal(normalized.aspectRatio, '16:9')
+  assert.equal(normalized.resolution, '720P')
+})
+
+// `storyboardOf` 是白名单式重建：它逐字段抄进一个新对象，所以任何新加的
+// 字段都得在这里显式列一遍，漏了就是「存进去了但读不出来」。
+// 「从文档铺出来的板」唯一的标记是 `source`，而板底那个「写回文档」按钮
+// 只在 `source` 存在时渲染——这里漏一次，22 镜的板也不会有按钮，
+// 而且没有任何报错可查。反向用例：去掉 `storyboardOf` 里那一行必须变红。
+await check('P1b a board laid out from docs keeps its source through storyboardOf', async () => {
+  const source = { root: '/workspace', projectPath: '剧集/EP001', episode: 'EP001' }
+  const board = state.storyboardOf({
+    id: 'b', type: 'storyboard', title: '', x: 0, y: 0, width: 1, height: 1,
+    metadata: { storyboard: { shots: [{ id: 'shot-1', prompt: 'a cat', seconds: 5 }], aspectRatio: '9:16', resolution: '720P', continuity: 'cut', source } },
+  })
+  assert.deepEqual(board.source, source, 'a laid-out board must still know which episode it came from')
+  // 手画的板没有这个字段，读数必须是 undefined 而不是空对象——按钮靠它判空。
+  const handDrawn = state.storyboardOf({
+    id: 'm', type: 'storyboard', title: '', x: 0, y: 0, width: 1, height: 1,
+    metadata: { storyboard: { shots: [], aspectRatio: '16:9', resolution: '720P', continuity: 'cut' } },
+  })
+  assert.equal(handDrawn.source, undefined, 'a hand-drawn board has no output folder')
+})
+
+await check('P2 shot state follows the produced node, never a stored copy', async () => {
+  const blank = shot('s1', 'a cat')
+  assert.equal(state.shotState(blank, []), 'empty', 'no node means not produced')
+
+  const generating = shot('s1', 'a cat', { nodeId: 'clip-1' })
+  const pending = node({ id: 'clip-1', metadata: { status: 'generating', taskId: 't1' } })
+  assert.equal(state.shotState(generating, [pending]), 'generating', 'a placeholder is still rendering')
+
+  assert.equal(state.shotState(generating, [clip('clip-1')]), 'ready', 'a clip is ready')
+
+  const failed = node({ id: 'clip-1', metadata: { status: 'error', error: '上游拒绝' } })
+  assert.equal(state.shotState(generating, [failed]), 'failed', 'a failed node can be retried')
+
+  // The user deleted the produced clip: the shot is unproduced again, and must
+  // be re-runnable rather than pointing at a node that no longer exists.
+  assert.equal(state.shotState(generating, []), 'empty', 'a deleted clip makes the shot empty again')
+})
+
+await check('P3 progress and the next shot agree with the shot states', async () => {
+  const board = {
+    shots: [shot('s1', 'one', { nodeId: 'c1' }), shot('s2', 'two'), shot('s3', '')],
+    aspectRatio: '16:9', resolution: '720P', continuity: 'cut',
+  }
+  const nodes = [clip('c1')]
+  const progress = state.storyboardProgress(board, nodes)
+  assert.equal(progress.total, 3)
+  assert.equal(progress.ready, 1)
+  // `empty` counts every shot with nothing to run: the one with no prompt AND
+  // the one with a prompt but no clip yet.
+  assert.equal(progress.empty, 2, 'prompt-less and clip-less shots both count as unrun')
+  assert.equal(state.nextShotIndex(board, nodes), 1, 'the next runnable shot is the one after the finished one')
+  // A prompt-less row is skipped by the run, never submitted as an empty render.
+  const onlyBlank = { ...board, shots: [shot('s1', ''), shot('s2', 'two')] }
+  assert.equal(state.nextShotIndex(onlyBlank, []), 1, 'a row with no prompt is not the next shot')
+
+  const allDone = { ...board, shots: [shot('s1', 'one', { nodeId: 'c1' })] }
+  assert.equal(state.nextShotIndex(allDone, nodes), -1, 'nothing left to run')
+})
+
+await check('P4 only ready clips are handed to the stitch, in shot order', async () => {
+  const board = {
+    shots: [
+      shot('s1', 'one', { nodeId: 'c1' }),
+      shot('s2', 'two', { nodeId: 'c2' }),
+      shot('s3', 'three', { nodeId: 'c3' }),
+      shot('s4', 'four'),
+    ],
+    aspectRatio: '16:9', resolution: '720P', continuity: 'cut',
+  }
+  const nodes = [
+    clip('c1'),
+    // Still rendering: no bytes to concatenate.
+    node({ id: 'c2', metadata: { status: 'generating', taskId: 't' } }),
+    clip('c3'),
+  ]
+  assert.deepEqual(state.storyboardClipIds(board, nodes), ['c1', 'c3'], 'list order, ready clips only')
+})
+
+await check('P5 list edits keep the running order coherent', async () => {
+  const board = { shots: [shot('a', '1'), shot('b', '2'), shot('c', '3')], aspectRatio: '16:9', resolution: '720P', continuity: 'cut' }
+  assert.deepEqual(state.withMovedShot(board, 2, -1).shots.map(row => row.id), ['a', 'c', 'b'], 'moved up')
+  assert.deepEqual(state.withMovedShot(board, 0, -1).shots.map(row => row.id), ['a', 'b', 'c'], 'clamped at the top')
+  assert.deepEqual(state.withRemovedShot(board, 1).shots.map(row => row.id), ['a', 'c'], 'removed')
+  assert.equal(state.withRemovedShot({ ...board, shots: [shot('only', 'x')] }, 0).shots.length, 1, 'never leaves an empty list to type into')
+  assert.equal(state.withAppendedShot({ ...board, shots: Array.from({ length: state.MAX_SHOTS }, (_v, i) => shot(`s${i + 1}`, 'x')) }).shots.length, state.MAX_SHOTS, 'the cap holds')
+  assert.equal(state.withShot(board, 1, { prompt: 'edited' }).shots[1].prompt, 'edited', 'per-row edits land on that row')
+})
+
+await check('P6 the built client bundle carries the board renderer', async () => {
+  const { readFileSync } = await import('node:fs')
+  const bundle = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  // The rows and the two foot actions are what a user operates; if the bundler
+  // dropped the component, none of these survive into the shipped bundle.
+  assert.match(bundle, /storyboardBody/, 'the board body is in the bundle')
+  assert.match(bundle, /storyboardShots/, 'the shot list is in the bundle')
+  assert.match(bundle, /storyboardFoot/, 'the board actions are in the bundle')
+})
+
+/**
+ * The `carry` break: shot 1 gets re-run, its tail frame changes, and shots 2/3
+ * were framed from the old one. They must fall back to "needs a run" — and the
+ * canvas must be the thing that does it, not just a rule the renderer ignores.
+ *
+ * Two halves in one check, because either half alone can pass while the bug is
+ * still there: the pure rule (what an invalidated shot reads as) and the wiring
+ * in `submitShot` (who invalidates, in which mode, and only after a successful
+ * submit). Deleting the call from `submitShot` has to turn THIS check red.
+ */
+await check('P7 a carry re-run invalidates every downstream clip, after a successful submit', async () => {
+  const board = {
+    shots: [
+      shot('s1', 'one', { nodeId: 'c1' }),
+      shot('s2', 'two', { nodeId: 'c2' }),
+      shot('s3', 'three', { nodeId: 'c3' }),
+    ],
+    aspectRatio: '16:9', resolution: '720P', continuity: 'carry',
+  }
+  // The nodes as they stand right after the submit: shot 1's node was replaced
+  // by the fresh placeholder, shots 2/3 still carry their old clips.
+  const afterSubmit = [node({ id: 'c1', metadata: { status: 'generating', taskId: 't1' } }), clip('c2'), clip('c3')]
+  // The exact write-back `submitShot` performs once the host accepted the task:
+  // unlock the re-run shot itself, then invalidate what sat on its old tail.
+  const restarted = state.withShot(board, 0, { nodeId: 'c1', stale: undefined })
+  const next = state.withStaleDownstream(restarted, 0, afterSubmit)
+
+  assert.equal(state.shotState(next.shots[0], afterSubmit), 'generating', 'the re-run shot is rendering again, not stale')
+  assert.equal(state.shotState(next.shots[1], afterSubmit), 'failed', 'shot 2 was framed from a tail frame that no longer exists')
+  assert.equal(state.shotState(next.shots[2], afterSubmit), 'failed', 'shot 3 depends on shot 2, so it falls too')
+  // While the new tail frame is still rendering, shot 2 genuinely cannot be
+  // framed yet — the existing carry rule already answers -1 for that.
+  assert.equal(state.nextShotIndex(next, afterSubmit), -1, 'carry waits for the new tail frame before shot 2')
+  // Once it lands, shot 2 is the next run, in order — the invalidated shots are
+  // not skipped over, which is the whole point of marking them.
+  const landed = [clip('c1'), clip('c2'), clip('c3')]
+  assert.equal(state.nextShotIndex(next, landed), 1, 'then the next run is shot 2, in order')
+  assert.deepEqual(state.storyboardClipIds(next, landed), ['c1'], 'an invalidated clip is not handed to the stitch')
+  // The file itself is kept: invalid is not the same as deleted, the user may
+  // still want to watch that take.
+  assert.equal(afterSubmit[1].metadata.video.url, '/api/dsh-imagegen/videos/file/c2.mp4', 'the old clip stays on the node')
+  assert.equal(board.shots[1].stale, undefined, 'the input board is not mutated')
+
+  // A downstream shot that never produced anything has nothing to invalidate;
+  // marking it would put a stale badge on a row the user never ran.
+  const unrun = { ...board, shots: [shot('s1', 'one', { nodeId: 'c1' }), shot('s2', 'two'), shot('s3', 'three')] }
+  const afterUnrun = state.withStaleDownstream(state.withShot(unrun, 0, { nodeId: 'c1', stale: undefined }), 0, [clip('c1')])
+  assert.equal(afterUnrun.shots[1].stale, undefined, 'an unproduced shot is left alone')
+  assert.equal(afterUnrun.shots[1].id, 's2', 'the list is not reordered or shortened')
+
+  // Wiring: `submitShot` is what invalidates, on the success path only.
+  const { canvasSourceText } = await import('./lib/canvas-source.mjs')
+  const source = canvasSourceText()
+  const from = source.indexOf('const submitShot = useCallback')
+  assert.ok(from > 0, 'submitShot exists')
+  const body = source.slice(from, source.indexOf('const runStoryboard = useCallback'))
+  const submitAt = body.indexOf('await api.videoTaskSubmit(request)')
+  const staleAt = body.indexOf('withStaleDownstream(')
+  assert.ok(submitAt > 0, 'the submit call is in submitShot')
+  assert.ok(staleAt > submitAt, 'downstream is invalidated AFTER the host accepted the task, never before')
+  assert.equal(body.split('withStaleDownstream(').length, 2, 'invalidated in exactly one place')
+  // The try/catch that guards the submit: its handler must come AFTER the
+  // invalidation, so a rejected submit returns before any board write. (The
+  // function holds an earlier try/catch for the frame grab, hence searching
+  // forward from the invalidation rather than taking the first one.)
+  const catchAt = body.indexOf('} catch (caught)', staleAt)
+  assert.ok(catchAt > staleAt, 'a rejected submit returns before any invalidation')
+  assert.match(body, /previousBoard\.continuity === 'carry'/, 'only carry mode invalidates anything')
+})
+
+/**
+ * `cut` boards have no join to protect: every shot is independent, so re-running
+ * one must leave the others exactly as they were. And a re-run that FAILS never
+ * reaches the write-back, so the others keep their clips too.
+ */
+await check('P8 a cut re-run, or a failed one, leaves the other shots untouched', async () => {
+  const cut = {
+    shots: [
+      shot('s1', 'one', { nodeId: 'c1' }),
+      shot('s2', 'two', { nodeId: 'c2' }),
+      shot('s3', 'three', { nodeId: 'c3' }),
+    ],
+    aspectRatio: '16:9', resolution: '720P', continuity: 'cut',
+  }
+  const nodes = [clip('c1'), clip('c2'), clip('c3')]
+  const restarted = state.withShot(cut, 0, { nodeId: 'c1', stale: undefined })
+  // `submitShot` never calls the invalidator in this mode (pinned in P7), so the
+  // board it writes back is exactly this one.
+  assert.equal(state.shotState(restarted.shots[1], nodes), 'ready', 'a cut shot 2 still has a valid clip')
+  assert.equal(state.shotState(restarted.shots[2], nodes), 'ready', 'a cut shot 3 still has a valid clip')
+  assert.deepEqual(state.storyboardClipIds(restarted, nodes), ['c1', 'c2', 'c3'], 'the whole cut board still stitches')
+
+  // A rejected submit: the board is never written, so shots 2/3 keep their clips
+  // and the run button still points past them.
+  const board = { ...cut, continuity: 'carry' }
+  assert.equal(state.shotState(board.shots[1], nodes), 'ready', 'nothing was invalidated by a failed re-run')
+  assert.equal(state.nextShotIndex(board, nodes), -1, 'with every shot finished there is nothing to re-run')
+})
+
+/**
+ * 分镜不吃身份参考，是这条链路上唯一一个「界面里设置了、产物里没有」的洞：
+ * 用户把「阿禾」钉成角色参考后，composer 生成是对的，分镜连跑十条却一条都
+ * 没有阿禾的图。修法是让 `submitShot` 走和 composer 同一套 cast 函数，并把
+ * 模式从 text 升到 reference。
+ *
+ * 两半都必须断言，因为只有一半时缺陷都还在：
+ *  - 纯规则：哪种模式下带几张参考图。`carry` 的接缝占满帧槽时不能带（契约
+ *    禁止混用），这是刻意的取舍，不是遗漏；
+ *  - 源码接线：`submitShot` 真的调了那两个函数，而且去重规则和提示词都来自
+ *    同一份 cast.ts，不是在这里另写一遍。
+ */
+await check('P9 a shot carries the pinned cast, unless continuity owns the frame slots', async () => {
+  assert.deepEqual(state.shotVideoPlan({ continuity: 'cut', index: 0, castCount: 0 }), { mode: 'text', castSlots: 0 }, '没人被钉住就是纯文本')
+  assert.deepEqual(state.shotVideoPlan({ continuity: 'cut', index: 3, castCount: 2 }), { mode: 'reference', castSlots: 2 }, '钉住的人不连进这一镜也要带上')
+  // 第一镜没有上一镜可接，所以 carry 板的第一镜照样能带身份参考。
+  assert.deepEqual(state.shotVideoPlan({ continuity: 'carry', index: 0, castCount: 2 }), { mode: 'reference', castSlots: 2 }, 'carry 的第一镜没有接缝，可以带')
+  // 第二镜起，首帧被上一镜的尾帧占住；提供方契约禁止 reference_image 与
+  // first_frame 混用，所以身份参考不随行——宁可没有，也不发一个会被拒的请求。
+  assert.deepEqual(state.shotVideoPlan({ continuity: 'carry', index: 1, castCount: 2 }), { mode: 'keyframe', castSlots: 0 }, 'carry 的后续镜先保接缝')
+  assert.equal(state.shotVideoPlan({ continuity: 'cut', index: 0, castCount: 9 }).castSlots, state.MAX_SHOT_REFERENCES, '参考图上限仍是 composer 那四张')
+  assert.equal(state.shotVideoPlan({ continuity: 'cut', index: 0, castCount: -3 }).castSlots, 0, '负数按零处理，不产生负的槽位')
+
+  const { canvasSourceText } = await import('./lib/canvas-source.mjs')
+  const source = canvasSourceText()
+  const from = source.indexOf('const submitShot = useCallback')
+  assert.ok(from > 0, 'submitShot exists')
+  const body = source.slice(from, source.indexOf('const runStoryboard = useCallback'))
+  assert.match(body, /shotVideoPlan\(/, '分镜的模式由 shotVideoPlan 决定，不是就地手写一条 if')
+  assert.match(body, /castRefsFor\(/, '分镜要取被钉住的参考图')
+  assert.match(body, /castPromptOf\(/, '提示词要说明哪张参考图是谁')
+  assert.match(body, /referenceNodeIds/, '参考图的血缘要写进 canvas 元数据，和 composer 一个口径')
+  // 依赖数组漏了这两个，回调会闭包住上一次渲染的 document，钉了新的角色也
+  // 读不到。切出来的 body 尾部带着下一个函数的 JSDoc，所以取最后一个依赖数组
+  // 而不是要求它就是结尾；也不约束先后顺序，排序是风格不是缺陷。
+  const depLists = [...body.matchAll(/\}, \[([^\]]*)\]\)/g)]
+  assert.ok(depLists.length > 0, 'submitShot 有依赖数组')
+  const deps = depLists.at(-1)[1]
+  assert.match(deps, /castRefsFor/, 'castRefsFor 在依赖数组里')
+  assert.match(deps, /castPromptOf/, 'castPromptOf 在依赖数组里')
+})
+
+// ------------------------------------------------------------ run
+
+for (const { name, fn } of checks) {
+  process.stderr.write(`... ${name}\n`)
+  try {
+    await fn()
+    results.push(`PASS  ${name}`)
+  } catch (error) {
+    results.push(`FAIL  ${name}: ${error.message}`)
+    process.exitCode = 1
+  }
+}
+
+rmSync(root, { recursive: true, force: true })
+for (const line of results) console.log(line)

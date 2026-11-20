@@ -1,0 +1,493 @@
+/** Agent-facing image-generation tools backed by the shared host queue. */
+
+import type { Context } from '@deepseek-ai/cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import type { AttachmentStore, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-tools'
+import { ImageGenError } from './engine.ts'
+import { ImageGenerationRuntime, type RuntimeChannel } from './generation-runtime.ts'
+import { ensureImageModels } from './taichi-gateway.ts'
+import { detectImageMime } from './image-format.ts'
+import { historyImageAbsolutePath } from './history-store.ts'
+import type { GenerationTask, GeneratedImage } from './protocol.ts'
+
+export interface AgentImageToolConfig {
+  enabled: boolean
+  allowAgentImageGeneration: boolean
+  channels: RuntimeChannel[]
+  defaultChannelId: string
+  defaultModel?: string
+}
+
+interface AgentImageRef {
+  attachment_id: string
+  media_type: string
+  bytes: number
+  width: number
+  height: number
+  name?: string
+}
+
+interface AgentTaskResult {
+  task_id: string
+  status: string
+  message: string
+  error?: string
+  embed_id?: string
+  files?: string[]
+  images: AgentImageRef[]
+}
+
+const imageRefSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    attachment_id: { type: 'string', required: true },
+    media_type: { type: 'string', required: true },
+    bytes: { type: 'integer', required: true },
+    width: { type: 'integer', required: true },
+    height: { type: 'integer', required: true },
+    name: { type: 'string' },
+  },
+} as const
+
+const taskResultSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    task_id: { type: 'string', required: true },
+    status: { type: 'string', required: true },
+    message: { type: 'string', required: true },
+    error: { type: 'string' },
+    embed_id: { type: 'string' },
+    files: { type: 'array', items: { type: 'string' } },
+    images: { type: 'array', required: true, items: imageRefSchema },
+  },
+} as const
+
+/** Agent calls stay pending until the provider and history write settle. */
+const AGENT_GENERATION_TIMEOUT_MS = 300_000
+
+export function ensureAgentImageConfigured(config: AgentImageToolConfig): void {
+  if (!config.enabled) throw new ImageGenError('AI image generation is disabled. Open Settings → Image / Video and enable it.', 'plugin-disabled')
+  if (!config.allowAgentImageGeneration) throw new ImageGenError('Agent image generation is disabled in Settings → Image / Video.', 'agent-generation-disabled')
+  const usable = config.channels.some(channel => channel.apiUrl.trim() !== '' && channel.apiKey.trim() !== '')
+  if (!usable) throw new ImageGenError('Sign in before generating images.', 'image-api-not-configured')
+}
+
+/** Resolve a configured image alias and its owning channel. */
+export function resolveAgentImageModel(config: AgentImageToolConfig, requested: unknown): { channel: RuntimeChannel; alias: string; upstream: string } {
+  const entries = config.channels.flatMap(channel => channel.models.map(model => ({ channel, alias: model.alias, upstream: model.id })))
+  if (entries.length === 0) {
+    throw new ImageGenError('Sign in before generating images.', 'no-models-configured')
+  }
+  const wanted = typeof requested === 'string' && requested.trim() !== ''
+    ? requested.trim()
+    : (typeof config.defaultModel === 'string' ? config.defaultModel.trim() : '')
+  if (wanted === '') {
+    if (entries.length === 1) return entries[0]!
+    const options = config.channels.flatMap(channel => channel.models.map(model => `"${channel.name} · ${model.alias}"`)).join(', ')
+    throw new ImageGenError(`Multiple image models are available — ask the user which channel and model to use, then call this tool again with that exact model name. Options: ${options}.`, 'model-choice-required')
+  }
+  const hosting = entries.filter(entry => entry.alias === wanted)
+  if (hosting.length === 0) {
+    const available = [...new Set(entries.map(entry => entry.alias))].join(', ')
+    throw new ImageGenError(`Image model "${wanted}" is not configured in any channel. Choose one of: ${available}.`, 'image-model-not-configured')
+  }
+  const preferred = hosting.find(entry => entry.channel.id === config.defaultChannelId)
+  return preferred ?? hosting[0]!
+}
+
+function findAgentImageTask(runtime: ImageGenerationRuntime, id: string): GenerationTask {
+  const task = runtime.queue.list().find(candidate => candidate.id === id)
+  if (task === undefined) throw new ImageGenError(`Image generation task ${id} was not found.`, 'task-not-found')
+  return task
+}
+
+/** Wait for a queue task without sending anything through the chat model. */
+export function waitForAgentImageTask(runtime: ImageGenerationRuntime, id: string, signal: AbortSignal | undefined): Promise<GenerationTask> {
+  return new Promise<GenerationTask>((resolveTask, rejectTask) => {
+    let settled = false
+    let dispose = (): void => {}
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let abort = (): void => {}
+
+    const cleanup = (): void => {
+      dispose()
+      if (timer !== undefined) clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+    }
+    const resolve = (task: GenerationTask): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolveTask(task)
+    }
+    const reject = (error: unknown): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      rejectTask(error)
+    }
+    abort = (): void => {
+      if (settled) return
+      const reason = signal?.reason instanceof Error ? signal.reason : new Error('Image generation was cancelled.')
+      settled = true
+      cleanup()
+      runtime.queue.cancel(id)
+      rejectTask(reason)
+    }
+    const onChange = (updated: GenerationTask): void => {
+      if (updated.id === id && isFinalTask(updated)) resolve(updated)
+    }
+
+    if (signal?.aborted === true) {
+      abort()
+      return
+    }
+    dispose = runtime.queue.subscribe(onChange)
+    signal?.addEventListener('abort', abort, { once: true })
+    timer = setTimeout(() => {
+      if (settled) return
+      const timeout = new ImageGenError(`Image generation task ${id} timed out after ${AGENT_GENERATION_TIMEOUT_MS / 1000} seconds.`, 'generation-timeout')
+      settled = true
+      cleanup()
+      runtime.queue.cancel(id)
+      rejectTask(timeout)
+    }, AGENT_GENERATION_TIMEOUT_MS)
+    let current: GenerationTask
+    try {
+      current = findAgentImageTask(runtime, id)
+    } catch (error) {
+      reject(error)
+      return
+    }
+    if (isFinalTask(current)) resolve(current)
+  })
+}
+
+/** Submit the same image-edit request used by the Agent tool. */
+export async function submitAgentImageEdit(
+  attachments: Pick<AttachmentStore, 'readImage'>,
+  runtime: ImageGenerationRuntime,
+  resolve: () => AgentImageToolConfig,
+  input: { prompt: string; sourceImage: ImageAttachmentRef; signal?: AbortSignal },
+): Promise<GenerationTask> {
+  await ensureImageModels()
+  const config = resolve()
+  ensureAgentImageConfigured(config)
+  const reference = await attachments.readImage(input.sourceImage, input.signal)
+  const defaultChannel = config.channels.find(channel => channel.id === config.defaultChannelId) ?? config.channels[0]
+  const fallbackModel = defaultChannel?.models[0]?.alias ?? config.channels.flatMap(channel => channel.models)[0]?.alias ?? ''
+  const picked = resolveAgentImageModel(config, config.defaultModel?.trim() || fallbackModel)
+  const task = runtime.queue.submit({
+    mode: 'edit',
+    model: picked.alias,
+    upstream: picked.upstream,
+    channelId: picked.channel.id,
+    channel: picked.channel.name,
+    prompt: input.prompt.trim(),
+    size: '',
+    quality: '',
+    n: 1,
+    detail: '',
+    image: imageDataUrl(reference),
+    ...reference.ref.name === undefined ? {} : { refName: reference.ref.name },
+  })
+  return waitForAgentImageTask(runtime, task.id, input.signal)
+}
+
+function acceptedMediaType(value: string): value is ImageMediaType {
+  return value === 'image/png' || value === 'image/jpeg' || value === 'image/webp' || value === 'image/gif'
+}
+
+function projectRef(ref: ImageAttachmentRef): AgentImageRef {
+  return {
+    attachment_id: String(ref.attachmentId),
+    media_type: ref.mediaType,
+    bytes: ref.bytes,
+    width: ref.width,
+    height: ref.height,
+    ...ref.name === undefined ? {} : { name: ref.name },
+  }
+}
+
+function restoreRef(value: AgentImageRef): ImageAttachmentRef {
+  if (!acceptedMediaType(value.media_type)) throw new ImageGenError('source_image.media_type is not a supported image type', 'bad-reference-image')
+  if (!Number.isInteger(value.bytes) || value.bytes < 1 || !Number.isInteger(value.width) || value.width < 1 || !Number.isInteger(value.height) || value.height < 1) {
+    throw new ImageGenError('source_image metadata is invalid', 'bad-reference-image')
+  }
+  return {
+    attachmentId: value.attachment_id as ImageAttachmentRef['attachmentId'],
+    mediaType: value.media_type,
+    bytes: value.bytes,
+    width: value.width,
+    height: value.height,
+    ...value.name === undefined ? {} : { name: value.name },
+  }
+}
+
+function imageDataUrl(image: { data: Uint8Array; ref: ImageAttachmentRef }): string {
+  return `data:${image.ref.mediaType};base64,${Buffer.from(image.data).toString('base64')}`
+}
+
+function renderTaskResult(value: AgentTaskResult): Array<{ type: 'text'; text: string }> {
+  // Generated images are presentation output, not model input. Keeping the
+  // model-facing result textual lets image generation work with text-only
+  // conversation models while preserving the attachment references needed by
+  // edit_image.
+  return [{ type: 'text', text: JSON.stringify(value) }]
+}
+
+/** The UI-only projection that keeps generated images beside the tool call. */
+function imagePresentationMeta(value: AgentTaskResult): { images: Array<Record<string, string | number>> } {
+  return {
+    images: value.images.map(image => {
+      const ref: Record<string, string | number> = {
+        attachment_id: image.attachment_id,
+        media_type: image.media_type,
+        bytes: image.bytes,
+        width: image.width,
+        height: image.height,
+      }
+      if (image.name !== undefined) ref.name = image.name
+      return ref
+    }),
+  }
+}
+
+function imageBlocksFromMeta(meta: unknown): Array<{ type: 'image'; attachment: ImageAttachmentRef }> {
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return []
+  const images = (meta as { images?: unknown }).images
+  if (!Array.isArray(images)) return []
+  return images.flatMap((value): Array<{ type: 'image'; attachment: ImageAttachmentRef }> => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return []
+    const raw = value as Record<string, unknown>
+    if (typeof raw.attachment_id !== 'string'
+      || typeof raw.media_type !== 'string'
+      || typeof raw.bytes !== 'number'
+      || typeof raw.width !== 'number'
+      || typeof raw.height !== 'number') return []
+    try {
+      return [{ type: 'image', attachment: restoreRef({
+        attachment_id: raw.attachment_id,
+        media_type: raw.media_type,
+        bytes: raw.bytes,
+        width: raw.width,
+        height: raw.height,
+        ...typeof raw.name === 'string' ? { name: raw.name } : {},
+      }) }]
+    } catch {
+      return []
+    }
+  })
+}
+
+/** Rehydrate image attachments for the host-computed tool result view only. */
+function presentImageResult(_args: unknown, result: ToolResult): ToolResultView | undefined {
+  const content = result.isError ? [] : imageBlocksFromMeta(result.meta)
+  return content.length === 0 ? undefined : { card: 'generic', content }
+}
+
+/** Register the global Agent tools and unregister them with the plugin lifecycle. */
+export function registerAgentImageTools(ctx: Context, runtime: ImageGenerationRuntime, resolve: () => AgentImageToolConfig): () => void {
+  const attachmentRefs = new Map<string, Promise<AgentImageRef[]>>()
+  const ensureConfigured = (): void => { ensureAgentImageConfigured(resolve()) }
+  const resolveModel = (requested: unknown): { channel: RuntimeChannel; alias: string; upstream: string } => resolveAgentImageModel(resolve(), requested)
+  const materializeTaskImages = (task: GenerationTask): Promise<AgentImageRef[]> => {
+    if (task.status !== 'completed') return Promise.resolve([])
+    const existing = attachmentRefs.get(task.id)
+    if (existing !== undefined) return existing
+    const images = (task.result?.images ?? []).flatMap((image, index) => {
+      const saved = toSaveImage(image, task.id, index)
+      return saved === null ? [] : [saved]
+    })
+    if (images.length === 0) return Promise.resolve([])
+    const pending = ctx.attachments.saveImages(images)
+      .then(refs => refs.map(projectRef))
+    attachmentRefs.set(task.id, pending)
+    void pending.catch(() => {
+      if (attachmentRefs.get(task.id) === pending) attachmentRefs.delete(task.id)
+    })
+    return pending
+  }
+  const taskResult = async (task: GenerationTask): Promise<AgentTaskResult> => {
+    const images = await materializeTaskImages(task)
+    const resultFiles = (() => {
+      const embedId = typeof task.result?.embedId === 'string' ? task.result.embedId : null
+      if (embedId === null) return []
+      const entry = (task.result?.history ?? []).find(item => item.id === embedId)
+      return (entry?.images ?? []).map(image => {
+        const raw = typeof image.url === 'string' ? image.url : ''
+        const name = raw === '' ? '' : raw.slice(raw.lastIndexOf('/') + 1)
+        let file = ''
+        try {
+          file = name === '' ? '' : decodeURIComponent(name)
+        } catch {
+          file = ''
+        }
+        return file === '' ? null : historyImageAbsolutePath(file)
+      }).filter((file): file is string => typeof file === 'string' && file.length > 0)
+    })()
+    return {
+      task_id: task.id,
+      status: task.status,
+      message: task.status === 'completed'
+        ? 'Generation completed. The images are shown beside this tool call and can be reused as source_image in edit_image.'
+        : task.status === 'failed'
+          ? 'Generation failed.'
+          : task.status === 'cancelled'
+            ? 'Generation was cancelled.'
+            : 'Generation is still running. Query the task again when you need its current status.',
+      ...task.error === undefined ? {} : { error: task.error },
+      ...typeof task.result?.embedId === 'string' && task.result.embedId !== '' ? { embed_id: task.result.embedId } : {},
+      ...resultFiles.length > 0 ? { files: resultFiles } : {},
+      images,
+    }
+  }
+  const findTask = (id: string): GenerationTask => findAgentImageTask(runtime, id)
+  const waitForTask = (id: string, signal: AbortSignal | undefined): Promise<GenerationTask> => waitForAgentImageTask(runtime, id, signal)
+  const disposers = [
+    ctx.tools.register(defineTool({
+      name: 'generate_image',
+      description: 'Generate an image. The user must be signed in first; if they are not, tell them to sign in and do not describe the service. This tool call stays pending until the task reaches a final state; completed images are shown beside this tool call, while the model receives their attachment references, without creating a user message. count asks for 1 to 4 images and each image is a separate request. Only use models configured for this plugin; omit model to use the configured default image model (or the first model when none is configured). size, quality, render_quality, background and output_format must be values that model lists. Omit size or quality to use that model\'s first legal option. An unsupported value is rejected with the allowed list.',
+      parameters: {
+        prompt: { type: 'string', required: true, description: 'Detailed image-generation prompt.' },
+        model: { type: 'string', description: 'One of the configured image models. Defaults to the configured default image model, or the first model when none is configured.' },
+        size: { type: 'string', description: 'Aspect ratio published for the chosen model, such as 1:1 or 16:9. Omit to use that model\'s first ratio.' },
+        quality: { type: 'string', description: 'Resolution tier published for the chosen model: 1k, 2k, or 4k. Omit when the model has no tier, or to use its first tier.' },
+        render_quality: { type: 'string', description: 'Render quality published for the chosen model, such as low, medium, or high. Omit when the model has none.' },
+        background: { type: 'string', description: 'transparent when the chosen model lists a transparent background. Omit otherwise.' },
+        output_format: { type: 'string', description: 'png, or gif/svg when the chosen model lists that format. gif and svg are text-to-image only. Defaults to png.' },
+        count: { type: 'integer', description: 'Number of images, 1 to 4. Defaults to 1. Each image is a separate request.' },
+      },
+      output: {
+        schema: taskResultSchema,
+        render: (_args, value) => renderTaskResult(value),
+        presentationMeta: (_args, value) => imagePresentationMeta(value),
+      },
+      presentResult: presentImageResult,
+      async execute(args, exec) {
+        await ensureImageModels()
+        ensureConfigured()
+        const picked = resolveModel(args.model)
+        const task = runtime.queue.submit({
+          mode: 'text',
+          model: picked.alias,
+          upstream: picked.upstream,
+          channelId: picked.channel.id,
+          channel: picked.channel.name,
+          prompt: args.prompt.trim(),
+          size: args.size ?? '',
+          quality: args.quality ?? '',
+          ...args.render_quality === undefined || args.render_quality.trim() === '' ? {} : { renderQuality: args.render_quality.trim() },
+          ...args.background === 'transparent' ? { background: 'transparent' as const } : {},
+          ...args.output_format === 'gif' || args.output_format === 'svg' || args.output_format === 'png' ? { outputFormat: args.output_format } : {},
+          n: Math.min(4, Math.max(1, args.count ?? 1)),
+          detail: '',
+          agentTool: 'generate_image',
+        })
+        return taskResult(await waitForTask(task.id, exec.signal))
+      },
+    })),
+    ctx.tools.register(defineTool({
+      name: 'edit_image',
+      description: 'Edit one image. The user must be signed in first; if they are not, tell them to sign in and do not describe the service. The source image is sent with the prompt on the same request. This tool call stays pending until the task reaches a final state; completed images are shown beside this tool call, while the model receives their attachment references, without creating a user message. source_image must be an image reference returned by a completed generation or get_image_generation_task; pass that entire object unchanged. Omit model to use the configured default image model (or the first model when none is configured).',
+      parameters: {
+        prompt: { type: 'string', required: true, description: 'How to transform the source image.' },
+        source_image: { ...imageRefSchema, required: true, description: 'Image reference returned by a completed generation or get_image_generation_task.' },
+        model: { type: 'string', description: 'One of the configured image models. Defaults to the configured default image model, or the first model when none is configured.' },
+        size: { type: 'string', description: 'Aspect ratio published for the chosen model. Omit to use that model\'s first ratio.' },
+        quality: { type: 'string', description: 'Resolution tier published for the chosen model: 1k, 2k, or 4k. Omit when the model has no tier.' },
+        render_quality: { type: 'string', description: 'Render quality published for the chosen model, such as low, medium, or high. Omit when the model has none.' },
+        background: { type: 'string', description: 'transparent when the chosen model lists a transparent background. Omit otherwise.' },
+        count: { type: 'integer', description: 'Number of images, 1 to 4. Defaults to 1. Each image is a separate request using the same source image.' },
+      },
+      output: {
+        schema: taskResultSchema,
+        render: (_args, value) => renderTaskResult(value),
+        presentationMeta: (_args, value) => imagePresentationMeta(value),
+      },
+      presentResult: presentImageResult,
+      async execute(args, exec) {
+        await ensureImageModels()
+        ensureConfigured()
+        const reference = await ctx.attachments.readImage(restoreRef(args.source_image), exec.signal)
+        const picked = resolveModel(args.model)
+        const task = runtime.queue.submit({
+          mode: 'edit',
+          model: picked.alias,
+          upstream: picked.upstream,
+          channelId: picked.channel.id,
+          channel: picked.channel.name,
+          prompt: args.prompt.trim(),
+          size: args.size ?? '',
+          quality: args.quality ?? '',
+          ...args.render_quality === undefined || args.render_quality.trim() === '' ? {} : { renderQuality: args.render_quality.trim() },
+          ...args.background === 'transparent' ? { background: 'transparent' as const } : {},
+          n: Math.min(4, Math.max(1, args.count ?? 1)),
+          detail: '',
+          agentTool: 'edit_image',
+          image: imageDataUrl(reference),
+          ...reference.ref.name === undefined ? {} : { refName: reference.ref.name },
+        })
+        return taskResult(await waitForTask(task.id, exec.signal))
+      },
+    })),
+    ctx.tools.register(defineTool({
+      name: 'get_image_generation_task',
+      description: 'Recover an image-generation task that is still in the local queue. Completed tasks return image references; their images are shown beside this tool call and the references can be passed to edit_image. Generation tools wait until the task finishes, so use this only after a disconnect.',
+      parameters: { task_id: { type: 'string', required: true, description: 'Task id returned by generate_image or edit_image.' } },
+      output: {
+        schema: taskResultSchema,
+        render: (_args, value) => renderTaskResult(value),
+        presentationMeta: (_args, value) => imagePresentationMeta(value),
+      },
+      presentResult: presentImageResult,
+      async execute(args) {
+        await ensureImageModels()
+        ensureConfigured()
+        return taskResult(findTask(args.task_id))
+      },
+    })),
+    ctx.tools.register(defineTool({
+      name: 'cancel_image_generation_task',
+      description: 'Cancel a queued or running image generation task in the local queue.',
+      parameters: { task_id: { type: 'string', required: true, description: 'Task id returned by generate_image or edit_image.' } },
+      output: {
+        schema: taskResultSchema,
+        render: (_args, value) => renderTaskResult(value),
+        presentationMeta: (_args, value) => imagePresentationMeta(value),
+      },
+      presentResult: presentImageResult,
+      async execute(args) {
+        await ensureImageModels()
+        ensureConfigured()
+        const task = runtime.queue.cancel(args.task_id)
+        if (task === undefined) throw new ImageGenError(`Image generation task ${args.task_id} was not found.`, 'task-not-found')
+        return taskResult(task)
+      },
+    })),
+  ]
+  return () => {
+    for (const dispose of disposers) dispose()
+  }
+}
+
+function isFinalTask(task: GenerationTask): boolean {
+  return task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled'
+}
+
+function toSaveImage(image: GeneratedImage, taskId: string, index: number): { data: Uint8Array; mediaType: ImageMediaType; name: string } | null {
+  if (image.mime === 'image/svg+xml') return null
+  const data = Buffer.from(image.b64, 'base64')
+  const declaredMediaType = acceptedMediaType(image.mime) ? image.mime : 'image/png'
+  const mediaType = detectImageMime(data) ?? declaredMediaType
+  return {
+    data,
+    mediaType,
+    name: `imagegen-${taskId}-${index + 1}.${mediaType === 'image/jpeg' ? 'jpg' : mediaType.slice('image/'.length)}`,
+  }
+}

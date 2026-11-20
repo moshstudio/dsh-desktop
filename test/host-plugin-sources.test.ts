@@ -110,6 +110,27 @@ describe('Desktop host plugin sources', () => {
     expect(hostInsertedPluginNames(await readFile(patchPath, 'utf8'), ['dsh-image-generation'])).toEqual(['host-other'])
   })
 
+  it('drops subpath exports when their package is switched off', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-host-sources-'))
+    directories.push(root)
+    const app = join(root, 'app')
+    const home = join(root, 'home')
+    const patchPath = join(app, 'build', 'dsh-desktop.patch.yml')
+    await mkdir(join(app, 'build'), { recursive: true })
+    await writeFile(join(app, 'package.json'), '{"name":"test-desktop"}\n')
+    const other = join(app, 'node_modules', 'host-other')
+    await mkdir(other, { recursive: true })
+    await writeFile(join(other, 'package.json'), '{"name":"host-other","main":"index.js"}')
+    await writeFile(join(other, 'index.js'), 'module.exports = {}\n')
+    await writeFile(patchPath, '- insert:\n    - id: image\n      name: dsh-image-generation\n    - id: image-video\n      name: dsh-image-generation/video\n    - id: other\n      name: host-other\n')
+    await setHostPluginEnabled(home, 'dsh-image-generation', false)
+    const output = await readFile(await prepareHostPluginSourcesPatch(home, patchPath, join(app, 'package.json')), 'utf8')
+    const rows = parse(output, { logLevel: 'silent' }) as { insert: { id: string; name: string }[] }[]
+    const resolveHost = createRequire(join(app, 'package.json')).resolve
+    expect(rows[0]?.insert).toEqual([{ id: 'other', name: pathToFileURL(resolveHost('host-other')).href }])
+    expect(output).not.toContain('dsh-image-generation')
+  })
+
   it('writes a derived patch when the only host insertion is disabled by default', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-host-sources-'))
     directories.push(root)

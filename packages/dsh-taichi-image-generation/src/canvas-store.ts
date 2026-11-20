@@ -1,0 +1,1090 @@
+/** Host-persisted infinite canvas documents and content-addressed assets. */
+
+import { promises as fs } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import path from 'node:path'
+import type { CanvasAssetRef, CanvasDocument, CanvasFileKind, CanvasNode, CanvasSummary, CanvasVideoRef } from './protocol.ts'
+import { isPosterDocument } from './poster.ts'
+import { imageDataRoot } from './image-storage-path.ts'
+
+/** Cap on one canvas file asset (arbitrary types travel as raw bytes). */
+export const MAX_CANVAS_FILE_BYTES = 50 * 1024 * 1024
+
+/** Text previews kept inline on the asset ref so the node can render without a fetch. */
+export const MAX_FILE_TEXT_PREVIEW = 8 * 1024
+
+/** Extensions that must never round-trip through the canvas asset store: they
+ *  are the classic self-executing downloads. The client blocks them too; this
+ *  is the host-side half of the same rule. */
+const BLOCKED_FILE_EXTENSIONS = new Set([
+  'exe', 'com', 'scr', 'pif', 'cpl', 'msi', 'msp', 'dll', 'sys', 'bat', 'cmd',
+  'ps1', 'psm1', 'vbs', 'vbe', 'js', 'mjs', 'cjs', 'jse', 'wsf', 'wsh', 'hta',
+  'jar', 'apk', 'app', 'sh', 'bash', 'command', 'reg', 'lnk', 'url', 'html', 'htm', 'xhtml', 'svg',
+])
+
+/** MIME types accepted for arbitrary files (images keep their own strict path). */
+const FILE_MIME_ALLOW = /^(application\/(pdf|json|zip|x-zip-compressed|vnd\.openxmlformats-officedocument\.[a-z0-9.+-]+|vnd\.ms-(excel|powerpoint|word)\.[a-z0-9.+-]+|vnd\.oasis\.opendocument\.[a-z0-9.+-]+|rtf|xml|javascript|typescript|x-yaml|yaml|x-sh|x-httpd-php|epub\+zip|gzip|x-7z-compressed|x-rar-compressed|x-tar|octet-stream)|text\/[a-z0-9.+-]+|image\/(png|jpeg|webp|gif|bmp|tiff)|audio\/[a-z0-9.+-]+|video\/[a-z0-9.+-]+)$/i
+
+/** Extension used for each accepted MIME type; unknown types become `.bin`. */
+const EXTENSION_BY_MIME: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'application/json': 'json',
+  'application/zip': 'zip',
+  'application/x-zip-compressed': 'zip',
+  'application/rtf': 'rtf',
+  'application/xml': 'xml',
+  'application/x-yaml': 'yaml',
+  'application/yaml': 'yaml',
+  'application/javascript': 'js',
+  'application/typescript': 'ts',
+  'application/epub+zip': 'epub',
+  'application/gzip': 'gz',
+  'application/x-7z-compressed': '7z',
+  'application/x-rar-compressed': 'rar',
+  'application/x-tar': 'tar',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.ms-powerpoint': 'ppt',
+  'application/vnd.ms-word': 'doc',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/vnd.openxmlformats-officedocument.presentationml.slideshow': 'ppsx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.oasis.opendocument.text': 'odt',
+  'application/vnd.oasis.opendocument.presentation': 'odp',
+  'application/vnd.oasis.opendocument.spreadsheet': 'ods',
+  'text/plain': 'txt',
+  'text/markdown': 'md',
+  'text/csv': 'csv',
+  'text/html': 'html',
+  'text/xml': 'xml',
+  'text/yaml': 'yaml',
+  'text/x-python': 'py',
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'image/bmp': 'bmp',
+  'image/tiff': 'tiff',
+  'audio/mpeg': 'mp3',
+  'audio/wav': 'wav',
+  'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+}
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  pdf: 'application/pdf',
+  json: 'application/json',
+  zip: 'application/zip',
+  rtf: 'application/rtf',
+  xml: 'application/xml',
+  yaml: 'application/x-yaml',
+  yml: 'application/x-yaml',
+  txt: 'text/plain',
+  log: 'text/plain',
+  md: 'text/markdown',
+  markdown: 'text/markdown',
+  csv: 'text/csv',
+  tsv: 'text/tab-separated-values',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint',
+  doc: 'application/vnd.ms-word',
+  xls: 'application/vnd.ms-excel',
+  odt: 'application/vnd.oasis.opendocument.text',
+  odp: 'application/vnd.oasis.opendocument.presentation',
+  ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  tiff: 'image/tiff',
+  tif: 'image/tiff',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+}
+
+/** Content-addressed names may carry any short, safe extension (see putFile). */
+const ASSET_FILE_NAME = /^[a-f0-9]{64}\.[a-z0-9]{1,8}$/
+
+function extensionOf(mime: string): string {
+  switch (mime.split(';')[0]!.trim().toLowerCase()) {
+    case 'image/jpeg': return 'jpg'
+    case 'image/webp': return 'webp'
+    case 'image/gif': return 'gif'
+    default: return 'png'
+  }
+}
+
+/** MIME type without its parameters, lower-cased (`text/plain; charset=utf-8`). */
+export function baseMime(mime: string): string {
+  return mime.split(';')[0]!.trim().toLowerCase()
+}
+
+/** Whether a MIME type carries readable text (used for inline previews). */
+export function isTextMime(mime: string): boolean {
+  const value = baseMime(mime)
+  return value.startsWith('text/')
+    || value === 'application/json'
+    || value === 'application/xml'
+    || value === 'application/x-yaml'
+    || value === 'application/yaml'
+    || value === 'application/javascript'
+    || value === 'application/typescript'
+}
+
+/** MIME type inferred from a file name, used when the browser reports none. */
+export function mimeFromFileName(name: string): string {
+  const extension = path.extname(name).replace(/^\./, '').toLowerCase()
+  return MIME_BY_EXTENSION[extension] ?? ''
+}
+
+/** Whether one file name may enter the canvas store at all. */
+export function isBlockedFileName(name: string): boolean {
+  const extension = path.extname(name).replace(/^\./, '').toLowerCase()
+  return extension !== '' && BLOCKED_FILE_EXTENSIONS.has(extension)
+}
+
+/** Strip directories, control characters and pathological lengths. */
+export function safeFileName(value: string): string {
+  const stripped = value.split(/[\\/]/).pop() ?? ''
+  // eslint-disable-next-line no-control-regex
+  const cleaned = stripped.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim()
+  if (cleaned === '' || cleaned === '.' || cleaned === '..') return 'file'
+  return cleaned.length > 120 ? cleaned.slice(0, 120) : cleaned
+}
+
+/** Coarse bucket driving the file node's icon and preview branch. */
+export function fileKindOf(mime: string, name = ''): CanvasFileKind {
+  const value = baseMime(mime)
+  const extension = path.extname(name).replace(/^\./, '').toLowerCase()
+  if (value === 'application/pdf' || extension === 'pdf') return 'pdf'
+  if (value.startsWith('image/')) return 'image'
+  if (value.startsWith('audio/')) return 'audio'
+  if (value.startsWith('video/')) return 'video'
+  if (value === 'application/zip' || value === 'application/x-zip-compressed' || value.startsWith('application/x-7z')
+    || value.startsWith('application/x-rar') || value === 'application/gzip' || value === 'application/x-tar'
+    || ['zip', '7z', 'rar', 'gz', 'tar'].includes(extension)) return 'archive'
+  if (value.includes('openxmlformats') || value.startsWith('application/vnd.ms-') || value.startsWith('application/vnd.oasis')
+    || ['pptx', 'docx', 'xlsx', 'ppt', 'doc', 'xls', 'odt', 'odp', 'ods'].includes(extension)) return 'office'
+  if (isTextMime(value) || ['md', 'markdown', 'csv', 'tsv', 'log', 'json', 'yaml', 'yml', 'xml', 'txt'].includes(extension)) return 'text'
+  return 'other'
+}
+
+/** Decoded head of a text file, bounded and safe against a split multi-byte
+ *  character at the cut point (TextDecoder drops a trailing partial sequence). */
+function textHead(data: Uint8Array): string | undefined {
+  const slice = data.byteLength > MAX_FILE_TEXT_PREVIEW ? data.subarray(0, MAX_FILE_TEXT_PREVIEW) : data
+  try {
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(slice)
+    return text.includes('\u0000') ? undefined : text
+  } catch { return undefined }
+}
+
+
+
+export interface CanvasImageInput {
+  data: Uint8Array
+  mime: string
+  width: number
+  height: number
+  origin: CanvasAssetRef['origin']
+  originId?: string
+  entryId?: string
+  imageIndex?: number
+  name?: string
+}
+
+/** One arbitrary file entering the canvas store through the file node. */
+export interface CanvasFileInput {
+  data: Uint8Array
+  /** Browser-reported MIME type; the file name fills in when it is missing. */
+  mime: string
+  name: string
+  origin: CanvasAssetRef['origin']
+  originId?: string
+}
+
+export class CanvasConflictError extends Error {
+  readonly code = 'canvas-conflict'
+  constructor(message = '画布已在其他窗口更新，请重新加载后再保存。') {
+    super(message)
+    this.name = 'CanvasConflictError'
+  }
+}
+
+interface IndexFile {
+  projects: CanvasSummary[]
+}
+
+/** MIME type of one stored asset, derived from its content-addressed name. */
+function mimeOf(file: string): string {
+  const extension = path.extname(file).replace(/^\./, '').toLowerCase()
+  if (MIME_BY_EXTENSION[extension] !== undefined) return MIME_BY_EXTENSION[extension]!
+  switch (extension) {
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg'
+    case 'webp': return 'image/webp'
+    case 'gif': return 'image/gif'
+    case 'js': return 'application/javascript'
+    case 'ts': return 'application/typescript'
+    case 'bin': return 'application/octet-stream'
+    default: return 'application/octet-stream'
+  }
+}
+
+export function safeId(value: string): string {
+  const id = value.replace(/[^a-zA-Z0-9_-]/g, '-')
+  return id === '' ? randomUUID() : id
+}
+
+function pagePath(id: string): string {
+  return path.join(path.join(imageDataRoot(), 'canvas', 'pages'), `${safeId(id)}.json`)
+}
+
+function assetFilePath(id: string): string | undefined {
+  if (!ASSET_FILE_NAME.test(id)) return undefined
+  const root = path.join(imageDataRoot(), 'canvas', 'assets')
+  const file = path.join(root, id)
+  const relative = path.relative(root, file)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return undefined
+  return file
+}
+
+async function ensureDirs(): Promise<void> {
+  await fs.mkdir(path.join(imageDataRoot(), 'canvas', 'pages'), { recursive: true })
+  await fs.mkdir(path.join(imageDataRoot(), 'canvas', 'assets'), { recursive: true })
+}
+
+export async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  const temp = `${file}.tmp-${process.pid}-${randomUUID()}`
+  await fs.writeFile(temp, `${JSON.stringify(value)}\n`, 'utf8')
+  await fs.rename(temp, file)
+}
+
+export async function readJson(file: string): Promise<unknown | undefined> {
+  try { return JSON.parse(await fs.readFile(file, 'utf8')) as unknown } catch { return undefined }
+}
+
+function defaultDocument(id: string, title: string): CanvasDocument {
+  const now = Date.now()
+  return {
+    version: 2,
+    id,
+    title,
+    revision: 1,
+    viewport: { x: 0, y: 0, k: 1 },
+    background: 'lines',
+    nodes: [],
+    connections: [],
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function isAssetRef(value: unknown): value is CanvasAssetRef {
+  if (value === null || typeof value !== 'object') return false
+  const asset = value as Record<string, unknown>
+  if (typeof asset.assetId !== 'string' || typeof asset.url !== 'string' || typeof asset.mime !== 'string') return false
+  // File assets record 0x0 (nothing to preview); image assets carry real sizes.
+  const file = asset.kind === 'file'
+  if (typeof asset.width !== 'number' || typeof asset.height !== 'number') return false
+  if (!file && (asset.width < 1 || asset.height < 1)) return false
+  if (asset.kind !== undefined && asset.kind !== 'image' && asset.kind !== 'file') return false
+  if (asset.name !== undefined && typeof asset.name !== 'string') return false
+  if (asset.textPreview !== undefined && typeof asset.textPreview !== 'string') return false
+  return true
+}
+
+/** A video node's reference to a served clip (`CanvasVideoRef` in protocol.ts).
+ *  Only `url` and `mime` are required; the rest is metadata the provider may not
+ *  have reported, so its absence is not a malformed document. */
+function isVideoRef(value: unknown): value is CanvasVideoRef {
+  if (value === null || typeof value !== 'object') return false
+  const video = value as Record<string, unknown>
+  if (typeof video.url !== 'string' || typeof video.mime !== 'string') return false
+  if (video.duration !== undefined && typeof video.duration !== 'number') return false
+  if (video.bytes !== undefined && typeof video.bytes !== 'number') return false
+  if (video.entryId !== undefined && typeof video.entryId !== 'string') return false
+  if (video.sourceUrl !== undefined && typeof video.sourceUrl !== 'string') return false
+  return true
+}
+
+/** One shot of a storyboard node (`CanvasShot` in protocol.ts). A shot with no
+ *  prompt is a legitimate draft — the node renders it as an empty row and the
+ *  run refuses it with a visible message — so only its shape is validated. */
+function isShot(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false
+  const shot = value as Record<string, unknown>
+  if (typeof shot.id !== 'string' || shot.id === '') return false
+  if (typeof shot.prompt !== 'string') return false
+  if (typeof shot.seconds !== 'number' || !Number.isFinite(shot.seconds) || shot.seconds <= 0) return false
+  if (shot.nodeId !== undefined && typeof shot.nodeId !== 'string') return false
+  return true
+}
+
+/**
+ * A storyboard's stored state.
+ *
+ * Validated rather than dropped on the floor: `isNode` returning false makes
+ * `coerceDocument` undefined, and `save()` then throws 'malformed canvas
+ * document' — so an over-strict rule here does not reject the incoming request,
+ * it bricks every save of a canvas that holds one storyboard. Each field is
+ * therefore allowed to be missing and filled in at render time, and only a
+ * present-but-wrong-typed value is refused.
+ */
+function isStoryboard(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false
+  const board = value as Record<string, unknown>
+  if (!Array.isArray(board.shots) || !board.shots.every(isShot)) return false
+  // A cap so a hand-edited document cannot make the canvas render forever.
+  if (board.shots.length > 40) return false
+  if (board.aspectRatio !== undefined && typeof board.aspectRatio !== 'string') return false
+  if (board.resolution !== undefined && typeof board.resolution !== 'string') return false
+  if (board.continuity !== undefined && board.continuity !== 'cut' && board.continuity !== 'carry') return false
+  if (board.model !== undefined && typeof board.model !== 'string') return false
+  if (board.channelId !== undefined && typeof board.channelId !== 'string') return false
+  return true
+}
+
+/**
+ * Provenance of a storyboard-produced clip. Deliberately NOT part of the save
+ * gate's required set: it is display and lookup metadata, and refusing a whole
+ * canvas document because one of its clips lost this field would be a data-loss
+ * bug, not a consistency check.
+ */
+function isShotOrigin(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false
+  const origin = value as Record<string, unknown>
+  return typeof origin.storyboardId === 'string'
+    && typeof origin.shotId === 'string'
+    && typeof origin.index === 'number' && Number.isFinite(origin.index)
+}
+
+/** 姿势人偶的关节名，与 `CanvasPoseJoint` 同步；写成集合是因为这里要的是
+ *  「是不是一个认识的关节」，而不是类型层面的约束。 */
+const POSE_JOINTS = new Set([
+  'hips', 'spine', 'chest', 'neck', 'head',
+  'shoulderL', 'elbowL', 'handL',
+  'shoulderR', 'elbowR', 'handR',
+  'hipL', 'kneeL', 'footL',
+  'hipR', 'kneeR', 'footR',
+])
+
+/**
+ * 姿势人偶的存储形状。
+ *
+ * 只拒绝「有但类型不对」的值：未知的关节名、角度不是有限数、`facing` 不是
+ * 数字。缺项是合法的（渲染时按 0 度处理），因为这次校验失败会让**整份画布
+ * 存不下去**，而不是拒收一次请求。
+ */
+function isPoseRig(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false
+  const rig = value as Record<string, unknown>
+  if (rig.facing !== undefined && (typeof rig.facing !== 'number' || !Number.isFinite(rig.facing))) return false
+  if (rig.joints === undefined) return true
+  if (rig.joints === null || typeof rig.joints !== 'object') return false
+  for (const [key, raw] of Object.entries(rig.joints as Record<string, unknown>)) {
+    if (!POSE_JOINTS.has(key)) return false
+    if (raw === null || typeof raw !== 'object') return false
+    for (const axis of ['x', 'y', 'z']) {
+      const angle = (raw as Record<string, unknown>)[axis]
+      if (angle === undefined) continue
+      if (typeof angle !== 'number' || !Number.isFinite(angle)) return false
+    }
+  }
+  return true
+}
+
+/**
+ * 导演台舞台的存储形状。
+ *
+ * 和 `isPoseRig` 同一条取舍：只拒绝「有但类型不对」的值，缺项一律放行。
+ * 这份校验失败会让**整份画布存不下去**，代价远大于放行一个不完整的舞台
+ * ——渲染侧对缺项全部有默认值。
+ */
+function isPoseStage(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false
+  const stage = value as Record<string, unknown>
+  const finiteTuple3 = (raw: unknown): boolean =>
+    Array.isArray(raw) && raw.length === 3 && raw.every(item => typeof item === 'number' && Number.isFinite(item))
+  if (stage.actors !== undefined) {
+    if (!Array.isArray(stage.actors)) return false
+    for (const raw of stage.actors) {
+      if (raw === null || typeof raw !== 'object') return false
+      const actor = raw as Record<string, unknown>
+      if (typeof actor.id !== 'string' || actor.id === '') return false
+      if (actor.name !== undefined && typeof actor.name !== 'string') return false
+      // 角色可以暂时没有姿势（刚加进来还没摆），渲染时按空骨架处理。
+      if (actor.rig !== undefined && !isPoseRig(actor.rig)) return false
+      for (const key of ['x', 'z', 'scale', 'rotation']) {
+        const number = actor[key]
+        if (number !== undefined && (typeof number !== 'number' || !Number.isFinite(number))) return false
+      }
+    }
+  }
+  if (stage.cameras !== undefined) {
+    if (!Array.isArray(stage.cameras)) return false
+    for (const raw of stage.cameras) {
+      if (raw === null || typeof raw !== 'object') return false
+      const camera = raw as Record<string, unknown>
+      if (typeof camera.id !== 'string' || camera.id === '') return false
+      if (camera.name !== undefined && typeof camera.name !== 'string') return false
+      for (const key of ['x', 'y', 'z', 'targetX', 'targetY', 'targetZ', 'fov']) {
+        const number = camera[key]
+        if (number !== undefined && (typeof number !== 'number' || !Number.isFinite(number))) return false
+      }
+    }
+  }
+  if (stage.cameraId !== undefined && typeof stage.cameraId !== 'string') return false
+  // 一句话场景描述：只拒类型错的值。缺项、空串都是合法状态。
+  if (stage.prompt !== undefined && typeof stage.prompt !== 'string') return false
+  if (stage.scene !== undefined) {
+    if (stage.scene === null || typeof stage.scene !== 'object') return false
+    const scene = stage.scene as Record<string, unknown>
+    if (scene.sky !== undefined && typeof scene.sky !== 'string') return false
+    if (scene.ground !== undefined && typeof scene.ground !== 'string') return false
+    if (scene.translate !== undefined && !finiteTuple3(scene.translate)) return false
+    for (const key of ['rotateY', 'scale', 'panoYaw', 'panoRadius']) {
+      const number = scene[key]
+      if (number !== undefined && (typeof number !== 'number' || !Number.isFinite(number))) return false
+    }
+    if (scene.labels !== undefined && typeof scene.labels !== 'boolean') return false
+  }
+  return true
+}
+
+function isNode(value: unknown): value is CanvasNode {
+  if (value === null || typeof value !== 'object') return false
+  const node = value as Record<string, unknown>
+  if (typeof node.id !== 'string' || typeof node.title !== 'string' || typeof node.x !== 'number'
+    || typeof node.y !== 'number' || typeof node.width !== 'number' || typeof node.height !== 'number') return false
+  // Keep this list in step with `CanvasNodeType` in protocol.ts. A type the
+  // union declares but this guard rejects is not a rejected document — it is a
+  // document that can never be saved: `coerceDocument` returns undefined and
+  // `save()` throws 'malformed canvas document'. `video` was exactly that, so
+  // every canvas holding a video node failed to save.
+  if (node.type !== 'image' && node.type !== 'text' && node.type !== 'file'
+    && node.type !== 'config' && node.type !== 'video' && node.type !== 'storyboard') return false
+  const metadata = node.metadata
+  if (metadata !== undefined && (metadata === null || typeof metadata !== 'object')) return false
+  const state = (metadata ?? {}) as Record<string, unknown>
+  // 锁定 / 隐藏是所有类型共有的两个开关。只拒绝「有但类型不对」的值，缺项一律
+  // 当作 false——校验器在这里过严的代价不是「拒收这次请求」，而是**这份文档
+  // 再也存不下去**：`coerceDocument` 变 undefined、`save()` 直接抛。
+  if (state.locked !== undefined && typeof state.locked !== 'boolean') return false
+  if (state.hidden !== undefined && typeof state.hidden !== 'boolean') return false
+  if (node.type === 'image') {
+    // A malformed recipe must not be accepted quietly: the editor re-renders
+    // from it, and a half-valid document would either throw on open or silently
+    // drop the user's layers. Rejecting here makes the save fail loudly instead.
+    if (state.poster !== undefined && !isPosterDocument(state.poster)) return false
+    if (state.asset !== undefined && !isAssetRef(state.asset)) return false
+    // Identity anchoring is display metadata, but a malformed one would make the
+    // prompt builder read a role it cannot render. Refusing at save time keeps a
+    // half-written pin out of the document instead of silently ignoring it.
+    if (state.cast !== undefined) {
+      if (state.cast === null || typeof state.cast !== 'object') return false
+      const cast = state.cast as Record<string, unknown>
+      if (cast.role !== 'character' && cast.role !== 'item' && cast.role !== 'style') return false
+      if (cast.name !== undefined && typeof cast.name !== 'string') return false
+    }
+    // 姿势人偶：与分镜同一个取舍——只拒绝「有但类型不对」的值，缺项一律当作
+    // 空姿势。校验器在这里过严的代价不是「拒收这次请求」，而是**这份文档再也
+    // 存不下去**，因为 `coerceDocument` 变 undefined、`save()` 直接抛。
+    if (state.pose !== undefined && !isPoseRig(state.pose)) return false
+    // 导演台与姿势同一类：它是 image 节点上的一份活数据，缺项合法、类型错必须拒。
+    if (state.stage !== undefined && !isPoseStage(state.stage)) return false
+    return state.status === undefined || state.status === 'idle' || state.status === 'generating' || state.status === 'success' || state.status === 'error'
+  }
+  if (node.type === 'video') {
+    // A video node carries a REFERENCE to a served clip, never a byte copy
+    // (docs/parity-contract.md §1.7), so the reference is what gets validated.
+    // `video` is optional: a node that is still generating, failed, or was
+    // never given a clip is a legitimate document.
+    if (state.video !== undefined && !isVideoRef(state.video)) return false
+    // Storyboard provenance, when present, must be readable: the storyboard
+    // node finds its clips through it, and a half-written origin would make a
+    // shot look unproduced forever.
+    if (state.shot !== undefined && !isShotOrigin(state.shot)) return false
+    return state.status === undefined || state.status === 'idle' || state.status === 'generating' || state.status === 'success' || state.status === 'error'
+  }
+  if (node.type === 'file') {
+    // A file node without an asset is the empty "click to upload" placeholder.
+    return state.asset === undefined || isAssetRef(state.asset)
+  }
+  if (node.type === 'storyboard') {
+    // A storyboard without a list yet is a freshly created, still-blank one.
+    if (state.storyboard !== undefined && !isStoryboard(state.storyboard)) return false
+    return true
+  }
+  if (node.type === 'config') {
+    if (state.prompt !== undefined && typeof state.prompt !== 'string') return false
+    if (state.promptSet !== undefined && !isPromptSet(state.promptSet)) return false
+    return true
+  }
+  return state.text === undefined || typeof state.text === 'string'
+}
+
+/**
+ * 套图条目守卫：缺项放行、形状错拒收。
+ *
+ * 与 {@link isNode} 里其它字段的同一条取舍：校验器过严的代价是这一份文档再也
+ * 存不下去（读回来就丢，用户刚画的整板消失）。所以「没写 promptSet」和
+ * 「写了个空数组」都放行；只有**明明是个列表却装了别的东西**才拒收——那不是
+ * 「还没写完」，那是写坏了的数据。
+ *
+ * 只出现在非 config 节点上不校验：那条路径没人读，收得再紧也只是徒增
+ * 「复制粘贴之后画布打不开」的风险。
+ */
+function isPromptSet(value: unknown): boolean {
+  if (!Array.isArray(value)) return false
+  for (const entry of value) {
+    if (entry === null || typeof entry !== 'object') return false
+    const record = entry as Record<string, unknown>
+    if (typeof record.id !== 'string' || typeof record.title !== 'string' || typeof record.prompt !== 'string') return false
+  }
+  return true
+}
+
+function isDocument(value: unknown): value is CanvasDocument {
+  if (value === null || typeof value !== 'object') return false
+  const document = value as Record<string, unknown>
+  return document.version === 2 && typeof document.id === 'string' && typeof document.title === 'string'
+    && typeof document.revision === 'number' && document.viewport !== null && typeof document.viewport === 'object'
+    && typeof (document.viewport as { x?: unknown }).x === 'number'
+    && typeof (document.viewport as { y?: unknown }).y === 'number'
+    && typeof (document.viewport as { k?: unknown }).k === 'number'
+    && (document.background === 'dots' || document.background === 'lines' || document.background === 'blank'
+      || document.background === 'image' || document.background === 'flow' || document.background === 'liquid'
+      || document.background === 'floatingLines' || document.background === 'galaxy'
+      || document.background === 'silk' || document.background === 'waves'
+      || document.background === 'faultyTerminal' || document.background === 'dotField'
+      || document.background === 'dotGrid' || document.background === 'shapeGrid')
+    && (document.backgroundImage === undefined || typeof document.backgroundImage === 'string')
+    && Array.isArray(document.nodes) && document.nodes.every(isNode)
+    && Array.isArray(document.connections)
+    // 老画布没有这个字段，必须继续能载入——这里只校验「有的话形状对不对」。
+    && (document.groups === undefined || (Array.isArray(document.groups) && document.groups.every(isGroup)))
+}
+
+/**
+ * 分组必须是 `{id, title, nodeIds: string[]}`。
+ *
+ * 成员 id 指向不存在的节点是**允许**的：`pruneGroups` 会在下一次删除时收拾，
+ * 而一份成员的节点刚好在别处被删掉的画布不该变成打不开的画布。真正要拦的是
+ * 形状错（`nodeIds` 不是数组、id 不是字符串）——那种数据会让 `groupFrame`
+ * 在渲染时抛，而抛在渲染里的错误用户只会看到一片空白。
+ */
+function isGroup(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false
+  const group = value as Record<string, unknown>
+  return typeof group.id === 'string' && typeof group.title === 'string'
+    && Array.isArray(group.nodeIds) && group.nodeIds.every(id => typeof id === 'string')
+}
+
+/** Upgrade a v1 (image/text/annotation + edges) document to the v2 node-graph model.
+ * Images and text notes keep their geometry; annotation prompt cards become plain
+ * text notes carrying the prompt, and old edges survive only between surviving nodes. */
+function migrateLegacyDocument(input: Record<string, unknown>): CanvasDocument {
+  const now = Date.now()
+  const legacyNodes = Array.isArray(input.nodes) ? input.nodes : []
+  const nodes: CanvasNode[] = []
+  const annotationIds = new Set<string>()
+  for (const raw of legacyNodes) {
+    if (raw === null || typeof raw !== 'object') continue
+    const node = raw as Record<string, unknown>
+    if (typeof node.id !== 'string' || typeof node.x !== 'number' || typeof node.y !== 'number') continue
+    const base = {
+      id: node.id,
+      title: typeof node.title === 'string' ? node.title : '未命名节点',
+      x: node.x,
+      y: node.y,
+      width: typeof node.width === 'number' ? node.width : 300,
+      height: typeof node.height === 'number' ? node.height : 220,
+    }
+    if (node.type === 'image' && isAssetRef(node.asset)) {
+      const generation = (node.generation ?? {}) as Record<string, unknown>
+      nodes.push({
+        ...base,
+        type: 'image',
+        metadata: {
+          asset: node.asset,
+          status: (typeof node.status === 'string' && ['idle', 'generating', 'success', 'error'].includes(node.status)
+            ? node.status
+            : 'success') as 'idle' | 'generating' | 'success' | 'error',
+          ...(typeof node.error === 'string' ? { error: node.error } : {}),
+          ...(typeof generation.prompt === 'string' ? { prompt: generation.prompt } : {}),
+          ...(typeof generation.model === 'string' ? { model: generation.model } : {}),
+          ...(typeof generation.taskId === 'string' ? { taskId: generation.taskId } : {}),
+          ...(typeof generation.sourceNodeId === 'string' ? { sourceNodeId: generation.sourceNodeId } : {}),
+        },
+      })
+    } else if (node.type === 'text') {
+      nodes.push({ ...base, type: 'text', metadata: { text: typeof node.text === 'string' ? node.text : '', ...(typeof node.fontSize === 'number' ? { fontSize: node.fontSize } : {}) } })
+    } else if (node.type === 'annotation') {
+      annotationIds.add(node.id)
+      const prompt = typeof node.prompt === 'string' && node.prompt.trim() !== '' ? node.prompt : '（旧版标注，提示词见此）'
+      nodes.push({ ...base, type: 'text', title: '旧版标注', metadata: { text: prompt } })
+    }
+  }
+  nodes.sort((a, b) => {
+    const za = (legacyNodes.find(item => (item as Record<string, unknown>)?.id === a.id) as Record<string, unknown> | undefined)?.zIndex
+    const zb = (legacyNodes.find(item => (item as Record<string, unknown>)?.id === b.id) as Record<string, unknown> | undefined)?.zIndex
+    return (typeof za === 'number' ? za : 0) - (typeof zb === 'number' ? zb : 0)
+  })
+  const validIds = new Set(nodes.map(node => node.id))
+  const seen = new Set<string>()
+  const connections = (Array.isArray(input.edges) ? input.edges : []).flatMap(raw => {
+    if (raw === null || typeof raw !== 'object') return []
+    const edge = raw as Record<string, unknown>
+    if (typeof edge.fromNodeId !== 'string' || typeof edge.toNodeId !== 'string') return []
+    if (annotationIds.has(edge.fromNodeId) || annotationIds.has(edge.toNodeId)) return []
+    if (!validIds.has(edge.fromNodeId) || !validIds.has(edge.toNodeId) || edge.fromNodeId === edge.toNodeId) return []
+    const key = `${edge.fromNodeId}->${edge.toNodeId}`
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [{ id: typeof edge.id === 'string' ? edge.id : `edge-${randomUUID()}`, fromNodeId: edge.fromNodeId, toNodeId: edge.toNodeId }]
+  })
+  const legacyViewport = (input.viewport ?? {}) as Record<string, unknown>
+  const background = input.background === 'grid' ? 'lines' : input.background === 'blank' ? 'blank' : 'dots'
+  return {
+    version: 2,
+    id: typeof input.id === 'string' ? input.id : randomUUID(),
+    title: typeof input.title === 'string' ? input.title : '未命名画布',
+    revision: typeof input.revision === 'number' ? input.revision : 1,
+    viewport: {
+      x: typeof legacyViewport.x === 'number' ? legacyViewport.x : 0,
+      y: typeof legacyViewport.y === 'number' ? legacyViewport.y : 0,
+      k: typeof legacyViewport.scale === 'number' && legacyViewport.scale > 0 ? legacyViewport.scale : 1,
+    },
+    background,
+    nodes,
+    connections,
+    createdAt: typeof input.createdAt === 'number' ? input.createdAt : now,
+    updatedAt: typeof input.updatedAt === 'number' ? input.updatedAt : now,
+  }
+}
+
+/** Background modes removed from the picker still show up in older saved
+ *  documents; map them to their nearest surviving replacement. */
+const REMOVED_BACKGROUND_FALLBACK: Record<string, CanvasDocument['background']> = {
+  diagonal: 'lines',
+  checker: 'dots',
+  aurora: 'liquid',
+}
+
+/** Accept either the v2 document or a legacy v1 payload and return v2. */
+export function coerceDocument(value: unknown): CanvasDocument | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const document = value as Record<string, unknown>
+  if (document.version === 1) {
+    const migrated = migrateLegacyDocument(document)
+    return isDocument(migrated) ? migrated : undefined
+  }
+  const fallback = REMOVED_BACKGROUND_FALLBACK[String(document.background)]
+  if (fallback !== undefined) return isDocument({ ...document, background: fallback }) ? { ...document, background: fallback } as CanvasDocument : undefined
+  return isDocument(value) ? value : undefined
+}
+
+let mutation: Promise<void> = Promise.resolve()
+function serialize<T>(operation: () => Promise<T>): Promise<T> {
+  const next = mutation.then(operation, operation)
+  mutation = next.then(() => undefined, () => undefined)
+  return next
+}
+
+export class CanvasStore {
+  constructor(private readonly root?: string) {}
+
+  private pagesDir(): string { return path.join(this.root ?? path.join(imageDataRoot(), 'canvas'), 'pages') }
+  private assetsDir(): string { return path.join(this.root ?? path.join(imageDataRoot(), 'canvas'), 'assets') }
+  private indexPath(): string { return path.join(this.root ?? path.join(imageDataRoot(), 'canvas'), 'index.json') }
+
+  private async ensure(): Promise<void> {
+    await fs.mkdir(this.pagesDir(), { recursive: true })
+    await fs.mkdir(this.assetsDir(), { recursive: true })
+  }
+
+  private pagePath(id: string): string { return path.join(this.pagesDir(), `${safeId(id)}.json`) }
+  private assetPath(id: string): string | undefined {
+    if (!ASSET_FILE_NAME.test(id)) return undefined
+    const target = path.join(this.assetsDir(), id)
+    const relative = path.relative(this.assetsDir(), target)
+    return relative.startsWith('..') || path.isAbsolute(relative) ? undefined : target
+  }
+
+  private async readIndex(): Promise<CanvasSummary[]> {
+    const value = await readJson(this.indexPath())
+    if (value === undefined || typeof value !== 'object' || !Array.isArray((value as { projects?: unknown }).projects)) return []
+    return (value as { projects: unknown[] }).projects.flatMap(item => {
+      if (item === null || typeof item !== 'object') return []
+      const project = item as Record<string, unknown>
+      if (!(typeof project.id === 'string' && typeof project.title === 'string' && typeof project.revision === 'number'
+        && typeof project.nodeCount === 'number' && typeof project.createdAt === 'number' && typeof project.updatedAt === 'number')) return []
+      return [{
+        id: project.id,
+        title: project.title,
+        revision: project.revision,
+        nodeCount: project.nodeCount,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+        ...project.favorite === true ? { favorite: true } : {},
+        // 老索引里没有这一格：缺省就是「没有缩略图」，界面退回到画布图标，
+        // 而不是整行读不出来。
+        ...typeof project.thumb === 'string' && project.thumb !== '' ? { thumb: project.thumb } : {},
+      }]
+    })
+  }
+
+  private async writeIndex(projects: CanvasSummary[]): Promise<void> {
+    await this.ensure()
+    await writeJsonAtomic(this.indexPath(), { projects })
+  }
+
+  async list(): Promise<CanvasSummary[]> {
+    return this.readIndex()
+  }
+
+  async create(title = '未命名画布'): Promise<CanvasDocument> {
+    return serialize(async () => {
+      await this.ensure()
+      const id = randomUUID()
+      const document = defaultDocument(id, title.trim() || '未命名画布')
+      await writeJsonAtomic(this.pagePath(id), document)
+      const projects = await this.readIndex()
+      await this.writeIndex([this.summaryOf(document), ...projects])
+      return document
+    })
+  }
+
+  async read(id: string): Promise<CanvasDocument | undefined> {
+    return coerceDocument(await readJson(this.pagePath(id)))
+  }
+
+  async save(document: CanvasDocument, expectedRevision?: number): Promise<CanvasDocument> {
+    return serialize(async () => {
+      const incoming = coerceDocument(document)
+      if (incoming === undefined) throw new Error('malformed canvas document')
+      const current = await this.read(incoming.id)
+      if (current !== undefined && expectedRevision !== undefined && current.revision !== expectedRevision) {
+        throw new CanvasConflictError()
+      }
+      const next: CanvasDocument = {
+        ...incoming,
+        revision: Math.max(current?.revision ?? 0, incoming.revision) + 1,
+        updatedAt: Date.now(),
+      }
+      await this.ensure()
+      await writeJsonAtomic(this.pagePath(next.id), next)
+      const projects = await this.readIndex()
+      const favorite = projects.find(item => item.id === next.id)?.favorite === true
+      await this.writeIndex([this.summaryOf(next, favorite), ...projects.filter(item => item.id !== next.id)])
+      return next
+    })
+  }
+
+  async setFavorite(id: string, favorite: boolean): Promise<CanvasSummary[]> {
+    return serialize(async () => {
+      const projects = await this.readIndex()
+      if (!projects.some(item => item.id === id)) throw new Error('画布不存在')
+      const next = projects.map(item => item.id === id
+        ? { ...item, ...favorite ? { favorite: true } : { favorite: undefined } }
+        : item)
+      await this.writeIndex(next)
+      return next
+    })
+  }
+
+  async remove(id: string): Promise<CanvasSummary[]> {
+    return serialize(async () => {
+      try { await fs.rm(this.pagePath(id), { force: true }) } catch { /* best effort */ }
+      const projects = (await this.readIndex()).filter(item => item.id !== id)
+      await this.writeIndex(projects)
+      // Only now, with the page gone and the index written, can the sweep see
+      // the true set of surviving references. It runs inside `serialize`, so no
+      // other mutation of this store can be interleaved with it.
+      await this.sweepAssets()
+      return projects
+    })
+  }
+
+  /**
+   * Delete asset files no surviving canvas page references.
+   *
+   * Assets are content-addressed and written once per upload/generation, and
+   * nothing used to remove them, so deleting a canvas left every byte of its
+   * images and files on disk forever.
+   *
+   * The sweep is deliberately conservative: anything it cannot read or parse
+   * aborts the whole pass instead of being treated as unreferenced. A parse
+   * failure here means an unreadable or half-written page, and guessing that
+   * its assets are free would silently destroy a canvas the user still has.
+   * Leaving garbage behind is recoverable; deleting a live asset is not.
+   */
+  private async sweepAssets(): Promise<void> {
+    let pageFiles: string[]
+    try {
+      pageFiles = (await fs.readdir(this.pagesDir(), { withFileTypes: true }))
+        .filter(entry => entry.isFile() && entry.name.endsWith('.json'))
+        .map(entry => entry.name)
+    } catch {
+      return
+    }
+    const referenced = new Set<string>()
+    for (const name of pageFiles) {
+      // A page that cannot be read or no longer coerces to a document makes the
+      // reference set unknowable, so this pass gives up entirely.
+      const raw = await readJson(path.join(this.pagesDir(), name))
+      if (raw === undefined) return
+      const document = coerceDocument(raw)
+      if (document === undefined) return
+      for (const node of document.nodes) {
+        const metadata = node.metadata as { asset?: unknown; poster?: unknown } | undefined
+        const asset = metadata?.asset
+        if (isAssetRef(asset) && asset.assetId !== '') referenced.add(asset.assetId)
+        // A poster node's own asset is the FLATTENED composite. The recipe behind
+        // it still points at the original background and at every logo layer,
+        // and the editor re-renders from those -- so they are live references
+        // even though no node carries them. Missing them here deleted the base
+        // image the first time ANY canvas was removed, and the poster then
+        // re-opened as a blank stage with the user's layers hanging over it.
+        const poster = metadata?.poster
+        if (isPosterDocument(poster)) {
+          referenced.add(poster.background.assetId)
+          for (const layer of poster.layers) {
+            if (layer.type === 'image') referenced.add(layer.asset.assetId)
+          }
+        }
+      }
+      // The canvas background image is a *URL*, not an asset id, so it has to be
+      // read back out of the served path; missing this would delete the
+      // background of every canvas that has one.
+      const background = document.backgroundImage
+      if (typeof background === 'string' && background !== '') {
+        const last = background.split('/').pop() ?? ''
+        const file = decodeURIComponent(last.split('?')[0] ?? '')
+        if (ASSET_FILE_NAME.test(file)) referenced.add(file)
+      }
+    }
+    let entries: string[]
+    try {
+      entries = (await fs.readdir(this.assetsDir(), { withFileTypes: true }))
+        .filter(entry => entry.isFile())
+        .map(entry => entry.name)
+    } catch {
+      return
+    }
+    for (const file of entries) {
+      // Only this store's own content-addressed names are ever touched; an
+      // unrelated file someone parked in the assets directory is left alone.
+      if (!ASSET_FILE_NAME.test(file) || referenced.has(file)) continue
+      try {
+        await fs.rm(path.join(this.assetsDir(), file), { force: true })
+      } catch {
+        // A failed delete is retried by the next sweep; it never fails the call.
+      }
+    }
+  }
+
+  /** Store raw bytes under their content hash and return the node-facing ref. */
+  private async putAsset(input: {
+    data: Uint8Array
+    mime: string
+    extension: string
+    ref: Omit<CanvasAssetRef, 'assetId' | 'url' | 'mime' | 'bytes'>
+  }): Promise<CanvasAssetRef> {
+    await this.ensure()
+    const hash = createHash('sha256').update(input.data).digest('hex')
+    const file = `${hash}.${input.extension}`
+    const target = path.join(this.assetsDir(), file)
+    try { await fs.access(target) } catch { await fs.writeFile(target, input.data) }
+    return {
+      assetId: file,
+      url: `/api/dsh-imagegen/canvas/asset/${file}`,
+      mime: input.mime,
+      bytes: input.data.byteLength,
+      ...input.ref,
+    }
+  }
+
+  async putImage(input: CanvasImageInput): Promise<CanvasAssetRef> {
+    if (!input.data.byteLength) throw new Error('image data is empty')
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(input.mime)) throw new Error('unsupported image type')
+    if (!Number.isSafeInteger(input.width) || input.width < 1 || !Number.isSafeInteger(input.height) || input.height < 1) {
+      throw new Error('image dimensions are invalid')
+    }
+    return this.putAsset({
+      data: input.data,
+      mime: input.mime,
+      extension: extensionOf(input.mime),
+      ref: {
+        width: input.width,
+        height: input.height,
+        kind: 'image',
+        origin: input.origin,
+        ...input.name === undefined ? {} : { name: safeFileName(input.name) },
+        ...input.originId === undefined ? {} : { originId: input.originId },
+        ...input.entryId === undefined ? {} : { entryId: input.entryId },
+        ...input.imageIndex === undefined ? {} : { imageIndex: input.imageIndex },
+      },
+    })
+  }
+
+  /**
+   * Store one arbitrary file (the canvas file node's upload path). Executable
+   * and script-shaped extensions are refused here as well as in the browser:
+   * the asset route serves non-image types as attachments, and this keeps a
+   * hand-crafted request from parking one on disk in the first place.
+   */
+  async putFile(input: CanvasFileInput): Promise<CanvasAssetRef> {
+    if (!input.data.byteLength) throw new Error('file data is empty')
+    if (input.data.byteLength > MAX_CANVAS_FILE_BYTES) {
+      throw new Error(`文件超过 ${Math.round(MAX_CANVAS_FILE_BYTES / (1024 * 1024))}MB 上限`)
+    }
+    const name = safeFileName(input.name)
+    if (isBlockedFileName(name)) throw new Error(`出于安全考虑，不支持上传 ${path.extname(name)} 文件`)
+    const declared = baseMime(input.mime)
+    const inferred = mimeFromFileName(name)
+    const mime = declared !== '' && declared !== 'application/octet-stream'
+      ? declared
+      : (inferred !== '' ? inferred : 'application/octet-stream')
+    if (!FILE_MIME_ALLOW.test(mime)) throw new Error(`不支持的文件类型：${mime}`)
+    const extension = EXTENSION_BY_MIME[mime] ?? (path.extname(name).replace(/^\./, '').toLowerCase() || 'bin')
+    const textPreview = isTextMime(mime) ? textHead(input.data) : undefined
+    return this.putAsset({
+      data: input.data,
+      mime,
+      extension,
+      ref: {
+        width: 0,
+        height: 0,
+        kind: 'file',
+        name,
+        origin: input.origin,
+        ...input.originId === undefined ? {} : { originId: input.originId },
+        ...textPreview === undefined ? {} : { textPreview },
+      },
+    })
+  }
+
+  async readAsset(file: string): Promise<{ data: Buffer; mime: string } | undefined> {
+    const target = this.assetPath(file)
+    if (target === undefined) return undefined
+    try { return { data: await fs.readFile(target), mime: mimeOf(file) } } catch { return undefined }
+  }
+
+  /** Read several assets at once, keyed by asset id (missing entries omitted). */
+  async readAssets(refs: readonly CanvasAssetRef[]): Promise<Map<string, { data: Buffer; mime: string }>> {
+    const out = new Map<string, { data: Buffer; mime: string }>()
+    for (const ref of refs) {
+      if (ref.assetId === '' || out.has(ref.assetId)) continue
+      const found = await this.readAsset(ref.assetId)
+      if (found !== undefined) out.set(ref.assetId, found)
+    }
+    return out
+  }
+
+  /** Copy one asset out of the content-addressed store into a real file path,
+   *  so a skill run (or a headless agent) can read it as an ordinary file. */
+  async materialize(ref: CanvasAssetRef, targetPath: string): Promise<void> {
+    const found = await this.readAsset(ref.assetId)
+    if (found === undefined) throw new Error(`画布资产不存在：${ref.assetId}`)
+    await fs.mkdir(path.dirname(targetPath), { recursive: true })
+    await fs.writeFile(targetPath, found.data)
+  }
+
+  /**
+   * Write the assets of an imported bundle back under their own
+   * content-addressed names.
+   *
+   * Names are content hashes, so re-importing a canvas this machine already
+   * holds writes nothing new and the existing files are simply reused. Only a
+   * name this store's own `ASSET_FILE_NAME` accepts is ever touched — a bundle
+   * is untrusted input and must not be able to steer a write outside the asset
+   * directory.
+   */
+  async putBundleAssets(assets: readonly { assetId: string; data: Uint8Array }[]): Promise<void> {
+    return serialize(async () => {
+      await this.ensure()
+      for (const asset of assets) {
+        if (!ASSET_FILE_NAME.test(asset.assetId)) throw new Error(`素材名不合法：${asset.assetId}`)
+        const target = path.join(this.assetsDir(), asset.assetId)
+        try { await fs.access(target); continue } catch { /* not on disk yet */ }
+        await fs.writeFile(target, asset.data)
+      }
+    })
+  }
+
+  /**
+   * Create a NEW canvas from an imported document.
+   *
+   * Always a new id, never the incoming one: an import must not be able to
+   * overwrite a canvas that already exists on this machine, and the importing
+   * user may well be the person who exported it. Node and connection ids are
+   * kept as they are — they are only meaningful inside their own document, and
+   * rewriting them would break every `fromNodeId`/`toNodeId` and every
+   * storyboard shot's `nodeId` for no gain.
+   */
+  async importDocument(input: {
+    title: string
+    document: CanvasDocument
+    assets: readonly { assetId: string; data: Uint8Array }[]
+  }): Promise<CanvasDocument> {
+    await this.putBundleAssets(input.assets)
+    const created = await this.create(input.title)
+    // The imported revision is the exporting machine's number; `save` only
+    // compares against a revision when a caller passes one, and this is a new
+    // page, so folding it into the created one keeps the first bump at 1.
+    const saved = await this.save({
+      ...input.document,
+      id: created.id,
+      title: created.title,
+      revision: created.revision,
+      createdAt: created.createdAt,
+    })
+    return saved
+  }
+
+  private summaryOf(document: CanvasDocument, favorite = false): CanvasSummary {
+    return {
+      id: document.id,
+      title: document.title,
+      revision: document.revision,
+      nodeCount: document.nodes.length,
+      createdAt: document.createdAt,
+      updatedAt: document.updatedAt,
+      ...favorite ? { favorite: true } : {},
+      ...thumbOf(document) === undefined ? {} : { thumb: thumbOf(document)! },
+    }
+  }
+}
+
+/**
+ * 画布在列表里显示的那一格图：第一张带已渲染资产的图片节点。
+ *
+ * WHY 取「第一张」而不是「最新一张」或「缩略图拼图」：列表里这一格只回答
+ * 「这是哪张画布」，用户认的是自己最先放进来的那张底图。拼图或取最新一张
+ * 都需要遍历整份文档、还要解码图片，而这里是在**每次保存**时算的——保存
+ * 顺手取一个已有的 URL 是零成本，做重活就会让自动保存变慢。
+ *
+ * 视频节点也带 `video.url`，但它不是图片，`<img>` 解不出来，所以只要图片。
+ */
+function thumbOf(document: CanvasDocument): string | undefined {
+  for (const node of document.nodes) {
+    if (node.type !== 'image') continue
+    const asset = node.metadata?.asset
+    if (asset !== undefined && asset.url !== '') return asset.url
+  }
+  return undefined
+}
+
+export const canvasStore = new CanvasStore()

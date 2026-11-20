@@ -1,0 +1,5632 @@
+/* Infinite canvas workspace — node-graph canvas styled after
+ * basketikun/infinite-canvas: floating docks, card nodes, wire connections. */
+
+.root {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family, inherit);
+  user-select: none;
+  /**
+   * The annotation marker's color, defined ONCE for the whole canvas.
+   *
+   * WHY a dedicated token instead of the brand alias: `--dsw-alias-brand-primary`
+   * in DSH is the NEUTRAL inverse (near-white on light, near-black on dark, see
+   * dsh-client-ui-theme), so it is the right token for a selected chip but the
+   * wrong one for a marker that has to stand out against a photo. A marker also
+   * has to mean "this region, not the rest" and survive being drawn on top of
+   * arbitrary artwork, which is what red is for.
+   *
+   * It is a TOKEN rather than a literal because Canvas2D draws the same marker
+   * into the image the model receives (see `drawAnnotation` in image-ops.ts,
+   * which reads this property): the box the user drew and the box the model is
+   * told about have to be the same color, and one value is the only way to
+   * guarantee that.
+   */
+  --canvas-annotation: var(--dsw-static-red-500, #ef4444);
+  /** Ink drawn on top of the marker (the badge number, the inner stroke). */
+  --canvas-annotation-ink: var(--dsw-static-neutral-00, #ffffff);
+  /**
+   * The node card's own surface, and the ring around it (issue #23).
+   *
+   * The light theme is untouched on purpose. `.root` and `.node` both painted
+   * `--dsw-alias-bg-layer-1`, and in a LIGHT theme that is correct: every DSH
+   * layer resolves to #ffffff, so a white card on a white canvas is what the
+   * user had and what they want back. The defect was dark-only — there the two
+   * bytes were identical (#232324) and a resting node was traceable only by a
+   * 1.5px `border-l1` at 1.19:1.
+   *
+   * The first attempt "fixed" both themes at once by mixing 12% of
+   * `--dsw-alias-label-primary` into layer-3. That token is near-black in a
+   * light theme, so it dimmed a light canvas that had no problem to begin with.
+   * A guard that only ever looks at the dark palette cannot catch that, which is
+   * why the light branch is now pinned to the exact token it shipped with and
+   * the contract measures BOTH palettes.
+   *
+   * So: `layer-1` is the light value (unchanged, exactly as before), and the
+   * dark override is a theme selector below `.root`. The numbers, from the
+   * token values the installed DSH ships:
+   *
+   *   dark canvas #232324, dark label-primary #f9fafb
+   *     fill  = canvas + 12% label -> #3d3d3e, 1.44:1 against the canvas
+   *     ring  = canvas + 36% label -> #707071, 3.19:1 against the canvas
+   *
+   * 12% clears the 1.25:1 bar a large flat area needs; 36% is where the thin
+   * ring reaches the 3:1 WCAG 1.4.11 asks of a component boundary (34% is
+   * 2.99:1, just short).
+   */
+  --canvas-node-surface: var(--dsw-alias-bg-layer-1);
+  --canvas-node-border: var(--dsw-alias-border-l1);
+  /* Light: `border-l2` and nothing else — the exact hover this shipped with. */
+  --canvas-node-hover-edge: var(--dsw-alias-border-l2);
+  /**
+   * 低缩放下的卡片轮廓。
+   *
+   * `border-l1` 在浅色主题里几乎就是白色，1.5px 缩到 17% 之后只剩 0.26px，
+   * 于是整块画布上「哪一格是卡片」只能靠里面的内容去猜——而低缩放下内容本身
+   * 已经糊成一片。这一圈只在 mid / far 两档出现，用 22% 的墨色，在两种主题
+   * 里都是「比底色深一档但仍属于背景」的强度。
+   */
+  --canvas-node-edge-far: color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent);
+}
+
+/*
+ * Dark theme only. This is the one place in this file where the theme has to be
+ * read off the host's own attribute — the contract (docs/native-ui-contract.md
+ * §2.6) allows `body[data-ds-dark-theme]` exactly for the case a token cannot
+ * express, and this is that case: DSH hands out ONE set of layer/border tokens
+ * that resolves to #ffffff across all three layers in light and to three
+ * near-identical greys in dark. "The card must differ from the canvas" simply
+ * cannot be said once for both themes, because in light they are the same colour
+ * by design and in dark they are the same colour by accident.
+ *
+ * The base is `bg-layer-1` because in dark that IS the canvas colour, so the
+ * mixes below are literally "the canvas, nudged toward the theme's ink" — the
+ * measured ratios in the comment above are about nothing else.
+ */
+:global(body[data-ds-dark-theme]) .root {
+  --canvas-node-surface: color-mix(in srgb, var(--dsw-alias-label-primary) 12%, var(--dsw-alias-bg-layer-1));
+  --canvas-node-border: color-mix(in srgb, var(--dsw-alias-label-primary) 36%, var(--dsw-alias-bg-layer-1));
+  /* One step above the resting ring (2.99:1) so hovering is visible at all. */
+  --canvas-node-hover-edge: color-mix(in srgb, var(--dsw-alias-label-primary) 46%, var(--dsw-alias-bg-layer-1));
+}
+
+.selectCursor { cursor: default; }
+.panCursor { cursor: grab; }
+.panCursor:active { cursor: grabbing; }
+
+/* ------------------------------------------------------------- top bar */
+
+.topBar {
+  /* LibTV 式悬浮细栏：不占布局高度，画布铺满整个区域，顶栏玻璃浮在其上。
+     中心点语义不受影响——chromeHeight 只量底部 dock（见 CanvasWorkspace）。 */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  z-index: var(--z-topbar);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 78%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+/* 窄面板：顶栏内容换行而不是横向溢出（#30 手机端契约）。 */
+@media (max-width: 760px) {
+  .topBar { flex-wrap: wrap; row-gap: 4px; }
+  .projectSelect { max-width: 120px; }
+  .titleButton { max-width: 120px; }
+}
+
+.projectSelect {
+  max-width: 180px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+}
+
+.titleButton {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.titleButton:hover { border-color: var(--dsw-alias-border-l1); }
+
+.titleInput {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-brand-primary);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 600;
+  width: 240px;
+  outline: none;
+}
+
+/* 键盘焦点：这个输入框的描边常驻品牌色，`outline: none` 去掉 UA 环之后
+   Tab 到它没有任何视觉变化，等于看不见焦点。补一圈只对键盘生效的环。 */
+.titleInput:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.topBarSpacer { flex: 1; }
+
+.saveState {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+.saveState[data-state="error"] { color: var(--dsw-alias-state-error-primary, #ec1313); }
+.saveState[data-state="saving"] { color: var(--dsw-alias-state-warn-primary, var(--dsw-alias-label-secondary)); }
+/* 草稿和「保存中」同一档：都不是终态，都不该用「已保存」那档普通色念过去。 */
+.saveState[data-state="draft"] { color: var(--dsw-alias-state-warn-primary, var(--dsw-alias-label-secondary)); }
+
+/* ---------------------------------------------------------- icon button */
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.iconButton:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.iconButton[data-active] { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent); color: var(--dsw-alias-brand-primary); }
+.iconButton:disabled { opacity: 0.35; cursor: not-allowed; }
+.iconButton:disabled:hover { background: transparent; color: var(--dsw-alias-label-secondary); }
+
+/* (node tools moved to the bottom-center dock above) */
+
+/* ------------------------------------------------------------- viewport */
+
+.viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Interactive backdrops live in <canvas> elements (the fluid flowmap dot
+ * field, the WebGL fluid sim, and the reactbits-style shader backdrops);
+ * they render themselves at full strength (the 0.5 grid dimming stays off). */
+.flowCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* WebGL "liquid ether" fluid simulation, same placement as the flow canvas. */
+.liquidCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Fullscreen-shader backdrops (floating lines / galaxy / silk) and the 2D
+ * wave lines share one placement; floating lines screen-blends over dark
+ * surfaces (set from JS, the light theme uses its own light backdrop). */
+.sceneCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.grid[data-mode="flow"],
+.grid[data-mode="liquid"],
+.grid[data-mode="floatingLines"],
+.grid[data-mode="galaxy"],
+.grid[data-mode="silk"],
+.grid[data-mode="waves"],
+.grid[data-mode="faultyTerminal"],
+.grid[data-mode="dotField"],
+.grid[data-mode="dotGrid"],
+.grid[data-mode="shapeGrid"] {
+  opacity: 1;
+}
+
+.grid[data-mode="dots"] {
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--dsw-alias-label-primary) 30%, transparent) 1.1px, transparent 1.4px);
+}
+
+.grid[data-mode="lines"] {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--dsw-alias-label-primary) 9%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-label-primary) 9%, transparent) 1px, transparent 1px);
+}
+
+/*
+ * 低缩放下的网格。
+ *
+ * 格距的下限由 JS 那边翻倍世界步长来保（`gridStepFor`），这里只管**强度**：
+ * 放大时格线是排版参考，应当淡到几乎看不见；缩小时格线是「这里是一块画布」
+ * 的唯一证据，太淡就会让整片区域读成空白背景。所以两档各加深一点，而不是
+ * 全局调深——全局调深会让 100% 下的画布变成方格纸。
+ */
+.root[data-zoom-band="mid"] .grid[data-mode="lines"] {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent) 1px, transparent 1px);
+}
+
+.root[data-zoom-band="far"] .grid[data-mode="lines"] {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent) 1px, transparent 1px);
+}
+
+.root[data-zoom-band="mid"] .grid[data-mode="dots"],
+.root[data-zoom-band="far"] .grid[data-mode="dots"] {
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--dsw-alias-label-primary) 42%, transparent) 1.1px, transparent 1.4px);
+}
+
+.grid[data-mode="blank"] { background-image: none; }
+
+.grid[data-mode="image"] { background-image: none; }
+
+.gridScrim {
+  position: absolute;
+  inset: 0;
+  background: var(--dsw-alias-bg-layer-1);
+  opacity: 0.6;
+}
+
+/* ------------------------------------------------ background menu */
+
+.backgroundMenu {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  z-index: var(--z-anchored-menu);
+  min-width: 168px;
+  padding: 5px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 96%, transparent);
+  box-shadow: var(--dsw-shadow-lv3);
+  display: flex;
+  flex-direction: column;
+}
+
+.backgroundMenu button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.backgroundMenu button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.backgroundMenu button[data-active] {
+  color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+}
+
+.backgroundMenuDivider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--dsw-alias-border-l1);
+}
+
+/* ------------------------------------------------ 顶栏「这份画布自己的事」 */
+/*
+ * 顶栏最右边那枚 ⋯ 的菜单。锚在按钮下方（顶栏本身贴顶，向上没有空间），
+ * 表面配方与 dock 的浮层一致，不新增 z 档：它和背景菜单是同一类东西。
+ *
+ * 收起来的是四枚低频的「文件管理」动作（收藏 / 导出 / 导入 / 删除画布）。
+ * 它们原来并排占掉顶栏一半宽度，在 760px 以下把标题挤到第二行。
+ */
+.topBarMenu {
+  position: absolute;
+  z-index: var(--z-anchored-menu);
+  min-width: 176px;
+  padding: 5px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 96%, transparent);
+  box-shadow: var(--dsw-shadow-lv3);
+  display: flex;
+  flex-direction: column;
+}
+
+.topBarMenu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.topBarMenu button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.topBarMenu button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -2px; }
+
+/* 草稿上没有可收藏/导出的对象。禁用但保留一行说明（title），而不是让它消失：
+   用户点过一次就会明白「先放点东西进去」，而消失只会让他以为功能没做。 */
+.topBarMenu button:disabled { color: var(--dsw-alias-label-tertiary); cursor: not-allowed; }
+
+.topBarMenu button[data-danger] { color: var(--dsw-alias-state-error-primary, #ec1313); }
+
+/* ------------------------------------------------ workflow options menu */
+
+/* `.backgroundMenu button` is a single horizontal row (an icon and a label).
+ * A workflow option is two rows — the toggle's own name, then the sentence
+ * that explains what switching it costs — so this has to override the
+ * shorthand rather than add to it: `flex-direction` alone would still leave
+ * `align-items: center` pushing the hint to the middle of the button. */
+.backgroundMenu .workflowOption {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 8px 10px;
+}
+
+/* The check mark only exists after selection, so it is given a fixed column:
+ * sized to the glyph but always present, or every label shifts sideways the
+ * moment a box is ticked and the row reads as having jumped. */
+.workflowOptionLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.workflowOptionCheck {
+  width: 10px;
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--dsw-alias-brand-primary);
+}
+
+.workflowOptionHint {
+  /* Indented to the label's text, not its check box, so the two lines read as
+   * one item instead of the hint looking like a sibling option. */
+  padding-left: 16px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+  white-space: normal;
+}
+
+/**
+ * 「有节点跑不起来」的提示条。
+ *
+ * 用 warn 的**文字色**而不是 error 的红：这不是一次失败，是一次还没发生的
+ * 缺条件——红色会让人以为刚才那一下就出错了。它不是可点的选项（没有 hover、
+ * 没有 pointer），因为它描述的是当前状态，不是一个动作。
+ *
+ * 上边框把它和上面的开关分开：它是结论，不是第四个开关。
+ */
+.workflowOptionWarn {
+  margin: 2px 0 0;
+  padding: 6px 8px 0;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: normal;
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+/* "Force rerun" with nothing selected: the hint explains why it cannot be used
+ * instead of the item simply swallowing the click. Dimmed via the label colour
+ * rather than opacity so the explanatory line keeps its contrast in both
+ * themes — it is the only thing on screen that says what to do about it. */
+.backgroundMenu .workflowOption:disabled {
+  cursor: default;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ------------------------------------------------ 画布体检（运行选项菜单内） */
+
+/**
+ * 一次「按下运行会怎样」的完整清单。
+ *
+ * 放在运行选项菜单里而不是另开一个弹窗：菜单已经是用户问「这一次怎么跑」的
+ * 地方，体检回答的是同一个问题的前提。另开一层的结果是「开着菜单，又想看
+ * 一眼清单」，得先关掉它。
+ *
+ * 宽度上限：菜单本身是窄条，一行原因动辄二十几个字。不设上限会让菜单撑到
+ * 半屏宽——那就不再像一个挂靠底栏的浮层了。
+ */
+.healthList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 300px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 2px 0 0;
+  padding: 6px 4px 0;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.healthSummary {
+  padding: 0 6px 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+/**
+ * 一条问题。可点：点它跳到那张卡。
+ *
+ * WHY 值得做成可点：体检列出「哪三个节点绕成了环」之后，用户下一步必然是在
+ * 上百张卡里找它们。让清单只负责报、不负责带路，等于把最难的那半件事留给
+ * 用户自己。
+ *
+ * 阻断项与提醒项只差左边线颜色：两者的形状必须是同一种，否则用户会以为「红
+ * 色那一块是另一个面板」。
+ */
+.healthIssue {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 6px;
+  border: none;
+  border-left: 2px solid var(--dsw-alias-state-error-primary, #ec1313);
+  border-radius: var(--dsw-radius-xs);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.healthIssue[data-severity="advisory"] { border-left-color: var(--dsw-alias-state-warn-primary); }
+.healthIssue:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.healthIssue:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -2px; }
+/* 没有可跳转的目标（两端都被删掉的残线）：仍然要能读到这句话，所以只去掉
+   指针与悬停反馈，不压暗——那会让它看起来像「这个功能没做完」。 */
+.healthIssue:disabled { cursor: default; }
+
+.world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+/* react-flow 受控视图容器：填满 viewport，react-flow 自带 viewport transform。
+   节点/边由 react-flow 渲染；技能运行卡与标注引线仍走 .world 覆盖层。 */
+.flowRoot {
+  position: absolute;
+  inset: 0;
+}
+
+.marquee {
+  position: absolute;
+  z-index: var(--z-marquee);
+  border: 1px solid var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent);
+  border-radius: var(--dsw-radius-xs);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------ nodes */
+
+/*
+ * `.node` is a card floating ON the canvas, not a piece of it. It painted
+ * `--dsw-alias-bg-layer-1` — the very token `.root` paints — so in a dark theme
+ * the two surfaces were not similar but byte-identical, and a resting node was
+ * traceable only by a 1.5px `border-l1` at 1.19:1. That is issue #23.
+ *
+ * In a LIGHT theme those two tokens are the same #ffffff and that is correct:
+ * nothing was wrong there and nothing may change. The values are therefore split
+ * per theme at `.root`, not fixed once for both — see `--canvas-node-hover-edge`
+ * for why the hover step has to be a variable rather than an inline mix.
+ */
+.node {
+  position: absolute;
+  /* react-flow 在 nodesDraggable/Selectable/Connectable 全 false 时给 wrapper
+     设 pointer-events:none 且可继承——外壳不恢复 auto 的话卡片本体收不到
+     pointerdown，真用户拖不动节点（交互子元素各自 stopPropagation，不受影响）。 */
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--dsw-radius-lg);
+  border: 1.5px solid var(--canvas-node-border);
+  background: var(--canvas-node-surface);
+  box-shadow: var(--dsw-shadow-lv2);
+  overflow: visible;
+  cursor: grab;
+  touch-action: none;
+}
+
+.node:active { cursor: grabbing; }
+
+/*
+ * 低缩放下的卡片轮廓。
+ *
+ * 为什么不是 `border-width: calc(1.5px * var(--canvas-inv-scale))`：边框进布局。
+ * 卡片的世界外框是文档里的 `node.width`，而连线锚点、吸附判定、缩略图投影全
+ * 按它算；把边框按 1/k 加粗会让外框在低缩放下每边涨几个世界像素，几何静默
+ * 错位。`box-shadow` 不进布局，所以补偿只走它。
+ *
+ * 为什么用 `inset` 而不是外扩：外扩的阴影在相邻卡片靠近时会互相盖住，读起来
+ * 像它们在打架。内描边始终长在自己身上，边界归属没有歧义。
+ *
+ * `var(--canvas-inv-scale)` 由根节点按当前 k 写进来（见 CanvasWorkspace 的
+ * `data-zoom-band` 那段）。缺省 1：没拿到缩放时描边就是 1px，不会因为变量
+ * 缺失而整条声明被丢弃、轮廓凭空消失。
+ */
+.root[data-zoom-band="mid"] .node:not(.nodeSelected):not(.nodeRelated):not(.nodeConnectTarget):not(.nodeOverlap) {
+  box-shadow: var(--dsw-shadow-lv2), inset 0 0 0 calc(1px * var(--canvas-inv-scale, 1)) var(--canvas-node-edge-far);
+}
+
+.root[data-zoom-band="far"] .node:not(.nodeSelected):not(.nodeRelated):not(.nodeConnectTarget):not(.nodeOverlap) {
+  box-shadow: var(--dsw-shadow-lv2), inset 0 0 0 calc(1.5px * var(--canvas-inv-scale, 1)) var(--canvas-node-edge-far);
+}
+
+/*
+ * Hover strengthens the resting ring, and only the resting ring.
+ *
+ * The `:not()` chain is about specificity, not precision: `.node:hover` is
+ * (0,2,0) and would silently paint over `.nodeSelected` / `.nodeRelated` /
+ * `.nodeConnectTarget` (all (0,1,0)) — hovering a SELECTED node would then
+ * weaken it back to hover strength, which is the opposite of what the states
+ * mean. `.nodeOverlap` carries the warning colour and `[data-annotating]` is
+ * (0,2,0) tied with hover, so both have to be excluded explicitly too.
+ *
+ * The colour lives in `--canvas-node-hover-edge` and not inline, because the
+ * light theme's hover must stay exactly what it was (`border-l2` alone) while
+ * the dark theme needs a step above its own 36% resting ring. Mixing
+ * `label-primary` inline here would have repainted the light theme again — the
+ * same mistake this file is being corrected for.
+ */
+.node:hover:not(.nodeSelected):not(.nodeRelated):not(.nodeConnectTarget):not(.nodeOverlap):not([data-annotating]) {
+  border-color: var(--canvas-node-hover-edge);
+}
+
+.nodeGlow {
+  position: absolute;
+  inset: -6px;
+  border-radius: var(--dsw-radius-xl);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.nodeSelected {
+  border-color: var(--dsw-alias-brand-primary);
+  z-index: var(--z-content);
+}
+
+.nodeSelected .nodeGlow {
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 22%, transparent);
+}
+
+.nodeRelated { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, transparent); }
+
+.nodeConnectTarget {
+  border-color: var(--dsw-alias-brand-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--dsw-alias-brand-primary) 26%, transparent);
+}
+
+.nodeHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px 5px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: inherit;
+  flex: none;
+}
+
+.nodeTitle {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeSize {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.nodeSpinner {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 30%, transparent);
+  border-top-color: var(--dsw-alias-brand-primary);
+  animation: canvasSpin 0.8s linear infinite;
+}
+
+.nodeBody {
+  flex: 1;
+  min-height: 0;
+  margin: 0 8px 8px;
+  border-radius: var(--dsw-radius-sm);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  /* Annotation overlays are positioned against the image frame. */
+  position: relative;
+}
+
+.nodeBody img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.imageInfo {
+  position: absolute;
+  top: 6px;
+  z-index: var(--z-content);
+  padding: 3px 8px;
+  border-radius: var(--dsw-radius-sm);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 62%, transparent);
+  color: var(--dsw-alias-bg-layer-1);
+  font-size: 10px;
+  line-height: 1.4;
+  pointer-events: none;
+  backdrop-filter: blur(3px);
+  max-width: calc(100% - 90px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imageInfoLeft { left: 6px; font-weight: 600; }
+
+.imageInfoRight {
+  right: 6px;
+  left: auto;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+/* Image nodes keep their picture uncovered: model / layer / size live in a slim
+ * footer strip under the image instead of floating over it. */
+.imageFooter {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 7px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-tertiary);
+  pointer-events: none;
+}
+
+.imageFooterLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.imageFooterSize {
+  margin-left: auto;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+.nodeState,
+.nodeStateError {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  padding: 12px;
+  text-align: center;
+  pointer-events: auto;
+}
+
+.nodeStateError { color: var(--dsw-alias-state-error-primary, #ec1313); }
+
+/* A second line inside a failed node: the message says what broke, this says
+   what the user can do about it (e.g. switch the composer back to a model). */
+.nodeStateHint {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.nodeStateError button {
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  padding: 4px 12px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.nodeEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: 1.5px dashed color-mix(in srgb, var(--dsw-alias-label-primary) 24%, transparent);
+  border-radius: var(--dsw-radius-sm);
+  margin: 6px;
+  padding: 14px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  /* .nodeBody disables pointer events for node dragging; the upload button
+   * inside must opt back in or its onClick never fires. */
+  pointer-events: auto;
+}
+
+.nodeEmpty:hover {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.textNode { cursor: default; }
+
+/* image nodes render as bare cards: the picture fills the frame */
+.imageNode .nodeBody { margin: 6px; }
+
+.textArea {
+  flex: 1;
+  min-height: 0;
+  margin: 0 8px 8px;
+  border: none;
+  resize: none;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 4px 6px;
+  cursor: text;
+  pointer-events: auto;
+}
+
+.textArea::placeholder { color: var(--dsw-alias-label-tertiary); }
+
+/* 键盘焦点：无描边、无背景，`outline: none` 之后焦点完全不可见。 */
+.textArea:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------- text node type tools */
+
+.nodeTag {
+  flex: none;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 28%, transparent);
+}
+
+.textTools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+  pointer-events: auto;
+}
+
+.textTool {
+  min-width: 22px;
+  height: 20px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--dsw-radius-xs);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.textTool:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.textTool[data-active] { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent); color: var(--dsw-alias-brand-primary); }
+
+.textToolValue {
+  min-width: 18px;
+  text-align: center;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.colorDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 30%, transparent);
+  display: block;
+}
+
+.colorRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 10px 8px;
+  flex: none;
+  pointer-events: auto;
+}
+
+.colorSwatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+  color: var(--dsw-alias-label-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.colorSwatch:hover { transform: scale(1.12); }
+.colorSwatch[data-active] { box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, transparent); }
+
+/* --------------------------------------------------- annotation overlay */
+
+/* The image being boxed stays highlighted while the 标注 tool is armed. */
+.node[data-annotating] {
+  border-color: var(--canvas-annotation);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--canvas-annotation) 22%, transparent);
+}
+
+.annotationLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-content);
+}
+
+.annotationLayer[data-active] {
+  pointer-events: auto;
+  cursor: crosshair;
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 6%, transparent);
+}
+
+.annotationBox {
+  position: absolute;
+  border: 1.5px solid var(--canvas-annotation);
+  border-radius: var(--dsw-radius-xs);
+  box-shadow: inset 0 0 0 1px var(--canvas-annotation-ink);
+  pointer-events: none;
+}
+
+.annotationDraft {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--canvas-annotation) 14%, transparent);
+}
+
+.annotationBadge {
+  position: absolute;
+  top: -10px;
+  left: -8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--canvas-annotation);
+  color: var(--canvas-annotation-ink);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* In-flight node operation (抠图 / 图层拆分). */
+.nodeBusy {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-content-raised);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 82%, transparent);
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+
+/* ------------------------------------------------- sketch board node */
+
+.sketchNode { cursor: default; }
+
+.sketch {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sketchBoardWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 0 10px;
+}
+
+/* White "paper" board; strokes render on the canvas child at device ratio. */
+.sketchBoard {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: var(--dsw-radius-md);
+  /**
+   * The paper has to be visibly the paper.
+   *
+   * `bg-layer-2` is the wrong token here: DSH resolves bg-layer-1, -2 and -3 to
+   * the SAME #ffffff in a light theme (this file's own note at the top says so).
+   * So a "white sheet" painted on a white canvas was one continuous surface,
+   * and an empty board read as nothing at all — the only trace of it was the
+   * floating brush toolbar, which looked like an orphaned palette.
+   *
+   * A paper needs to be a different MATERIAL from the desk it lies on, so this
+   * is a hair of the theme ink rather than the next layer token: 6% lands at
+   * ~#f2f2f2 on white and ~#2b2b2b on near-black, i.e. "card on canvas" in
+   * both palettes from one declaration. The inset ring goes one step darker so
+   * the sheet's edge survives at 100% zoom where the fill alone is subtle.
+   */
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, var(--dsw-alias-bg-layer-1));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent),
+    inset 0 1px 3px color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.sketchBoard[data-erasing] { cursor: cell; }
+
+.sketchPlaceholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.7;
+  /* 纸面本身比画布深，次级灰在它上面读不清；空状态的这句话是这张卡片
+   * 唯一的说明，值得用 label-secondary。 */
+  color: var(--dsw-alias-label-secondary);
+  pointer-events: none;
+}
+
+.sketchToolbar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 12px 11px;
+}
+
+.sketchColors {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.sketchSwatch {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.sketchSwatch:hover { transform: scale(1.15); }
+
+.sketchSwatch[data-active] {
+  transform: scale(1.18);
+  box-shadow: 0 0 0 2px var(--dsw-alias-bg-layer-1), 0 0 0 3.5px var(--dsw-alias-brand-primary);
+}
+
+.sketchTools {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.sketchWidth {
+  width: 26px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.sketchWidth span {
+  display: block;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-primary);
+}
+
+.sketchWidth:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.sketchWidth[data-active] {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent);
+}
+
+.sketchWidth[data-active] span { background: var(--dsw-alias-brand-primary); }
+
+.sketchToolDivider {
+  width: 1px;
+  height: 14px;
+  margin: 0 3px;
+  background: var(--dsw-alias-border-l1);
+}
+
+.sketchToolBtn {
+  width: 26px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.sketchToolBtn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+
+.sketchToolBtn[data-active] {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.sketchToolBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* --------------------------------------------------- bottom dock */
+
+/* ------------------------------------------------------------ bottom chrome */
+
+/**
+ * Everything pinned to the bottom edge, laid out as ONE flex row.
+ *
+ * WHY a container instead of three absolute layers: the dock, the zoom dock and
+ * the minimap used to position themselves independently (`left: 50%`,
+ * `left: 14px`, `left: 14px; bottom: 62px`), so none of them knew the others'
+ * size. At a panel width of ~1000px — the three-column studio on a 1280px
+ * window — the 711px job dock overlapped the 236px zoom dock by 107px, covering
+ * its leftmost buttons (select / pan / add image / add text). No breakpoint can
+ * fix that: the overlap depends on the PANEL's width, not the window's, and the
+ * two docks only know about it once they are in the same layout.
+ *
+ * `flex-wrap` is the adaptation itself: when the row cannot hold both, the dock
+ * moves to a second line instead of painting over the zoom controls.
+ * `align-items: flex-end` keeps the two bottom-aligned while the side column
+ * (minimap above zoom) is taller.
+ */
+.canvasChrome {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  z-index: var(--z-dock);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  /* NOT `justify-content: center`: that centres BOTH lines once the row wraps,
+   * leaving the minimap floating in the middle of the canvas. The side column
+   * stays pinned left; the dock centres itself with `margin-inline: auto`,
+   * which works on its own wrapped line as well as beside the side column. */
+  justify-content: flex-start;
+  gap: 8px 12px;
+  padding: 0 14px;
+  /* The row spans the whole width; only its children take clicks. */
+  pointer-events: none;
+}
+
+/** Left column of the chrome: the minimap sits above the zoom controls. */
+.chromeSide {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* reactbits.dev "Dock" port: dark pill panel; a spring engine (see the dock
+ * effect in CanvasWorkspace) scales each tile by pointer distance so items
+ * part apart like the macOS dock, and the outer wrapper breathes taller on
+ * hover to make room for the floating labels. */
+.dockOuter {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  /* `min-height`, never `height`: the dock wraps to a second row on a narrow
+   * panel, and a fixed height would let the extra row overflow UPWARDS into the
+   * minimap/zoom row (flex-end aligns the box, not its overflowing content).
+   * The spring engine writes the same property — see the dock effect in
+   * CanvasWorkspace — so the hover breathing still works. */
+  min-height: 42px;
+  pointer-events: none;
+}
+
+.dock {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 6px;
+  /* Never wider than the canvas it sits on: 17 tiles at 40px are ~820px, which
+   * a three-column studio at 560px cannot hold. Wrapping is the fallback; the
+   * row grows upward from the bottom edge, and the canvas measures its real top
+   * (see the `chromeHeight` effect in CanvasWorkspace). */
+  max-width: 100%;
+  padding: 0 7px 7px;
+  border-radius: var(--dsw-radius-lg);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.dockItem {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--dsw-radius-md);
+  cursor: pointer;
+}
+
+.dockItem:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+/**
+ * The one solid tile: 添加. LibTV's dock has exactly one high-contrast anchor
+ * on the left and everything else stays quiet — that is what makes the row
+ * readable at a glance. With 18 equally-weighted icons nothing read as
+ * "start here"; every user had to read each glyph to find the way in.
+ *
+ * Solid fill, not the brand tint: `--dsw-alias-brand-primary` is a neutral
+ * inverting colour in this theme (see the note at the top of this file), so a
+ * filled square of it is the highest contrast the shell offers without
+ * inventing a colour.
+ */
+.dockPrimary {
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-bg-layer-1);
+}
+
+.dockPrimary:hover { background: color-mix(in srgb, var(--dsw-alias-label-primary) 86%, var(--dsw-alias-bg-layer-1)); }
+
+.dockPrimary[data-open] { background: color-mix(in srgb, var(--dsw-alias-label-primary) 78%, var(--dsw-alias-bg-layer-1)); }
+
+.dockPrimary .iconButton { color: inherit; }
+
+/**
+ * The labelled primary action, opposite the 添加 tile.
+ *
+ * An icon-only dock can only be learned by hovering each glyph. The one action
+ * a canvas exists for — running the workflow that turns it into pictures —
+ * says its name instead. `data-dock-static` keeps it out of the spring
+ * engine's width animation (a text pill cannot shrink to 40px).
+ */
+.dockAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--dsw-radius-md);
+  /**
+   * Filled like a primary button, because that is what it is.
+   *
+   * It used to be `brand-primary` at 14% fill / 34% border. In this theme
+   * `brand-primary` is the NEUTRAL inverse (near-black in light, near-white in
+   * dark), so at 14% it was a pale grey pill with a grey outline — visually
+   * indistinguishable from the disabled tiles beside it, while the one solid
+   * black `+` next to it was doing all the shouting. Two elements claimed to be
+   * the primary action and neither read as one.
+   *
+   * `button-primary-fill` + `label-primary-foreground` is exactly the pair DSH's
+   * own primary button uses, so the pill now reads as "this is the action",
+   * the `+` stays the single structural anchor, and neither was invented here.
+   */
+  border: 1px solid transparent;
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dockAction:not(:disabled):hover {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+/* A filled pill fades differently from a ghost tile: 0.35 would leave the
+ * label sitting on a half-strength block of ink and read as a rendering
+ * glitch. DSH's own disabled primary button uses 0.4, so use that. */
+.dockAction:disabled { opacity: 0.4; cursor: not-allowed; background: var(--dsw-alias-button-primary-fill); }
+
+/* 主动作里的两半：左边运行、右边只开菜单。它们不可分割地同属一块药丸，
+ * 所以分割线比 `.dockGap` 更淡、更短，读起来是一条缝而不是一个分组。 */
+.dockAction > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dockAction > button:disabled { cursor: not-allowed; }
+
+.dockAction > button:not(:disabled):hover { color: var(--dsw-alias-label-primary-foreground); }
+
+.dockAction > .dockCaret {
+  margin-left: 2px;
+  padding-left: 8px;
+  border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  gap: 0;
+}
+
+.dockAction > .dockCaret[data-active] { color: var(--dsw-alias-label-primary-foreground); }
+
+.dockItem::after {
+  content: attr(data-label);
+  position: absolute;
+  top: -26px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.dockItem:hover::after { opacity: 1; }
+
+.dock .iconButton {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--dsw-radius-md);
+}
+
+.dock .iconButton:not(:disabled):hover {
+  background: transparent;
+}
+
+.dock .iconButton[data-active] {
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-bg-layer-1);
+}
+
+.dock .iconButton[data-active]:hover { background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-layer-1); }
+
+.dock .iconButton:disabled { opacity: 0.3; cursor: not-allowed; }
+.dock .iconButton:disabled:hover { background: transparent; color: var(--dsw-alias-label-secondary); }
+
+/**
+ * Group separators are SPACE, not rules.
+ *
+ * Five 1px vertical lines across an 18-tile row drew a grid over the dock: every
+ * group read as a boxed cell of equal weight, which is exactly what made the row
+ * hard to scan. A wider gap separates at least as clearly and adds nothing to
+ * look at. `flex: none` keeps it from shrinking when the dock wraps.
+ */
+.dockGap {
+  flex: none;
+  align-self: center;
+  /* 6px, not more: `.dock` already puts 6px between every flex child, so this
+   * span yields 18px of air around a group break against 6px inside a group —
+   * a clear break at a third of what a 10px span cost. Five spans at 10px
+   * pushed the row 20px past what a 900px-wide studio offers, and the last
+   * tile wrapped to a second row for no visual gain. */
+  width: 6px;
+  height: 1px;
+}
+
+/* ------------------------------------------------- floating composer */
+
+.composer {
+  position: absolute;
+  z-index: var(--z-composer);
+  /* 560px 是经验值。参数排排不下时折行（见 `.composerControls`），所以这里
+     不需要跟着内容变宽——输入条宽度稳定，面板多窄都放得下。 */
+  width: 560px;
+  max-width: calc(100% - 24px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--dsw-radius-lg);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 96%, transparent);
+  box-shadow: var(--dsw-shadow-lv3);
+  backdrop-filter: blur(10px);
+}
+
+.composerPrompt {
+  width: 100%;
+  min-height: 38px;
+  max-height: 120px;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 2px 4px;
+  cursor: text;
+}
+
+.composerPrompt::placeholder { color: var(--dsw-alias-label-tertiary); }
+
+/* 键盘焦点：同上——透明背景 + `outline: none`，Tab 进来没有可见状态。 */
+.composerPrompt:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.composerMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* 左：连接情况；右：出图方式。`min-height` 保证只有切换按钮、没有徽标时
+     这一行也有实体高度，不至于把输入条抖一下。 */
+  min-height: 28px;
+}
+
+.composerMetaSpacer { flex: 1 1 auto; }
+
+.composerChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, transparent);
+  color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent);
+}
+
+.composerControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* 排不下就折行，而不是压窄成员。参数控件的内容（模型名、「自动清晰度」）是
+     用户要读的东西，压窄只会把它变成「自…」——那是把信息删掉换行数。
+     实测这一排在 560px 的输入条里需要 649px（图片/视频 96 + 生成方式 89 +
+     模型 210 + 比例 89 + 清晰度 101 + 发送 34 + 五个间距 30），差 44px；
+     折行之后发送按钮仍靠右，最后一行不会孤零零只剩一枚图标。 */
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+/* 参数控件不压缩：它们的文字宽度就是信息的宽度。 */
+.composerControls > * { flex-shrink: 0; }
+
+/* One line of context under the composer controls: why this path needs
+   something (or does not), in the place the choice was made. */
+.composerHint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.composerHint[data-renderer-warning] { color: var(--dsw-alias-state-warn-primary, #f59e0b); }
+
+.composerControls [data-dsh-select] {
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  padding: 0 8px;
+  min-width: 0;
+  max-width: 128px;
+}
+
+.composerSend {
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: none;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-bg-layer-1);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composerSend:hover { opacity: 0.88; }
+.composerSend:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ------------------------------------------------------ config node */
+
+.configNode {
+  padding: 0 14px 14px;
+  cursor: grab;
+}
+
+.configNode .nodeHeader { padding: 10px 2px 6px; font-size: 12px; }
+
+.configLinks {
+  display: flex;
+  align-items: center;
+  /* 两个胶囊（计数 + 就绪）+ 6px 间隙，在 320px 的配置节点里刚好放得下——
+   * 但西里尔语的「已连接 N 个输入节点」比中文长得多，俄文界面下会溢出。
+   * 允许换行：溢出会被 `overflow: visible` 的卡片直接推到卡片外，而一张
+   * 卡片上的字跑到卡片外面，看起来像渲染坏了。 */
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 10px;
+  flex: none;
+}
+
+.configLinks .composerChip {
+  font-size: 11px;
+  padding: 3px 10px;
+}
+
+/*
+ * 就绪徽标。
+ *
+ * 与连线小条同排、同一档字号，但用**实心填充**分开：小条是一个计数（一个
+ * 事实），徽标是一句判断（要不要现在按下去）。在画布上，判断必须比计数更
+ * 显眼，否则用户会先读到「有 2 个输入」然后自己推断能不能跑。
+ *
+ * 用 `state-success-primary` 而不是品牌色：品牌色在这个主题里是中性反色，
+ * 一个「准备好了」的绿点必须是真的绿——它不是装饰，是语义。
+ */
+.configReady {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+}
+
+.configReady[data-config-ready] {
+  color: var(--dsw-alias-label-primary-foreground);
+  background: var(--dsw-alias-state-success-primary);
+}
+
+/* 缺东西不是错误：用户还没写完，不该被红点催。用 warn 的浅底 + 正文色，
+ * 只有当它变成 error（真跑失败了）时节点自己会红。 */
+.configReady[data-config-blocker] {
+  color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
+}
+
+.configHint {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: auto;
+}
+
+/*
+ * 配置节点上的「将要发出去的提示词」预览。
+ *
+ * 只读，但绝不能长得像禁用：它是这张卡片最实质的内容（这张图/这段视频到底
+ * 会被什么驱动），而禁用态灰字会让人以为它不可用。用正文色 + 比说明文字更紧
+ * 的行高，读起来是一段正文而不是一段注脚。
+ *
+ * 溢出裁切而不是滚动：卡片高度由用户拖定，一条滚动条在 320px 宽的卡片里会
+ * 占掉可用宽度的一大块，而且滚动的行为会让人以为它可以编辑。完整内容在
+ * 悬浮生成器里；这里回答「开头是不是我要的那句」就够了。
+ */
+.configPrompt {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  /* 三行之后渐隐，明确表示「还有，但不在这儿」——直接裁断会看起来像内容
+   * 丢了，而那正是这一块要安抚的疑虑。 */
+  mask-image: linear-gradient(to bottom, var(--dsw-alias-label-primary) 72%, transparent);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------ 套图（提示词组） */
+
+/* composer 那一侧的三态切换 + 套图编辑器 */
+.promptSetToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  overflow: hidden;
+  flex: none;
+}
+
+.promptSetToggle button {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-height: 28px;
+}
+
+.promptSetToggle button + button { border-left: 1px solid var(--dsw-alias-border-l1); }
+
+.promptSetToggle button[data-active] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.promptSetToggle button:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+/* 编辑器独占输入条的一行：它是一个多行列表，塞进 flex 横排会被压成一列。 */
+.promptSetEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 2px 2px;
+  min-width: 0;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.promptSetHint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.promptSetItem {
+  display: grid;
+  grid-template-columns: 18px 112px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.promptSetIndex {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.promptSetTitle,
+.promptSetPrompt {
+  min-width: 0;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  padding: 0 10px;
+  font-family: inherit;
+}
+
+.promptSetPrompt {
+  border-radius: var(--dsw-radius-md);
+  resize: none;
+  padding: 5px 10px;
+  line-height: 1.4;
+}
+
+.promptSetTitle::placeholder,
+.promptSetPrompt::placeholder { color: var(--dsw-alias-label-tertiary); }
+
+.promptSetTitle:focus-visible,
+.promptSetPrompt:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.promptSetRemove {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.promptSetRemove:hover { color: var(--dsw-alias-state-warn-primary, #f59e0b); }
+
+.promptSetRemove:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+.promptSetFooter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding-left: 26px;
+}
+
+.promptSetAdd {
+  border: 1px dashed var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.promptSetAdd:hover:not(:disabled) { color: var(--dsw-alias-label-primary); }
+
+.promptSetAdd:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.promptSetAdd:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+/* 卡片上的只读徽标：这张卡跑一次会出 N 张。 */
+.promptSetBadge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+  flex: none;
+}
+
+/* connection handles */
+
+.handle {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transform: translateY(-50%) scale(0.6);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 2px solid var(--dsw-alias-brand-primary);
+  opacity: 0;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  cursor: crosshair;
+  z-index: var(--z-content-raised);
+}
+
+.handleLeft { left: -7px; }
+.handleRight { right: -7px; }
+
+.node:hover .handle,
+.nodeSelected .handle,
+.nodeConnectTarget .handle {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+
+.handle:hover { background: var(--dsw-alias-brand-primary); }
+
+/* The source handle doubles as a quick-add button (hover opens the node
+ * picker, drag connects) so it reads as a Dify-style big ⊕. */
+.handleRight {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  right: -10px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--dsw-alias-brand-primary);
+}
+
+.handleRight::after { content: '+'; }
+
+.handleRight:hover { color: var(--dsw-alias-bg-layer-1); transform: translateY(-50%) scale(1.12); }
+
+/* Four generous corner grips: an image node is easy to enlarge before drawing
+ * annotation boxes on it. */
+.resizeHandle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-brand-primary);
+  border: 2px solid var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-shadow-lv1);
+  z-index: var(--z-content-raised);
+}
+
+.resizeHandle::after {
+  /* Invisible extension so the grip is grabbable beyond its visible dot. */
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+
+.resizeHandle[data-corner='nw'] { left: -7px; top: -7px; cursor: nwse-resize; }
+.resizeHandle[data-corner='ne'] { right: -7px; top: -7px; cursor: nesw-resize; }
+.resizeHandle[data-corner='sw'] { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.resizeHandle[data-corner='se'] { right: -7px; bottom: -7px; cursor: nwse-resize; }
+
+.resizeHandle:hover { transform: scale(1.15); }
+
+/* hover toolbar */
+
+.hoverToolbar {
+  position: absolute;
+  top: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  box-shadow: var(--dsw-shadow-lv2);
+  opacity: 0;
+  pointer-events: none;
+  /* `opacity: 0` and `pointer-events: none` both leave an element in the Tab
+   * order, so each node used to contribute 5-10 invisible focus stops: a
+   * keyboard user tabbing across the canvas landed on controls that were not
+   * on screen, and Enter then fired whichever one they had landed on --
+   * including the delete button. `visibility: hidden` is the one that actually
+   * removes the subtree from the tab order. */
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0s linear 0.12s;
+  z-index: var(--z-hover);
+}
+
+.node:hover .hoverToolbar,
+.nodeSelected .hoverToolbar,
+/* Focus is the third way in: a node toolbar reached by keyboard (or by a
+ * browser's own focus-follows-tab) has to become visible, or the user is
+ * typing into something they cannot see. */
+.node:focus-within .hoverToolbar {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition: opacity 0.12s ease, visibility 0s;
+}
+
+/* Image nodes hang their toolbar below the frame: the top edge is where the
+ * resize/hover affordances of the node above live, and the picture stays clear. */
+.hoverToolbarBottom {
+  top: auto;
+  bottom: -38px;
+}
+
+.toolbarDivider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 3px;
+  background: var(--dsw-alias-border-l1);
+}
+
+/* ------------------------------------------------------- snap guides */
+
+/* 拖动时那几条「你正贴着谁的边」的线（`snapGuides`）。
+ *
+ * 两层结构：外层是 `.world` 里的定位容器（本身不占空间、不吃指针），每一条线
+ * 是里面一个绝对定位的 1px 元素。为什么不用 SVG：线只有两种方向，而 SVG 需要
+ * 一个 viewBox 尺寸——世界坐标没有上限，写死一个尺寸就必然有一天下线。
+ *
+ * 颜色刻意**不是**品牌色。这套主题的品牌色就是黑与白（浅色 #0f1115 / 深色
+ * #f9fafb），一条纯黑白细线在网格背景上会被读成网格线的一条，而它与网格最
+ * 需要区分的地方恰恰是「这是临时的、有意义的」。用标注色（红）而不是警示色
+ * （琥珀）：红色在两张主题里都是同一个红，琥珀在浅色下偏土、在这套画布的
+ * 米色底上尤其糊。
+ *
+ * `mix-blend-mode: normal` 是默认值，但这里显式写出来是给未来的读者：
+ * 不要给它加 difference / multiply——线会穿过卡片，混合模式会让它在图片上变成
+ * 另一种颜色，而它要表达的只是一条坐标。 */
+.snapGuideLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  /* 在节点之上、悬停工具条之下：线要能压在卡片上（否则拖到别人身上就看不见
+     了），但不该盖住用户正要点的按钮。 */
+  z-index: var(--z-hover);
+}
+
+.snapGuide {
+  position: absolute;
+  display: block;
+  /* 世界坐标里是 1px；视口缩小时它会跟着变细，与卡片边框同一条规矩——放大后
+     一条 1px 的屏幕线会变成 0.2 世界像素，那样它就与本该对齐的边错开了。 */
+  width: 1px;
+  height: 1px;
+  background: var(--canvas-annotation);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.snapGuide[data-snap-guide='x'] { width: 1px; }
+
+.snapGuide[data-snap-guide='y'] { height: 1px; }
+
+/* -------------------------------------------------------- connections */
+
+.connectionLayer {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+  z-index: var(--z-canvas-links);
+}
+
+.connectionPath {
+  fill: none;
+  stroke-width: 1.8;
+  stroke-opacity: 0.9;
+  pointer-events: none;
+}
+
+.connectionActive {
+  stroke-width: 2.6;
+  stroke-opacity: 1;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, transparent));
+}
+
+/* ---------------------------------------- connections: 角色（role）
+ *
+ * 只有被显式标过 role 的连线才会挂上下面这些类。没标角色的连线（含全部
+ * 老画布）走的还是 `.connectionPath` + 渐变 + 默认箭头，外观与加角色之前
+ * 完全一致——这层样式不许反向影响它。
+ *
+ * 三种角色的读法：首帧/尾帧是决定成片的那两张，画粗、并在「进门的那一端」
+ * 加实心点；参考图只是素材、不占帧位，所以虚线 + 降透明度。
+ */
+
+.connectionRoleFirst {
+  stroke-width: 2.8;
+  stroke-opacity: 1;
+}
+
+.connectionRoleLast {
+  stroke-width: 2.8;
+  stroke-opacity: 1;
+}
+
+.connectionRoleReference {
+  stroke-width: 2;
+  stroke-opacity: 0.42;
+  stroke-dasharray: 7 6;
+}
+
+/* 选中态写在角色之后：两者同时挂在一条路径上，同特异度时后者生效，
+ * 所以选中的首帧线仍然比未选中的首帧线更亮。 */
+.connectionPath.connectionActive {
+  stroke-width: 3.2;
+  stroke-opacity: 1;
+}
+
+/* 「进门那一端」的实心点：箭头讲方向，圆点讲这一端被当成帧用。 */
+.connectionRoleDot {
+  fill: var(--dsw-alias-brand-primary);
+  stroke: var(--dsw-alias-bg-layer-1);
+  stroke-width: 1.6;
+  pointer-events: none;
+}
+
+/* 中点徽标：不接指针，否则从线上划过去会断掉连线的悬停/拖拽。
+ * 底色用 `paint-order: stroke` 描在字形外围——宽度由字体决定，不用测量。 */
+.connectionRoleBadgeText {
+  fill: var(--dsw-alias-label-secondary);
+  stroke: var(--dsw-alias-bg-layer-1);
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+  font-family: var(--dsw-font-family);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.connectionPreview {
+  fill: none;
+  stroke: var(--dsw-alias-brand-primary);
+  stroke-width: 2;
+  stroke-dasharray: 5 5;
+  pointer-events: none;
+}
+
+/* Leader line from an annotation box to the prompt card attached to it. Drawn
+ * in a layer above the nodes, so it stays visible over the picture it marks. */
+.annotationLinkLayer {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+  z-index: var(--z-content-raised);
+}
+
+.annotationLink {
+  fill: none;
+  stroke: var(--canvas-annotation);
+  stroke-width: 2;
+  stroke-dasharray: 5 5;
+  stroke-opacity: 0.85;
+  pointer-events: none;
+  filter: drop-shadow(0 0 3px var(--canvas-annotation-ink));
+}
+
+/* Anchor dot on the box edge: makes the line read as "coming out of the box". */
+.annotationLinkDot {
+  fill: var(--canvas-annotation);
+  stroke: var(--canvas-annotation-ink);
+  stroke-width: 1.6;
+  pointer-events: none;
+}
+
+/* Flow overlay: a soft light band glides from the path start (source) toward
+ * its end (target), echoing the direction of the gradient and arrowhead. */
+.connectionFlow {
+  fill: none;
+  stroke: var(--dsw-alias-brand-primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 30 90;
+  opacity: 0.4;
+  pointer-events: none;
+  animation: connectionFlow 1.6s linear infinite;
+}
+
+.connectionFlowActive {
+  stroke: var(--dsw-alias-brand-primary);
+  opacity: 0.85;
+}
+
+/* 参考图这条边只是素材，流光也弱下去：两条边并排时，能靠「哪条在动」一眼
+ * 分出决定成片的那条和供料的那条。 */
+.connectionFlowMuted {
+  opacity: 0.12;
+  stroke-dasharray: 14 116;
+}
+
+@keyframes connectionFlow {
+  to { stroke-dashoffset: -120; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connectionFlow { animation: none; opacity: 0.35; }
+}
+
+/* --------------------------------------------------------- empty hint */
+
+.emptyHint {
+  position: absolute;
+  /* 横向拉满而不是 `left: 50%` + `translateX(-50%)`：绝对定位元素用百分比
+   * 定位时，收缩宽度只能用到「剩下的那一半」容器宽度——1180px 的画布给这批
+   * 卡片只剩约 590px，五张卡因此折成 4+1，最后一张孤零零挂在下面。内容居中
+   * 交给 `align-items`，卡片行就能用满整条画布。 */
+  left: 0;
+  right: 0;
+  top: 44%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+  pointer-events: none;
+  z-index: var(--z-badge);
+}
+
+.emptyHint strong {
+  font-size: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.emptyHint span { font-size: 12px; max-width: 320px; line-height: 1.6; }
+
+/* LibTV 空态快捷卡：一排六张（五种节点 + 载入示例），点一下=现有 add 动作。emptyHint 整体
+   pointer-events:none（不挡画布手势），卡片行单独恢复可点。 */
+.quickRow {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.quickCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-radius: var(--dsw-radius-lg);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.quickCard:hover { border-color: var(--canvas-node-hover-edge); background: var(--dsw-alias-interactive-bg-hover); }
+.quickCard:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+
+.quickIcon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--dsw-radius-md);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* ------------------------------------------------------------ zoom dock */
+
+.zoomDock {
+  position: relative;
+  flex: none;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 88%, transparent);
+  box-shadow: var(--dsw-shadow-lv2);
+  backdrop-filter: blur(10px);
+}
+
+.zoomValue {
+  min-width: 40px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  text-align: right;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.zoomValue:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+
+/* 预设菜单从 zoom dock 向上开：chrome 钉在底边，下方没有空间。
+   表面配方与 backgroundMenu 一致，不新增 z-index rung。 */
+.zoomMenu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: var(--z-anchored-menu);
+  min-width: 160px;
+  padding: 5px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 96%, transparent);
+  box-shadow: var(--dsw-shadow-lv3);
+  display: flex;
+  flex-direction: column;
+}
+
+.zoomMenu button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.zoomMenu button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.zoomMenu button[data-active] {
+  color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+}
+
+.zoomMenuDivider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--dsw-alias-border-l1);
+}
+
+.zoomCustom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 2px;
+}
+
+.zoomCustom input {
+  width: 64px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+}
+
+.zoomCustom button {
+  height: 26px;
+  padding: 0 8px;
+  justify-content: center;
+}
+
+/* -------------------------------------------------------------- minimap */
+
+.minimap {
+  position: relative;
+  flex: none;
+  pointer-events: auto;
+  width: 220px;
+  height: 150px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 88%, transparent);
+  box-shadow: var(--dsw-shadow-lv2);
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+}
+
+.minimapCanvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+/* 连线层铺满缩略图，压在方块下面。层叠顺序靠 DOM：「先画的连线、后画的方块」
+ * 本身就是它要的顺序，所以这一层不设 z-index —— 一设就得挑一个数字，而那会
+ * 让缩略图内部的图层关系和全站有序阶梯混在一起，两处以后会各自漂移。 */
+.minimapEdges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 连线的强度按「它是流程，不是内容」定：比任何方块都淡，但仍然看得见走向。
+ * 1.2px 是 220px 宽的缩略图上一条线还能被认出来的下限；再细会和 1px 的
+ * 方块边框混成同一层。 */
+.minimapEdge {
+  stroke: var(--dsw-alias-label-primary);
+  stroke-opacity: 0.28;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.minimapNode {
+  position: absolute;
+  border-radius: var(--dsw-radius-xs);
+  /* 方块上的 `data-state` 负责「有没有东西」，颜色只负责「是哪一种」。两者
+   * 分开，是因为一张草图和一个空配置节点在版图上都是「还没产出」，但它们
+   * 完全不是一回事。 */
+  opacity: 0.85;
+}
+
+/*
+ * 八种节点的深浅阶梯。
+ *
+ * 排序即信息量：生成的图最实（那是用户在找的东西），素材与文件次之，流程
+ * 骨架（配置）和文字最淡（它们是通往产出的路，不是产出）。草图与姿势人偶
+ * 单独一档：它们看起来像图，但其实还只是「我要拿去做图的输入」，用中等的
+ * 实心加一条虚线边把它们和真产物分开。
+ */
+.minimapKindImage { background: var(--dsw-alias-label-primary); }
+.minimapKindVideo { background: var(--dsw-alias-label-primary); }
+.minimapKindFile { background: var(--dsw-alias-label-primary); }
+.minimapKindStoryboard { background: var(--dsw-alias-label-primary); }
+.minimapKindSketch {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 45%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--dsw-alias-label-primary) 70%, transparent);
+}
+.minimapKindPose {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 45%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--dsw-alias-label-primary) 70%, transparent);
+}
+.minimapKindConfig { background: color-mix(in srgb, var(--dsw-alias-label-primary) 46%, transparent); }
+.minimapKindText { background: color-mix(in srgb, var(--dsw-alias-label-primary) 30%, transparent); }
+
+/* 空节点留轮廓、不填实内容：在缩略图上「还没产出」必须一眼看得出，否则一张
+ * 排满空卡片的版图会被读成「都做好了」。 */
+.minimapNode[data-state="empty"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-label-primary) 38%, transparent);
+}
+
+/* 在跑：用内描边而不是动画。缩略图唯一常驻的动效应该是视口框，多一条不断
+ * 闪的东西会把注意力从「我在哪」拽走。 */
+.minimapNode[data-state="running"] {
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-brand-primary);
+}
+
+.minimapNode[data-state="error"] {
+  background: var(--dsw-alias-state-error-primary);
+  box-shadow: none;
+}
+
+.minimapSelected { outline: 1.5px solid var(--dsw-alias-brand-primary); }
+
+.minimapViewport {
+  position: absolute;
+  border: 1.5px solid var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);
+  border-radius: var(--dsw-radius-xs);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------ inspector */
+
+.inspectorRow {
+  display: flex;
+  gap: 8px;
+}
+
+.inspectorRow > * { flex: 1; min-width: 0; }
+
+/* --------------------------------------------------------- context menu */
+
+.contextMenu {
+  position: fixed;
+  z-index: var(--z-context-menu);
+  min-width: 176px;
+  padding: 5px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 96%, transparent);
+  box-shadow: var(--dsw-shadow-lv3);
+  display: flex;
+  flex-direction: column;
+}
+
+.contextMenu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.contextMenu button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.contextMenu button[data-danger] { color: var(--dsw-alias-state-error-primary, #ec1313); }
+
+/* 身份锚定角标：贴在图片节点左上角。用星形语义（钉住），不是彩色强调——
+   --dsw-alias-brand-primary 是中性反转色，这里只做底片。 */
+.castBadge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: var(--z-content);
+  max-width: calc(100% - 12px);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 78%, transparent);
+  color: var(--dsw-alias-bg-layer-1);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  backdrop-filter: blur(3px);
+}
+
+/* 锁定标记：右上角一枚小锁。
+
+   用 `label-secondary` 而不是警告色——锁不是错误，是用户自己拉的一道闸；把它
+   画成橙的会让一整排锁着的卡片看起来都出了事。`pointer-events: none`：它是一枚
+   状态徽标，挡住下面卡片的拖动就是反效果（锁住的卡本来就该由「解锁」按钮打开，
+   而不是由这枚图标）。 */
+.lockedBadge {
+  position: absolute;
+  /* 挂在卡片**外沿**的右上角，和拼接序号（左上角 -10px）对称。
+   *
+   * WHY 不在内部右上角：那里是文本卡的 A- / A+ / B / 取色 那一排工具条，锁徽标
+   * 会被它整个盖住——真机截图里量到的命中目标是 `textTool`，而不是徽标自己。
+   * 锁的全部意义是「你以为能拖，其实拖不动」，一个被自己卡片的工具栏盖住的
+   * 锁，在体验上等于没有锁。
+   *
+   * 也不压四个角上的缩放手柄（`-7px`、12×12）：真机量到的最上层元素一度是
+   * `resizeHandle`，那时徽标正好落在东北角那只手的命中区里——用户去拖角，
+   * 拖到的是一枚不动的锁。
+   *
+   * 与 hoverToolbar（`top: -36px` 居中）也不会撞车：徽标贴右上、工具条居中，
+   * 窄卡上仍隔得开；真撞上时徽标在下（z-index 更低），而悬停工具条是用户主动
+   * 叫出来的，那一刻他看的是按钮。 */
+  top: -9px;
+  right: 26px;
+  z-index: var(--z-content);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 86%, transparent);
+  color: var(--dsw-alias-label-secondary);
+  border: 1px solid var(--dsw-alias-border-l1);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------- error toast */
+
+.errorToast {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  z-index: var(--z-notice);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(680px, 88%);
+  padding: 9px 12px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 35%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 12%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: var(--dsw-shadow-lv2);
+}
+
+/* 工作流进度：贴在画布底部居中，位于 dock 之上但不出画布区域。
+   档位沿用 --z-notice，不新增 rung——项目的 z-index 表有契约测试。 */
+.workflowBar {
+  position: absolute;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  z-index: var(--z-notice);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, 88%);
+  padding: 8px 12px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: var(--dsw-shadow-lv2);
+}
+
+.workflowBar button {
+  flex: none;
+  border: 1px solid currentColor;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 3px 9px;
+  font-size: 12px;
+}
+
+.errorToast button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  flex: none;
+}
+
+/* Action attached to a toast (e.g. "install the missing skill"). */
+.errorToastAction {
+  flex: none;
+  border: 1px solid currentColor !important;
+  border-radius: var(--dsw-radius-sm);
+  padding: 3px 9px !important;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Success variant of the same toast (background removal / layer split). */
+.errorToast[data-variant='notice'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 38%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ---------------------------------------------------------- picker modal */
+
+.modalBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-scrim);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 32%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.picker {
+  width: min(720px, 92%);
+  max-height: 84%;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--dsw-radius-lg);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-shadow-lv3);
+  overflow: hidden;
+}
+
+.pickerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.pickerHeader button {
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.pickerTabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 14px 0;
+}
+
+.pickerTabs button {
+  border: none;
+  border-radius: var(--dsw-radius-sm) var(--dsw-radius-sm) 0 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.pickerTabs button[data-active] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.pickerBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.pickerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.pickerCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  padding: 6px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--dsw-alias-label-primary);
+}
+
+.pickerCard[data-selected] {
+  border-color: var(--dsw-alias-brand-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 25%, transparent);
+}
+
+.pickerCard img {
+  width: 100%;
+  height: 110px;
+  object-fit: cover;
+  border-radius: var(--dsw-radius-sm);
+}
+
+.pickerCardPrompt {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickerCard small {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+}
+
+.pickerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.pickerFooter button,
+.generateForm button {
+  height: 32px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-bg-base, #fff);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pickerFooter button:disabled,
+.generateForm button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.uploadBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 220px;
+  border: 1.5px dashed color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent);
+  border-radius: var(--dsw-radius-md);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  text-align: center;
+}
+
+.uploadBox:hover { border-color: var(--dsw-alias-brand-primary); }
+.uploadBox input { display: none; }
+.uploadBox small { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+
+.uploadIcon { color: var(--dsw-alias-brand-primary); }
+
+.generateForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.generateForm textarea {
+  min-height: 110px;
+  resize: vertical;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 8px 10px;
+  outline: none;
+}
+
+/* 键盘焦点：同一表单里 `button` 有自己的 hover 态，textarea 只有 `outline: none`。 */
+.generateForm textarea:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.generateForm [data-dsh-select] {
+  height: 30px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+/* ------------------------------------------------ canvas file nodes */
+
+.fileBody {
+  flex: 1;
+  min-height: 0;
+  margin: 0 8px 8px;
+  border-radius: var(--dsw-radius-sm);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.fileBody img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.fileFrame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+.fileText {
+  margin: 0;
+  padding: 9px 11px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.filePlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+/* ---------------------------------------------- canvas skills / polish */
+
+.skillScrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-scrim);
+}
+
+.skillMenu {
+  position: fixed;
+  z-index: var(--z-popover-raised);
+  width: 360px;
+  max-height: min(70vh, 520px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 97%, transparent);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--dsw-shadow-lv3);
+  overflow: hidden;
+}
+
+.skillMenuHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.skillMenuClose {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.skillMenuClose:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+
+.skillSearch {
+  margin: 0 12px 6px;
+  height: 28px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 0 9px;
+  outline: none;
+}
+
+.skillSearch:focus { border-color: var(--dsw-alias-brand-primary); }
+
+.skillBatch {
+  margin: 0 12px 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-brand-primary);
+}
+
+.skillList {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 7px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skillGroup {
+  margin: 7px 6px 3px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.skillHint {
+  margin: 6px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.skillRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  padding: 7px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.skillRow:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.skillRow[data-disabled=''] { opacity: 0.42; }
+.skillRow[data-disabled='']:hover { background: transparent; }
+
+.skillRowIcon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: var(--dsw-radius-sm);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.skillRowText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+  /* The row itself is the interactive surface; this is the label button. */
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.skillRowText:disabled { cursor: not-allowed; }
+
+.skillRowText strong {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skillRowText small {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-tertiary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.skillTier {
+  flex: none;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--dsw-alias-label-secondary);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+}
+
+.skillTier[data-tier='heavy'] {
+  color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent);
+}
+
+/* Header group: title with an optional small subtitle (target node, counts). */
+.skillMenuTitleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.skillMenuSubtitle {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
+}
+
+/* ----------------------------------------------- live skill run cards */
+
+/* Ephemeral world-layer card that a queued skill run grows out of its source
+   node. Gone the moment the run's output nodes land (or the user dismisses a
+   failure), so it never pollutes the document or the undo history. */
+.skillRunNode {
+  position: absolute;
+  z-index: var(--z-badge);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 34%, var(--dsw-alias-border-l1));
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 96%, transparent);
+  box-shadow: var(--dsw-shadow-lv3);
+  user-select: none;
+}
+
+.skillRunNode[data-status='failed'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 42%, var(--dsw-alias-border-l1));
+}
+
+.skillRunNode[data-status='pending'] { opacity: 0.85; }
+
+.skillRunHeader {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.skillRunSpinner {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 30%, transparent);
+  border-top-color: var(--dsw-alias-brand-primary);
+  animation: canvasSpin 0.8s linear infinite;
+}
+
+.skillRunTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.skillRunSteps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 1px;
+}
+
+.skillRunStep {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
+  transition: background 0.3s ease;
+}
+
+.skillRunStep[data-active] {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, transparent);
+  animation: skillRunPulse 1.4s ease-in-out infinite;
+}
+
+.skillRunStep[data-done] { background: var(--dsw-alias-brand-primary); }
+
+.skillRunStage {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skillRunError {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.skillRunFooter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skillRunElapsed {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.skillRunBtn {
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.skillRunBtn:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+
+/* The animated edge from the source node into its run card. */
+.skillRunEdge {
+  fill: none;
+  stroke: var(--dsw-alias-brand-primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 7 7;
+  opacity: 0.65;
+  animation: skillRunDash 0.9s linear infinite;
+}
+
+@keyframes skillRunDash {
+  to { stroke-dashoffset: -14; }
+}
+
+@keyframes skillRunPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.polishCustom {
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  padding: 9px 12px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.skillDialog {
+  position: fixed;
+  z-index: var(--z-popover-raised);
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 40px));
+  border-radius: var(--dsw-radius-lg);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-shadow-lv3);
+  padding: 16px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skillDialog h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.skillDialogBody {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.skillDialogNote {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.skillDialogInput {
+  min-height: 68px;
+  resize: vertical;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 8px 10px;
+  outline: none;
+  font-family: inherit;
+}
+
+.skillDialogInput:focus { border-color: var(--dsw-alias-brand-primary); }
+.skillDialogInput[data-dsh-select] { min-height: 34px; resize: none; }
+
+.skillDialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.skillGhost,
+.skillPrimary {
+  border-radius: var(--dsw-radius-sm);
+  font-size: 12px;
+  padding: 7px 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.skillGhost {
+  background: transparent;
+  border-color: var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.skillGhost:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.skillPrimary {
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary);
+}
+
+.skillPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ------------------------------------------------------- skill library ---
+   Management dialog behind the dock's「技能库」entry: installed skills, a URL
+   installer, an archive upload and (when a catalog entry needs one) a one-click
+   install for a known upstream. */
+
+.libraryDialog {
+  width: min(600px, calc(100vw - 40px));
+  max-height: min(78vh, 680px);
+  gap: 10px;
+}
+
+.libraryBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.librarySection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 2.5%, transparent);
+}
+
+.librarySectionTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Dashed upload zone: click or drop a .zip archive. */
+.libraryDrop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 12px;
+  border-radius: var(--dsw-radius-md);
+  border: 1.5px dashed color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.libraryDrop:hover,
+.libraryDrop[data-active] {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, transparent);
+}
+
+.libraryRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.libraryInput {
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 8px 10px;
+  outline: none;
+  font-family: inherit;
+}
+
+.libraryInput:focus { border-color: var(--dsw-alias-brand-primary); }
+
+.libraryCheck {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.libraryList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.libraryEntry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  transition: border-color 0.15s ease;
+}
+
+.libraryEntry:hover { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 30%, var(--dsw-alias-border-l1)); }
+
+.libraryEntryText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.libraryEntryText strong {
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.libraryEntryText small {
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.libraryEntryMeta {
+  flex: none;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Why the node skill menu cannot offer this entry (the host renders the copy). */
+.libraryEntryText small.libraryEntryIssue {
+  font-size: 11px;
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+  white-space: normal;
+  overflow: visible;
+}
+
+/* One installed skill plus its optional configuration form. */
+.libraryEntryGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.libraryRemove[data-variant='config'] {
+  color: var(--dsw-alias-label-primary);
+}
+
+.skillConfig {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px dashed var(--dsw-alias-border-l1);
+}
+
+.skillConfigFields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skillConfigField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.skillConfigLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.skillConfigRequired {
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+  font-style: normal;
+  margin-left: 3px;
+}
+
+.skillConfigHint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.skillConfigClear {
+  flex: none;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  border-radius: var(--dsw-radius-sm);
+  font-size: 11px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+
+.skillConfigSteps {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.skillConfigSteps li[data-ok=''] {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.skillConfigSteps code {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.libraryRemove {
+  flex: none;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+  border-radius: var(--dsw-radius-sm);
+  font-size: 11px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+
+.libraryRemove:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+/* Inline "needs installing" affordance inside the skill picker. */
+.skillInstall {
+  flex: none;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary);
+  border-radius: var(--dsw-radius-sm);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.skillInstall:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.skillMissing {
+  flex: none;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@keyframes canvasSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ------------------------------------------- canvas file previews */
+
+/* The node body is the preview surface itself: media stretches, documents
+   scroll, and every branch stays inside the node frame. */
+.fileMedia {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 10px;
+  box-sizing: border-box;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fileMedia audio { width: 100%; max-width: 260px; height: 32px; }
+
+.fileVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--dsw-alias-bg-base);
+  display: block;
+}
+
+.fileSpinner { animation: canvasSpin 0.9s linear infinite; }
+
+.fileRetry {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.fileRetry:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+/* One-line note under a preview: truncation and extraction caveats. */
+.fileNotice {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px 6px;
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fileNotice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------- tables / archives */
+
+.fileTableWrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+.fileTable {
+  border-collapse: collapse;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.fileTable th,
+.fileTable td {
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent);
+  padding: 3px 6px;
+  text-align: left;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileTable th {
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.fileTableWrap[data-expanded] .fileTable { font-size: 12px; }
+
+.fileArchiveList {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  box-sizing: border-box;
+}
+
+.fileArchiveRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: var(--dsw-radius-sm);
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.fileArchiveRow[data-dir] { color: var(--dsw-alias-label-primary); font-weight: 600; }
+
+.fileArchiveName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileArchiveSize {
+  flex: none;
+  font-size: 10px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ------------------------- rich rendered previews (markdown / html / docx) */
+
+/* Rendered rich text shared by the Markdown and DOCX renderers. */
+.fileDoc {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.fileDoc h1, .fileDoc h2, .fileDoc h3, .fileDoc h4, .fileDoc h5, .fileDoc h6 {
+  margin: 14px 0 6px;
+  color: var(--dsw-alias-label-primary);
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.fileDoc > :first-child { margin-top: 0; }
+.fileDoc h1 { font-size: 18px; }
+.fileDoc h2 { font-size: 16px; }
+.fileDoc h3 { font-size: 14px; }
+.fileDoc h4 { font-size: 13px; }
+.fileDoc h5, .fileDoc h6 { font-size: 12px; }
+
+.fileDoc p { margin: 0 0 8px; white-space: pre-line; }
+.fileDoc ul, .fileDoc ol { margin: 0 0 8px; padding-left: 20px; }
+.fileDoc li { margin: 2px 0; white-space: pre-line; }
+.fileDoc li::marker { color: var(--dsw-alias-label-tertiary); }
+
+.fileDoc blockquote {
+  margin: 0 0 8px;
+  padding: 2px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fileDoc pre {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: var(--dsw-radius-sm);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
+  overflow: auto;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.fileDoc code {
+  padding: 1px 4px;
+  border-radius: var(--dsw-radius-xs);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+  font-size: 0.92em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.fileDoc pre code { padding: 0; background: transparent; font-size: 11px; }
+.fileDoc a { color: var(--dsw-alias-brand-primary); text-decoration: none; }
+.fileDoc a:hover { text-decoration: underline; }
+.fileDoc img { max-width: 100%; border-radius: var(--dsw-radius-sm); }
+.fileDoc hr { border: none; border-top: 1px solid var(--dsw-alias-border-l1); margin: 12px 0; }
+.fileDoc strong { color: var(--dsw-alias-label-primary); }
+
+.fileDoc table { border-collapse: collapse; margin: 0 0 10px; max-width: 100%; }
+
+.fileDoc th,
+.fileDoc td {
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
+  padding: 3px 8px;
+  text-align: left;
+  font-size: 11px;
+}
+
+.fileDoc th {
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.fileOverlayBody .fileDoc { font-size: 13px; padding: 16px 22px; }
+
+/* SVG stage: the blob-rendered image keeps its aspect ratio inside the node. */
+.fileSvg {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.fileSvg img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+/* Rendered / source switch shown above rich previews in the overlay. */
+.fileSourceRow { flex: none; display: flex; gap: 4px; padding: 8px 12px 0; }
+
+.fileSourceBtn {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.fileSourceBtn:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+
+.fileSourceBtn[data-active] {
+  color: var(--dsw-alias-brand-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);
+}
+
+/* Slide deck: one card per slide with number, title, pictures and bullets. */
+.fileSlides {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.fileSlide {
+  flex: none;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 96%, transparent);
+  overflow: hidden;
+}
+
+.fileSlideHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.fileSlideNum { flex: none; font-size: 10px; color: var(--dsw-alias-label-tertiary); }
+
+.fileSlideTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.fileSlideImages { padding: 8px 11px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+
+.fileSlideImages img {
+  max-width: 100%;
+  max-height: 150px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+}
+
+.fileSlideLines { padding: 7px 13px 9px; display: flex; flex-direction: column; gap: 3px; }
+
+.fileSlideLine {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.fileSlideLine::before { content: '•'; flex: none; color: var(--dsw-alias-label-tertiary); }
+
+.fileSlideLine span { min-width: 0; white-space: pre-line; word-break: break-word; }
+
+.fileOverlayBody .fileSlides { padding: 14px; gap: 14px; }
+.fileOverlayBody .fileSlideImages img { max-height: 300px; }
+.fileOverlayBody .fileSlideLine { font-size: 13px; }
+
+/* ------------------------------------------------- full-screen reader */
+
+.fileOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-file-overlay);
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 46%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.fileOverlayPanel {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, 94vw);
+  height: min(820px, 88vh);
+  border-radius: var(--dsw-radius-lg);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 98%, transparent);
+  box-shadow: var(--dsw-shadow-lv3);
+  overflow: hidden;
+}
+
+.fileOverlayPanel[data-media='audio'] { height: auto; min-height: 220px; }
+
+.fileOverlayHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.fileOverlayIcon { display: grid; place-items: center; color: var(--dsw-alias-label-tertiary); }
+
+.fileOverlayTitle {
+  font-weight: 600;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileOverlayMeta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fileOverlayActions { flex: none; display: flex; align-items: center; gap: 4px; }
+
+.fileAction {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.fileAction:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+
+.fileOverlayBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.imageViewer {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 82%, transparent);
+}
+
+.imageViewerControls {
+  position: absolute;
+  z-index: var(--z-content-raised);
+  top: 10px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  box-shadow: var(--dsw-shadow-lv2);
+}
+
+.imageViewerControls button {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.imageViewerControls button:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.imageViewerControls button:disabled {
+  opacity: .38;
+  cursor: default;
+}
+
+.imageViewerControls .imageViewerZoomValue {
+  min-width: 48px;
+  font-variant-numeric: tabular-nums;
+}
+
+.imageViewerStage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+}
+
+.imageViewer[data-compact] .imageViewerStage {
+  padding: 0;
+}
+
+.imageViewerCanvas {
+  flex: none;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.imageViewerCanvas img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.fileOverlayBody .fileFrame { flex: 1; min-height: 0; }
+
+.fileOverlayText {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--dsw-alias-label-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.fileOverlayBody .fileTableWrap { padding: 10px; }
+
+
+/* --- video nodes and the composer's video kind ----------------------------- */
+
+/* The composer's image/video switch: a compact segmented control that sits
+   ahead of the per-kind selects. */
+.composerKind {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.composerKind button {
+  height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.composerKind button:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.composerKind button[data-active] {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-brand-primary);
+}
+
+/* The clip fills the node body; `object-fit` keeps the aspect ratio honest when
+   the node box has been resized by hand. */
+.fileBody[data-video-body] .fileVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--dsw-alias-bg-base);
+}
+
+.imageFooter[data-video-footer] .imageFooterSize {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Full-screen clip player. Kept separate from the file overlay because a clip
+   has no canvas asset to resolve; it plays straight from the video store. */
+.videoPreview {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-media-viewer);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: var(--dsw-alias-bg-mask-1);
+}
+
+.videoPreviewPlayer {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.videoPreviewClose {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.videoPreviewClose:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* ----------------------------------------------------------- clip stitching */
+
+/* Order badge on a selected clip. Sits above the node's own chrome and must
+   never take a pointer event: the node underneath is still being dragged and
+   marquee-selected while the badge is on. */
+.composeBadge {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  z-index: var(--z-hover);
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-bg-layer-1);
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------- full overlap */
+
+/* 一个节点被另一个完全盖住时：两个都描红，因为用户看到的是「一个框」，得
+   让这个框自己说明它属于哪一对。用 warning 而不是 error——这是可撤销的摆放
+   状态，不是失败。
+
+   色值必须取 dsh 真有的 `--dsw-alias-state-warn-primary`：`--dsw-alias-label-error`
+   这个变量在本版主题里并不存在（实测逐个元素扫过 542 个 token），写它等于没写，
+   边框会掉回继承色。 */
+.nodeOverlap {
+  border-color: var(--dsw-alias-state-warn-primary, #f59e0b);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 26%, transparent);
+}
+
+.nodeRunFailed {
+  border-color: var(--dsw-alias-state-error-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-error-primary) 22%, transparent);
+}
+
+/* 被上游挡住的节点用虚线描边：它「这次没跑」，不是「跑坏了」。实线红会让
+   人以为要重试它，而真正该动的是上面那个失败的。 */
+.nodeRunBlocked {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent);
+}
+
+/*
+ * 历史面板的悬停预览：这一步会动到的是哪几张卡。
+ *
+ * 与 `.nodeSelected` 刻意长得不一样。选中是「你现在操作的就是这几张」，实线 +
+ * 实心阴影；预览是「你正在看的这一步曾经碰过这几张」，虚线 + 不加阴影——两者
+ * 若同款，用户会以为历史面板已经替他把选择改了（而它其实什么都没改）。
+ *
+ * 用虚线还有一个实际好处：与 `.nodeRunBlocked` 同为虚线但颜色不同（那边是警
+ * 告黄、这里是品牌色），一张同时「被挡住」和「在预览里」的卡不会丢掉任何一个
+ * 信息——后写的 box-shadow 只叠加不覆盖边框色，而 border-style 两边一致。
+ *
+ * `outline` 而不是 `box-shadow`：outline 不参与布局、不改变 getBoundingClientRect，
+ * 而预览每帧都在随指针移动，任何影响几何的写法都会让画布在悬停时抖一下。
+ */
+.nodeHistoryPreview {
+  outline: 2px dashed var(--dsw-alias-brand-primary);
+  outline-offset: 3px;
+}
+
+/**
+ * 运行痕迹徽标，右上角。
+ *
+ * 三个角已经各有主：左上身份锚定、左下胶带序号、右下重叠警告。右上角在
+ * 所有节点形态上都是空的，而且「右上 = 这张卡此刻的结论」在画布上和其它
+ * 工具是一致的阅读方向。
+ */
+.runMark {
+  position: absolute;
+  right: -8px;
+  top: -10px;
+  z-index: var(--z-hover);
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-bg-layer-1);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.runMark[data-run-mark="failed"] {
+  background: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-label-primary-foreground, #fff);
+}
+
+.runMark[data-run-mark="blocked"] {
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 18%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+}
+
+/* 「这张被整张盖住了」。它画在 `.world` 覆盖层上（不是卡片内），坐标由
+   CanvasWorkspace 按被盖住那张卡的右下角给出——正是那块卡看不见的地方，也
+   正因为看不见，这条提示必须由外层来说。左上角是身份锚定徽标、右上角是胶带
+   序号与运行痕迹，只有右下角在各种节点类型上都空着。
+
+   `transform: translateY(-100%)` 把徽标整体挪到那个点之上：`left/top` 给的是
+   被盖住卡片的右下角，徽标自己占一圈高，不挪的话它会压在卡片外面而不是贴着。 */
+.overlapBadge {
+  position: absolute;
+  transform: translate(8px, -100%);
+  z-index: var(--z-hover);
+  max-width: 220px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-label-primary-foreground, #fff);
+  background: var(--dsw-alias-state-warn-primary, #f59e0b);
+  color: var(--dsw-alias-label-primary-foreground, #fff);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+/* Multi-select strip, on the first line of the chrome row: says what a stitch
+   would cover and in which order, matching the badges.
+
+   WHY it is not an absolute layer any more: it used to sit at bottom: 66px,
+   which is exactly where the align bar now lives. Two independently positioned
+   floating strips do not know each other's height, so whichever renders later
+   paints over the other -- and this is the same mistake the dock / zoom dock /
+   minimap made before they were folded into one wrapping flex row. Both strips
+   are now members of that row and cannot overlap by construction. */
+.composeBar {
+  flex: 0 0 100%;
+  width: fit-content;
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--dsw-shadow-lv2);
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  pointer-events: none;
+}
+
+.composeBarIcon {
+  font-size: 12px;
+  color: var(--dsw-alias-brand-primary);
+}
+
+.composeBarOrder {
+  letter-spacing: 1px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* The strip is a read-out first, so it stays click-through; only the stitch
+   button opts back in. Without this it would inherit the container's
+   `pointer-events: none` and the one control in the bar would be unclickable. */
+.composeBarRun {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-left: 2px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-bg-base, #fff);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.composeBarRun:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.composeBarRun:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------- hidden bar */
+
+/* 「N 张卡片已隐藏 / 全部显示」。
+ *
+ * WHY 一定要有这条：隐藏是**单向**的。卡片从画面上消失之后，选中、框选、⌘A
+ * 都碰不到它，用户在画布上再也找不到把它叫回来的入口。没有这条提示，隐藏就
+ * 等于「删除，但还占着导出」。
+ *
+ * WHY 和拼接条同一套外观：两者都是「当前状态的一句话 + 一个动作」，出现在
+ * 同一行里。换一套配方会让用户以为这是另一种层级的东西。
+ *
+ * WHY 不是 absolute 层：与 `.composeBar` / `.alignBar` 完全相同的教训——
+ * 底栏这一行是唯一知道彼此高度的布局，多一个绝对层就是多一次互相压住。 */
+.hiddenRow {
+  flex: 0 0 100%;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.hiddenBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px dashed var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--dsw-shadow-lv2);
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  /* 条子本身是读数，让它穿透；唯一的按钮自己 opt in。 */
+  pointer-events: none;
+}
+
+/* 虚线边框而不是实线：这条提示描述的是「画布此刻少了一些东西」，不是画布的
+   常态。实线边框会把它读成底栏的一部分。 */
+.hiddenBarIcon {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.hiddenBarShow {
+  pointer-events: auto;
+  height: 20px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.hiddenBarShow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* --------------------------------------------------------------- align bar */
+
+/* 多选时出现在底栏上方那一行的对齐条。
+ *
+ * WHY 在 `.canvasChrome` 里面、而不是又一个 `position: absolute`：
+ * 这里是踩过的坑。底栏、缩放排、缩略图原本各自绝对定位，在真实面板宽度下
+ * 互相压住——这就是整个布局守卫存在的原因。对齐条第一版又犯了同一个错
+ * （`bottom: 66px` 的绝对层），在 860px 及以下直接压在缩放排上 805–7625px²；
+ * 守卫当场抓住了它。
+ *
+ * 所以它现在是弹性行的第一个成员，`flex-basis: 100%` 让它独占一行：
+ *  - 排在底栏**上面**，因为它是一个会改坐标的动作，不该盖住底栏；
+ *  - 行高由内容决定，`.canvasChrome` 向上长，底栏那一行仍贴着底边不动；
+ *  - 它与任何东西都不可能在几何上重叠，因为它和它们在同一条流里。
+ * `margin-inline: auto` 让它像底栏一样居中（容器是 flex-start）。 */
+/* 对齐条所在的那一行：永远是自己的整行，内容居中。
+   行本身不吃点击（否则它会拦住画布上的框选起点），只有药丸吃。 */
+.alignRow {
+  flex: 0 0 100%;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.alignBar {
+  display: flex;
+  align-items: center;
+  /* 窄面板下八枚按钮 + 读数会超过一行：允许换行，而不是溢出到画布外面。
+     `max-width` 与 `.canvasChrome` 的左右 padding 对齐，圆角药丸不会被切。 */
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100% - 8px);
+  gap: 2px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--dsw-shadow-lv2);
+  pointer-events: auto;
+}
+
+.alignBarLabel {
+  padding: 0 8px 0 4px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.alignBarSlot {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 六枚对齐与两枚分布之间的一条竖线：它们的差别是「选中两个就够」与
+   「至少要三个」，靠间距分不出来，靠一条线才分得出来。 */
+.alignBarDivider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--dsw-alias-border-l1);
+}
+
+.alignBarButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.alignBarButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.alignBarButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.alignBarButton:disabled:hover {
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* `local` shares the accent of `heavy` (both leave the plain chat call) but
+   reads as its own tier, because it spends the user's machine, not a model. */
+.skillTier[data-tier='local'] {
+  color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 14%, transparent);
+}
+
+/* ---------------------------------------------------------- 姿势节点 ---
+   姿势节点是一块人偶预览 + 预设条 + 关节滑杆。卡片外观沿用 `.node`；
+   内部按「方形预览 → 预设条 → 关节控件 → 底部朝向」纵向排，每段都不滚动，
+   因为滑杆行一旦跟着换行变高，节点高度就会跳。 */
+
+.poseNode { cursor: default; }
+
+.pose {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 8px;
+  /* 节点可以被拖到任意尺寸，面板不能跟着溢出：底部的「重置」是最后一行，
+     溢出节点就再也点不到。纵向滚动是可接受的退路，横向不滚。 */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/*
+ * 预览：正方形、可拖动环绕。cursor 明示「这里能转视角」。
+ */
+.posePreview {
+  /* 正方形预览，宽度跟着节点走（100% 减去面板内边距）。
+     `aspect-ratio: 1` 在这里以宽度为基准定高；不给 height/max-height，
+     因为在 flex 列里 `max-height: 100%` 解析不出确定值，反而会把预览拉成
+     比宽还高（实测 300×325）。高度留给 aspect-ratio 一处决定。 */
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 1;
+  margin-inline: auto;
+
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
+  cursor: grab;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.posePreview:active { cursor: grabbing; }
+
+.poseCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 预设条：横向滚动，不换行——换行会把下面的控件整体推下去。 */
+.posePresets {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 1px 0;
+  /**
+   * A hidden scrollbar plus a hard cut is how "there is more here" turns into
+   * "this is broken". The card is 320px wide and eleven presets never fit, so
+   * the last pill was always sliced in half — the exact shape of a layout bug.
+   * The fade is the affordance: it only shows on the side that has content
+   * scrolled away, because `mask` is composed from the element's own scroll
+   * state via the `data-` flags below.
+   */
+  mask-image: linear-gradient(to right, transparent 0, black 8px, black calc(100% - 8px), transparent 100%);
+}
+
+.posePresets[data-scroll-start] {
+  mask-image: linear-gradient(to right, black 0, black calc(100% - 8px), transparent 100%);
+}
+
+.posePresets[data-scroll-end] {
+  mask-image: linear-gradient(to right, transparent 0, black 8px, black 100%);
+}
+
+.posePresets[data-scroll-start][data-scroll-end] {
+  mask-image: none;
+}
+
+.posePresets::-webkit-scrollbar { display: none; }
+
+.posePreset {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.posePreset:hover {
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+}
+
+.poseControls {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.poseRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.poseSpacer { flex: 1; }
+
+.poseSelect {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+}
+
+/* 一行 = 轴标记 + 滑杆 + 数字框。数字框定宽，滑杆吃掉剩余宽度：
+   只有滑杆时 360° 摊在 200px 上，用户调不到精确角度。 */
+.poseAxis {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+}
+
+.poseAxisLabel {
+  flex: none;
+  width: 10px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--dsw-alias-label-primary);
+}
+
+/*
+ * 滑杆配色跟随宿主：DSH 原生的勾选框与滑杆都只写
+ * `accent-color: var(--dsw-alias-brand-primary)`（浅色主题近黑、深色主题近白），
+ * 没有任何按轴分色的写法。这里早先按轴给红/绿/蓝，用户一眼就看出「不像原生的」。
+ */
+.poseAxis input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--dsw-alias-brand-primary);
+  cursor: pointer;
+}
+
+.poseNumber {
+  flex: none;
+  width: 46px;
+  height: 20px;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font-size: 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.poseNumber::-webkit-outer-spin-button,
+.poseNumber::-webkit-inner-spin-button { appearance: none; margin: 0; }
+
+.poseFoot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.poseFacing {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.poseFacing input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--dsw-alias-brand-primary);
+  cursor: pointer;
+}
+
+.poseFacingValue {
+  flex: none;
+  width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.poseAction {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  /* 标签不许折行。少了这一条，中文标签在窄行里会被按字断开，按钮宽度
+   * 于是随字体度量漂移——mac 上量到 49px，Linux 的 CJK 回退字体量到
+   * 41px，已经低于 44px 的可点最小尺寸。高度写死 24px，折行的文字还会
+   * 溢出按钮外。 */
+  white-space: nowrap;
+  /* 但只有 nowrap 不够：它挡住折行，挡不住**字体本身**比 mac 的窄 8px，
+   * 于是按钮在 CI 上仍是 41px（三次 CI 都红在这里，而本地永远是 49px）。
+   * 一个可点目标的尺寸不该由它上面写着哪种语言的字决定——给一个下限，
+   * 文案短时靠 `justify-content` 居中，文案长时照常撑开。 */
+  min-width: 44px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.poseAction:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+}
+
+.poseAction:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------------------------------------------------------- 分镜节点 ---
+   分镜节点是一张镜头清单：每一镜产出的都是一个普通视频节点，这里只负责编排。
+   卡片外观（背景 / 边框 / 圆角 / 阴影）全部沿用 `.node`，这里不再另起一套视觉语言；
+   内部按「设置条 → 可滚动镜头列表 → 底部操作」三段纵向排。 */
+
+.storyboardNode {
+  /* 卡片内全是可点的控件，鼠标悬停时不再暗示「整张都能拖」 */
+  cursor: default;
+}
+
+/* 内容容器：本身不滚，滚动交给下面的镜头列表；圆角与图片节点的 body 对齐。 */
+.storyboardBody {
+  flex: 1;
+  min-height: 0;
+  margin: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  border-radius: var(--dsw-radius-sm);
+}
+
+/* 设置条：镜头衔接与画幅并排一行，每项是「标签 + 下拉」 */
+.storyboardSettings {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  /* 允许换行，并且只在真的放不下时才换。
+
+     380px 的卡片里三个「标签 + 下拉」共占约 364px，其中「镜头衔接」那一
+     格只有 65px，而它的选项文字需要 94px——`接上一镜尾帧` 被截成
+     `接上一…`，与它下面那条「接上一镜会丢身份参考」的警告正好对不上。英文
+     （`Carry from previous last frame` 需 186px）与俄文（`Продолжить с
+     последнего кадра` 需 203px）更糟，那一格会缩到 27px，几乎只剩箭头。
+
+     实测过的三种改法（真浏览器，380 / 420 / 560px × 三语）：整条换行、第一
+     项独占一行、以及这一条「只在放不下时换」。中文在 380px 仍是一行 26px
+     （这一条不额外占高），英俄两语各变两行 58px——镜头列表本来就是
+     `flex: 1` 的滚动区，少 32px 不会把底部的按钮挤出去。 */
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.storyboardField {
+  /* `1 1 auto` 而不是 `1`：`flex: 1` 的 basis 是 0，三格永远等分，文字长短
+     与下拉需要多宽都参与不进来。改成按内容起算，短的那格让位给长的。 */
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.storyboardField > span {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* 模型/渠道独占一行：它决定下面哪些时长与分辨率真的能提交，排在三档
+   规格前面比挤在同一行更读得懂；380px 卡片里也不会把「镜头衔接」压成
+   只剩一个箭头。 */
+.storyboardModelField {
+  flex: 1 1 100%;
+}
+
+.storyboardModelField :global(button) {
+  flex: 1 1 auto;
+  max-width: none;
+}
+
+/* 规范说明：一行灰字讲清「段落/台词/分段」三条估时规则。它解释的是下面
+   每一行为什么这样填，所以放在设置条与镜头列表之间，不放进设置条里——
+   塞进那一行会把三个下拉挤窄。
+
+   字号取 11px 而不是 10.5px：宿主原生 UI 的字号刻度只有整数值
+   （`docs/native-ui-contract.md`），半像素字号会被 `verify-native-ui` 判红，
+   在 1x 屏上也会渲染成模糊的字。行高收到 1.35 抵消多出来的半像素，
+   两行中文仍是 30px，镜头列表照旧滚动。 */
+.storyboardHint {
+  flex: none;
+  margin: -2px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.storyboardCastWarn {
+  flex: none;
+  margin: -2px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+}
+
+/* 一粒角标而不是整行变色：这一镜仍然能跑、仍然有用，只是少了钉住的脸。
+   整行染成警示色会让用户以为它坏了、以为不该点它。 */
+.storyboardCastChip {
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--dsw-radius-sm);
+  font-size: 10px;
+  line-height: 15px;
+  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- 分镜体检 */
+
+/* 摘要条：一行、可折叠。不做成红色横幅——这些结论都不阻止运行，把整块板
+   染成警报色会让用户以为片子跑不了了。 */
+.storyboardLint {
+  flex: none;
+  margin: -2px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.storyboardLintHead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.storyboardLintHead[data-level='block'] {
+  color: var(--dsw-alias-state-error-primary, #ef4444);
+}
+
+.storyboardLintHead[data-level='warn'] {
+  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+}
+
+.storyboardLintToggle {
+  color: var(--dsw-alias-label-tertiary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 展开后的清单：贴着摘要条往下长，不挤占镜头列表的滚动区。 */
+.storyboardLintList {
+  max-height: 132px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.storyboardLintItem {
+  display: flex;
+  gap: 6px;
+  padding: 2px 0;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.storyboardLintItem[data-level='block'] {
+  color: var(--dsw-alias-state-error-primary, #ef4444);
+}
+
+/* 镜号：把结论钉回具体那一行，所以它得比正文更窄、更靠前。 */
+.storyboardLintShot {
+  flex: none;
+  min-width: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 行内角标：与参考图角标同一套形状，但带数量——一镜可能同时有几条结论。 */
+.storyboardLintChip {
+  flex: none;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: var(--dsw-radius-sm);
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+  border: 1px solid currentColor;
+}
+
+.storyboardLintChip[data-lint-chip='block'] {
+  color: var(--dsw-alias-state-error-primary, #ef4444);
+}
+
+/* 下拉：与 `.composerControls [data-dsh-select]` / `.generateForm [data-dsh-select]`
+   同一套描边、圆角与字号；保留原生 select，键盘与读屏都直通。 */
+.storyboardSelect {
+  /* 同上：basis 从 0 改成内容宽，同时保留 `min-width: 0` 让它在极端窄的卡片
+     里仍能被压缩，而不是把整条设置撑破。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 26px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 0 6px;
+  outline: none;
+}
+
+/* 镜头列表：`min-height: 0` 是 flex 子项真正能滚起来的前提，少了它列表会把节点撑开 */
+.storyboardShots {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0 2px 0 0;
+  list-style: none;
+  scrollbar-gutter: stable;
+  /* `.node` 上的 `touch-action: none` 原本是为拖拽节点，会让整个列表在触屏上滚不动；
+     这里只放开纵向滚动，横向手势仍留给画布平移。 */
+  touch-action: pan-y;
+}
+
+/* 一镜一张小卡：比节点底色略深一档，让每一镜的边界在长列表里也看得清。
+   `flex: none` 是必须的——列方向 flex 子项默认会缩，镜头多了就会被压扁而不是出滚动条。 */
+.storyboardShot {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 8px 8px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent);
+  transition: border-color 0.12s ease;
+}
+
+.storyboardShot:hover {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 32%, var(--dsw-alias-border-l1));
+}
+
+/* 正在跑的那一镜：左侧一条品牌色短竖线，不占布局、不加投影，比整卡高亮轻 */
+.storyboardShot[data-active] {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, var(--dsw-alias-border-l1));
+}
+
+.storyboardShot[data-active]::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 7px;
+  bottom: 7px;
+  width: 2.5px;
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary);
+}
+
+.storyboardShotHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 镜号：固定尺寸的圆标，数字等宽，镜头增删时不会左右跳 */
+.storyboardShotIndex {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.storyboardShot[data-active] .storyboardShotIndex {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent);
+  color: var(--dsw-alias-brand-primary);
+}
+
+/* 状态徽标：形状沿用 `.nodeTag`，颜色按四种状态分开，缺省（empty）保持次要灰 */
+.storyboardShotState {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+}
+
+.storyboardShotState[data-state='generating'] {
+  color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 28%, transparent);
+}
+
+.storyboardShotState[data-state='ready'] {
+  color: var(--dsw-alias-state-success-primary, var(--dsw-alias-brand-primary));
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, var(--dsw-alias-brand-primary)) 12%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary, var(--dsw-alias-brand-primary)) 28%, transparent);
+}
+
+.storyboardShotState[data-state='failed'] {
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 12%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 28%, transparent);
+}
+
+/* 失败的那一镜整卡描一层错误色，扫列表时不用逐条读徽标 */
+.storyboardShot[data-state='failed'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 32%, var(--dsw-alias-border-l1));
+}
+
+/* 镜号右侧的图标按钮组（上移 / 下移 / 删除）：靠右，尺寸与 `.textTool` 同级 */
+.storyboardShotActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+}
+
+/* 节点内的小图标按钮：无底色、悬停才浮出背景，避免一列按钮在黑边上太吵 */
+.storyboardIconButton {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--dsw-radius-xs);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.storyboardIconButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.storyboardIconButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+/* 删除镜头的按钮由调用方打上 `data-danger`，悬停转错误色——和 `.contextMenu button[data-danger]`
+   同一套语义。文案会随语言变化，所以这里不按 `title` 匹配。 */
+.storyboardIconButton[data-danger]:hover {
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 12%, transparent);
+}
+
+/* 镜头提示词：与 `.textArea` 同一套字号 / 行高 / 占位符色，但要有自己的描边，
+   因为它是列表里的一张卡而不是整块节点；`resize: none` 是硬要求——节点自己会被拖动缩放 */
+.storyboardShotPrompt {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 42px;
+  resize: none;
+  border: 1px solid transparent;
+  border-radius: var(--dsw-radius-sm);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 70%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 5px 7px;
+  outline: none;
+  cursor: text;
+}
+
+.storyboardShotPrompt::placeholder { color: var(--dsw-alias-label-tertiary); }
+
+.storyboardShotPrompt:focus {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+/* 一镜的底部行：时长下拉在左，生成与预览在右 */
+.storyboardShotFoot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 时长下拉比较窄，不参与拉伸，剩下的空间交给右侧按钮 */
+.storyboardShotFoot .storyboardSelect {
+  flex: none;
+  width: 62px;
+  height: 22px;
+  border-radius: var(--dsw-radius-sm);
+  font-size: 11px;
+}
+
+/* 台词超时的提醒：一行警示色小字，独占一行。它必须是「提醒」而不是「错误」——
+   4.5 字/秒只是经验值，用户完全可以坚持自己的判断，所以不用红色边框、不拦运行。 */
+.storyboardSpeechWarn {
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+}
+
+/* 单镜的「生成这一镜」：低调的描边按钮，主按钮在底部，这一层不该抢主次 */
+.storyboardShotRun {
+  margin-left: auto;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 32%, var(--dsw-alias-border-l1));
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent);
+  color: var(--dsw-alias-brand-primary);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.storyboardShotRun:hover {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent);
+}
+
+/* 这一镜在跑或已失败时，按钮本身就是状态入口，用底色体现而不是再加一个徽标 */
+.storyboardShotRun[data-state='generating'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, var(--dsw-alias-border-l1));
+}
+
+.storyboardShotRun[data-state='failed'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 38%, var(--dsw-alias-border-l1));
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 10%, transparent);
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+}
+
+.storyboardShotRun:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 空状态：居中、次要文字色，和 `.configHint` 的语气一致 */
+.storyboardEmpty {
+  flex: 1;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 底部操作条：左侧加镜，右侧拼接与批量生成；不滚动，始终贴住节点底边 */
+.storyboardFoot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 7px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+/* 把右侧按钮组推到底，中间的空白也兼作触控上的分隔 */
+.storyboardSpacer {
+  flex: 1;
+  min-width: 6px;
+}
+
+/* 次要按钮（加一镜 / 拼接全部镜头）：沿用 `.skillGhost` 的描边风格，尺寸收小一号 */
+.storyboardAdd,
+.storyboardStitch {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.storyboardAdd:hover,
+.storyboardStitch:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.storyboardAdd:disabled,
+.storyboardStitch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 主按钮（生成剩余镜头）：填品牌色，参考 `.composeBarRun` / `.skillPrimary`。
+   字色取主题的底色变量而不是白，暗色主题下才有对比。 */
+.storyboardRun {
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-bg-base);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.storyboardRun:hover { opacity: 0.9; }
+
+.storyboardRun:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 焦点环：节点里既有按钮也有原生 select / textarea，统一一套；
+   `focus-visible` 只对键盘生效，鼠标点过不留圈。 */
+.storyboardNode button:focus-visible,
+.storyboardNode select:focus-visible,
+.storyboardNode textarea:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+/* 标题栏上的镜数 / 生成中徽标：沿用 `.nodeTag` 的品牌色，生成中那枚再轻一点闪，
+   提示「有镜头在跑」而不用另开一行动效。动效只在系统允许时生效。 */
+@keyframes storyboardTagPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nodeTag[data-storyboard-running] {
+    animation: storyboardTagPulse 1.8s ease-in-out infinite;
+  }
+
+  .storyboardShot[data-state='generating'] .storyboardShotIndex {
+    animation: storyboardTagPulse 1.6s ease-in-out infinite;
+  }
+}
+
+/* --- fullscreen -------------------------------------------------------------- */
+
+/**
+ * The Browser Fullscreen API promotes this element to the top layer, where the
+ * UA paints it against the viewport instead of the host's grid item. What is
+ * left for the sheet to do is give it the viewport's size: the element was
+ * sized by `height: 100%` inside the panel, and a top-layer element has no
+ * such containing block to inherit from. `100dvh` rather than `100vh` because
+ * a mobile browser's chrome shrinks the visible area, and 100vh would leave
+ * the dock sitting under it.
+ *
+ * The border and radius are dropped: they were drawn to separate the canvas
+ * from the panel's padding, and in fullscreen there is no panel around it.
+ */
+.root:fullscreen {
+  width: 100vw;
+  height: 100dvh;
+  border: 0;
+  border-radius: 0;
+  background: var(--dsw-alias-bg-base, Canvas);
+}
+
+/* The UA paints the promoted element over a default black backdrop. Match the
+   canvas surface instead, so entering fullscreen does not flash a dark band
+   behind a light-themed canvas. */
+.root:fullscreen::backdrop {
+  background: var(--dsw-alias-bg-base, Canvas);
+}
+
+/* --- overlay host ------------------------------------------------------------ */
+
+/**
+ * The mount point for menus and dialogs owned by the canvas.
+ *
+ * They used to portal to <body>. While the workspace is fullscreen that is
+ * fatal: a fullscreen element is promoted to the browser's TOP LAYER, which
+ * paints above the entire document, so a menu appended to <body> ends up
+ * behind the canvas no matter how high its z-index (this is what made 模板库 and
+ * 技能库 appear only after leaving fullscreen). Mounting them here puts them
+ * inside the promoted element, so they travel into the top layer with it.
+ *
+ * `display: contents` is what makes that free: the host generates no box, so
+ * its children lay out exactly as if they were direct children of `.root`,
+ * and a `position: fixed` child still resolves against the viewport — which is
+ * the coordinate space every one of these overlays is positioned in. A real
+ * box here would become their containing block and move them all.
+ *
+ * No `pointer-events` guard on purpose: the host has no box to hit-test, and
+ * setting `none` would inherit into every dialog, since none of them set it
+ * back. There is nothing to click through — an empty host renders nothing.
+ */
+.overlayHost {
+  display: contents;
+}
+
+/* Mobile: let the top bar wrap and the canvas title keep a usable width
+ * instead of being squeezed down to ~35px next to the fixed-width controls. */
+@media (max-width: 760px) {
+  .topBar {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .topBar .titleButton {
+    flex: 1 1 160px;
+    min-width: 160px;
+    max-width: none;
+  }
+}
+
+/* dsh-imagegen-mobile-6 (phone dock): 17 tiles wrap into three rows on a
+ * ~400px viewport, and together with the zoom row they cover roughly the
+ * lower half of the canvas. On a phone the dock becomes a single row that
+ * scrolls horizontally in group order (tools first); tiles keep their 40px
+ * touch target and hover magnification still works. Desktop (>760px) keeps
+ * the wrapping fallback and the centered layout untouched. The spring engine
+ * only writes min-height (42–79px) on .dockOuter, which a ~47px single row
+ * satisfies, and chromeHeight is measured from the real .dock box, so the
+ * canvas reclaims the reclaimed rows automatically. */
+@media (max-width: 760px) {
+  .dock {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .dock::-webkit-scrollbar { display: none; }
+  .dockItem, .dockGap { flex: none; }
+}
+
+/* ------------------------------------------------------------ groups
+ *
+ * 分组框。它和连线层一样挂在 `.world` 里（世界坐标，跟着视口缩放），所以
+ * 这里的尺寸一律是世界像素，不要按屏幕像素去调。
+ *
+ * 为什么填充必须压到 4%：这一层在 `.flowRoot` 之后绘制，也就是盖在节点
+ * **上面**。它不是给节点垫底的背景，而是覆在图片上的一层薄色；再浓一点点，
+ * 用户照片的整体色偏就能看出来，而他又找不到关掉它的开关。4% 是「看得出
+ * 这块被圈起来了、认不出图片颜色变了」的量级。
+ *
+ * 为什么不给框体任何 z-index：`.world` 里的层按 DOM 顺序叠，框画在连线
+ * 之后就会盖住线的中段。留着默认顺序，接线的调用方把 GroupLayer 放在
+ * ConnectionLayer 前面即可，不需要再往 z-index 表中加一档。
+ */
+
+.groupLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* 框体不吃指针：它盖在节点上，一旦拦截，框内节点的拖拽、画布平移和框选
+     就全被吞掉——而这些恰恰是成组之后最常用的三个动作。只有标题条单独
+     恢复 auto。 */
+  pointer-events: none;
+}
+
+.groupFrame {
+  position: absolute;
+  border: 1.5px dashed color-mix(in srgb, var(--dsw-alias-brand-primary) 42%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 4%, transparent);
+  border-radius: var(--dsw-radius-lg);
+  pointer-events: none;
+  /* 描边跟着圆角走，不然虚线在四个角上会画到框外。 */
+  box-sizing: border-box;
+}
+
+/* 选中/悬停的组：描边实线化并提亮。虚线→实线比单纯加粗更容易在缩小的
+   画布上一眼分辨（缩到 50% 时虚线已经糊成灰线了）。 */
+.groupFrameActive {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 78%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, transparent);
+}
+
+/* 标题条：压在框的上边线上（translateY(-50%)）。放框内会盖住内容——框里的
+   每一寸都可能是节点；框外那 20px 留白本来就是空的，正好用。 */
+.groupTitleBar {
+  position: absolute;
+  left: 8px;
+  top: 0;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: calc(100% - 16px);
+  padding: 2px 8px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 28%, transparent);
+  background: var(--dsw-alias-bg-layer-1);
+  /* 整层都是 none，这里必须单独恢复：标题条是框上唯一能点到的地方，
+     右键菜单和重命名全靠它。 */
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+}
+
+.groupTitleText {
+  font-family: var(--dsw-font-family);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 成员数比组名弱一档：它是注解，不是标签，抢读会让「组 3」和「5 个节点」
+   看起来同等重要。 */
+.groupCount {
+  flex: none;
+  font-family: var(--dsw-font-family);
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+/* 组名输入框：挂在 `.world` 里，所以坐标是世界坐标、跟着画布一起缩放。
+ *
+ * 为什么不用 `.titleInput`：那一个宽 240px 且不带定位，它是画布标题栏里的
+ * 内联输入框。直接借过来需要在这里一条条覆盖 position/width/max-width，
+ * 覆盖得比新写一节还长，而两者的共同点只剩「是个输入框」。
+ *
+ * `transform-origin` 与 `.world` 对齐（左上），否则缩放到 50% 时输入框会从
+ * 组标题那里飘开。字号不小于 12px：画布缩到 50% 时字会变成 6px，再小就
+ * 认不出自己在改什么。 */
+.groupRenameInput {
+  position: absolute;
+  transform-origin: 0 0;
+  min-width: 96px;
+  max-width: 240px;
+  padding: 2px 6px;
+  border-radius: var(--dsw-radius-sm);
+  border: 1px solid var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+}
+
+/* 与 `.titleInput` 同一个理由：常驻品牌色描边 + `outline: none` 之后，
+   键盘焦点在这里看不见，补一圈只对键盘生效的环。 */
+.groupRenameInput:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- 提案条
+   Agent 提议的改动：贴在画布顶部居中。
+   z 档沿用 --z-notice：项目有一张 z-index 契约表，不为一个浮层新增档位。
+
+   与 .errorToast 的**错开**：两者会同时出现——接受一条提案失败时，提案条上
+   有一句失败原因，同时旁边可能还挂着画布自己的错误提示。它们之前都写
+   top: 14px，于是必然叠在一起，而注释还宣称「刻意错开」：注释描述的是意图，
+   不是代码。
+
+   现在的做法不是猜一个「够大」的数字：`.errorToast` 是不定高的（一行错误
+   和带重试按钮的长错误差很多）。画布那边知道自己的错误提示在不在，所以由它
+   传 `stacked`，这里按 `[data-stacked]` 整体下移。
+   （不用 `.root:has(> .errorToast)`：docs/native-ui-contract.md §4.3 明确
+   禁止用 `:has()` 表达「包含某节点」，jsdom 里它既不解析也没有判别力。）
+
+   **起点也不写死。** 顶栏高度不是常量：窄面板（< 760px）下 `.topBar` 会
+   `flex-wrap`，标题与七个图标按钮换成两行，高度从 ~47px 长到 ~83px。
+   写死 52px 就会在恰恰最窄的面板上盖住顶栏第二行——而那正是按钮最小、最好
+   被误触的地方。画布实测顶栏高度后传 `--proposal-top-bar`，这里只负责加上
+   间距；零（尚未量到）时用 52px 作初始值，避免首帧跳到顶上去。
+
+   scripts/verify-canvas-proposal-bar.mjs 会把顶栏、错误提示、提案条三样真的
+   一起画出来量：只在这里写注释，注释和代码就会再次漂开。 */
+.proposalBar {
+  /* 默认取常态顶栏高度（8px padding + 30px 内容 + 1px 边框）；画布量到真实
+     高度后会以 inline style 覆盖它。写 0 会让首帧把提案条顶到画布最上面。 */
+  --proposal-top-bar: 47px;
+  position: absolute;
+  left: 50%;
+  top: calc(var(--proposal-top-bar) + 5px);
+  transform: translateX(-50%);
+  z-index: var(--z-notice);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: min(520px, 84%);
+  padding: 10px 12px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 32%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: var(--dsw-shadow-lv2);
+}
+
+.proposalHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.proposalTitle {
+  font-weight: 600;
+}
+
+.proposalCount {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.proposalSummary {
+  font-weight: 500;
+}
+
+/* 「接受之前不会变化」这句必须一直看得见：用户看到画布上多出东西时，最想
+   知道的是「这是已经改了，还是只是提示」。 */
+.proposalHint {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.proposalError {
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+}
+
+.proposalActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.proposalAccept,
+.proposalDiscard {
+  padding: 4px 12px;
+  border-radius: var(--dsw-radius-sm);
+  /* `--dsw-alias-border-secondary` 不存在（见 docs/native-ui-contract.md 的禁用
+     名单）：浏览器整条 `border` 声明被丢弃，于是「接受/丢弃」两个按钮连边框都
+     没有，只靠文字浮在背景上。同一份文档给的替换是 `border-l2`。 */
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.proposalAccept {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.proposalAccept:disabled,
+.proposalDiscard:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.proposalAccept:focus-visible,
+.proposalDiscard:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+/* 画布上还挂着一条错误提示时整体下移，让开它。
+   取 max()：错误提示比顶栏矮时（宽屏）由 68px 说了算，顶栏换行长得比提示
+   更高时（窄屏）由实测顶栏说了算。只取前者会把提案条拉回顶栏里。 */
+.proposalBar[data-stacked] {
+  top: max(calc(var(--proposal-top-bar) + 5px), 68px);
+}

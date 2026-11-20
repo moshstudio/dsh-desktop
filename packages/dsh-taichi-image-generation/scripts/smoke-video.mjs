@@ -1,0 +1,2138 @@
+/**
+ * Smoke suite for the video half of @q253595422/dsh-imagegen-video, run against the
+ * BUILT artifacts exactly like scripts/smoke.mjs.
+ *
+ * Everything here is offline: a local HTTP server plays the upstream video
+ * provider and replays the response shapes measured from Agnes and comemoe, so
+ * these checks cost nothing and never touch a real API. What they prove:
+ *
+ *  V1  the engine shapes and polls each family correctly, end to end
+ *  V2  the host runtime persists a finished clip and serves it with Range
+ *  V3  the video routes work over real HTTP (list / file / history / errors)
+ *  V4  the Agent tools submit, wait, poll and cancel
+ *  V5  per-mode reference handling and the unknown-family guard
+ *
+ * Run: node scripts/smoke-video.mjs   (from the package root)
+ */
+import { createServer } from 'node:http'
+import net from 'node:net'
+import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createCheckHarness } from './lib/check-harness.mjs'
+
+const root = new URL('../', import.meta.url)
+const results = []
+// 超时是「挂死守卫」不是性能预算：慢但最终通过的检查记 PASS，不判死。
+// 实现只有一份（scripts/lib/check-harness.mjs），六个套件共用，
+// 免得同一条缺陷在每份副本里各长一遍。
+const check = createCheckHarness({ results })
+
+// The smallest valid-looking MP4 head; only the byte count and MIME matter here.
+const MP4 = Buffer.from('00000018667479706d7034320000000069736f6d6d703431', 'hex')
+
+/** A local upstream that speaks the measured submit/poll/download contract. */
+function startUpstream() {
+  const state = { submits: [], polls: [], downloads: [], uploads: [], script: null }
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    if (req.method === 'POST' && (url.pathname === '/v1/videos' || url.pathname === '/v1/videos/generations' || url.pathname === '/v1/contents/generations/tasks')) {
+      const chunks = []
+      req.on('data', chunk => chunks.push(chunk))
+      req.on('end', () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        state.submits.push({ body, authorization: req.headers.authorization })
+        const script = state.script
+        // An HTML body with a 200 is what a gateway serves when the configured
+        // base URL is the site root instead of its API root -- measured, and
+        // the one shape a "wrong address" test needs.
+        if (script.html === true) {
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+          res.end('<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>API</title></head><body>home</body></html>')
+          return
+        }
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(script.submit))
+      })
+      return
+    }
+    // Ark polls one task by id under the same collection; keep the fake strict
+    // about this path so a wrong status URL fails loudly instead of 404ing
+    // into the generic route below.
+    // Nbility's media storage: reference frames must become public HTTPS URLs
+    // before they can be submitted, so a family that needs that leg has to have
+    // a place to park the bytes here (#minimax).
+    if (req.method === 'POST' && url.pathname === '/v1/media/uploads') {
+      const chunks = []
+      req.on('data', chunk => chunks.push(chunk))
+      req.on('end', () => {
+        const raw = Buffer.concat(chunks)
+        const contentType = req.headers['content-type'] ?? ''
+        // The multipart part headers are text; the payload is not, so only the
+        // text half is inspected -- enough to assert the file name and mime the
+        // engine chose, without treating a PNG as UTF-8.
+        const head = raw.subarray(0, Math.min(raw.length, 512)).toString('latin1')
+        const fileMatch = /filename="([^"]+)"/.exec(head)
+        const typeMatch = /content-type: ([^\r\n]+)/i.exec(head)
+        state.uploads.push({
+          filename: fileMatch?.[1] ?? '',
+          mime: typeMatch?.[1]?.trim() ?? '',
+          bytes: raw.length,
+          contentType,
+          authorization: req.headers.authorization,
+        })
+        const script = state.script
+        if (script.uploadStatus !== undefined) {
+          res.writeHead(script.uploadStatus, { 'content-type': 'application/json' })
+          res.end(JSON.stringify(script.uploadBody ?? { error: { message: 'upload rejected' } }))
+          return
+        }
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({
+          url: `https://media.example.test/${state.uploads.length}.png`,
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+        }))
+      })
+      return
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/contents/generations/tasks/')) {
+      state.polls.push({ id: url.pathname.slice('/v1/contents/generations/tasks/'.length), authorization: req.headers.authorization })
+      const list = state.script.polls
+      const index = Math.min(state.polls.length - 1, list.length - 1)
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(list[index]))
+      return
+    }
+    // 启航AIGC's shared task reader: every async submit polls the same
+    // `/v1/tasks/{id}` shape, with `is_final` + `output_url`.
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/tasks/')) {
+      state.polls.push({ id: url.pathname.slice('/v1/tasks/'.length), authorization: req.headers.authorization })
+      const failures = state.script.pollFailures
+      const failure = Array.isArray(failures) ? failures[state.polls.length - 1] : undefined
+      if (typeof failure === 'number') {
+        res.writeHead(failure, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'upstream hiccup' } }))
+        return
+      }
+      const list = state.script.polls
+      const index = Math.min(state.polls.length - 1, list.length - 1)
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(list[index]))
+      return
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/videos/') && url.pathname.endsWith('/content')) {
+      // OpenAI's video API (and the relays copying it) serve the finished clip
+      // here and never put a URL in the poll body (#9). This branch must come
+      // BEFORE the status route below, which matches every `/v1/videos/…`.
+      if (state.script.contentMissing === true) {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'video not found' } }))
+        return
+      }
+      state.downloads.push({ path: url.pathname, authorization: req.headers.authorization })
+      res.writeHead(200, { 'content-type': 'video/mp4', 'content-length': String(MP4.length) })
+      res.end(MP4)
+      return
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/videos/')) {
+      state.polls.push({ id: url.pathname.slice('/v1/videos/'.length), authorization: req.headers.authorization })
+      // `pollFailures[n]` makes poll request n+1 answer that HTTP status, so a
+      // suite can simulate a status endpoint that hiccups before it recovers.
+      const failures = state.script.pollFailures
+      const failure = Array.isArray(failures) ? failures[state.polls.length - 1] : undefined
+      if (typeof failure === 'number') {
+        res.writeHead(failure, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'upstream hiccup' } }))
+        return
+      }
+      const list = state.script.polls
+      const index = Math.min(state.polls.length - 1, list.length - 1)
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(list[index]))
+      return
+    }
+    if (req.method === 'GET' && url.pathname.endsWith('.mp4')) {
+      state.downloads.push({ path: url.pathname, authorization: req.headers.authorization })
+      res.writeHead(200, { 'content-type': 'video/mp4', 'content-length': String(MP4.length) })
+      res.end(MP4)
+      return
+    }
+    res.writeHead(404, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: 'not found' } }))
+  })
+  return new Promise(resolve => {
+    server.listen(0, '127.0.0.1', () => {
+      const port = server.address().port
+      resolve({ state, port, base: `http://127.0.0.1:${port}/v1`, close: () => new Promise(done => server.close(done)) })
+    })
+  })
+}
+
+/**
+ * Point the plugin's data root at a scratch dir so the suite never touches the
+ * real ~/.dsh. DSH_HOME is read when the module resolves its storage path, so
+ * it must be set before the host half is imported.
+ */
+const dataRoot = mkdtempSync(join(tmpdir(), 'dsh-video-smoke-'))
+process.env.DSH_HOME = dataRoot
+const host = await import(new URL('lib/index.js', root).href)
+
+// The engine is bundled into lib/index.js, so the host's own export is the
+// artifact under test.
+const generateVideo = host.generateVideo
+assert.ok(typeof generateVideo === 'function', 'the built host must export generateVideo for tests')
+
+// ---------------------------------------------------------------------- V1
+await check('V1 the engine submits, polls and downloads one Agnes clip', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_agnes_1', task_id: 'task_agnes_1', status: 'queued' },
+    polls: [
+      { status: 'running', progress: 20 },
+      { status: 'completed', metadata: { url: `http://127.0.0.1:${upstream.port}/out/clip.mp4`, duration: 5 } },
+    ],
+  }
+  try {
+    const result = await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-video' },
+      { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'a cat', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+      { family: 'agnes' },
+    )
+    assert.equal(result.videos.length, 1)
+    assert.equal(result.videos[0].mime, 'video/mp4')
+    assert.equal(result.videos[0].bytes.length, MP4.length, 'the downloaded clip bytes are returned')
+    const submit = upstream.state.submits[0]
+    assert.equal(submit.body.model, 'agnes-video-2.5-flash')
+    assert.equal(submit.body.mode, 'text')
+    assert.equal(submit.body.seconds, '5')
+    assert.equal(submit.body.size, '720P')
+    assert.equal(submit.authorization, 'Bearer sk-video', 'the submit carries the API key')
+    assert.equal(upstream.state.polls[0].id, 'vid_agnes_1', 'polling uses the resource id, not the task id')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1a Agnes flash narrows the documented vocabulary instead of forwarding 400s', async () => {
+  // Measured on the live endpoint: `size` other than 720P is rejected before a
+  // task exists (`400 size must be 720P`), more than five references are
+  // rejected (`400 images length must not exceed 5`), and 21:9 IS accepted.
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_agnes_limits', status: 'queued' },
+    polls: [{ status: 'completed', metadata: { url: `http://127.0.0.1:${upstream.port}/out/clip.mp4`, duration: 5 } }],
+  }
+  const reference = 'data:image/png;base64,iVBORw0KGgo='
+  try {
+    await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-video' },
+      { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'a cat', aspectRatio: '21:9', resolution: '1080P', seconds: 5 },
+      { family: 'agnes' },
+    )
+    const flash = upstream.state.submits.at(-1).body
+    assert.equal(flash.size, '720P', 'flash is 720P-only: a 1080P pick is snapped down')
+    assert.equal(flash.aspect_ratio, '21:9', 'the documented ultra-wide ratio is forwarded')
+
+    await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-video' },
+      { mode: 'text', model: 'agnes-video-2.5', prompt: 'a cat', aspectRatio: '16:9', resolution: '1080P', seconds: 5 },
+      { family: 'agnes' },
+    )
+    assert.equal(upstream.state.submits.at(-1).body.size, '1080P', 'non-flash ids keep the full tier list')
+
+    upstream.state.polls.length = 0
+    await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-video' },
+      {
+        mode: 'reference',
+        model: 'agnes-video-2.5-flash',
+        prompt: 'a cat',
+        aspectRatio: '16:9',
+        resolution: '720P',
+        seconds: 5,
+        image: reference,
+        images: [reference, reference, reference, reference, reference],
+      },
+      { family: 'agnes' },
+    )
+    assert.equal(upstream.state.submits.at(-1).body.images.length, 5, 'references beyond five are dropped, not forwarded')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1b the engine handles the flat comemoe shape and its processing state', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    // Measured: flat body, contradicting the vendor's own docs.
+    submit: { id: 'vid_flat_1', status: 'queued', task_id: 'task_flat_1' },
+    polls: [
+      // Measured: `processing` exists but is missing from the docs.
+      { status: 'processing' },
+      { status: 'succeeded', url: `http://127.0.0.1:${upstream.port}/files/r.mp4`, duration: 5 },
+    ],
+  }
+  try {
+    const result = await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-comemoe' },
+      { mode: 'text', model: 'zhimeng-h3-local', prompt: 'a dog', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+      { family: 'comemoe' },
+    )
+    assert.equal(result.videos[0].mime, 'video/mp4')
+    assert.equal(result.videos[0].bytes.length, MP4.length)
+    const body = upstream.state.submits[0].body
+    assert.equal(body.duration, 5, 'comemoe takes duration, not seconds')
+    assert.equal(body.resolution, '720P')
+    assert.ok(!('mode' in body), 'comemoe has no mode field')
+    assert.equal(upstream.state.polls[0].id, 'vid_flat_1', 'the flat body\'s resource id is polled')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1b2 xAI submits to /videos/generations and reads request_id + video.url (#5)', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    // docs.x.ai/developers/rest-api-reference: a submit answers `{ request_id }`
+    // and nothing else; a finished poll nests the clip under `video.url`.
+    submit: { request_id: 'req_xai_1' },
+    polls: [
+      { status: 'pending' },
+      { status: 'done', model: 'grok-imagine-video-1.5', video: { url: `http://127.0.0.1:${upstream.port}/x/clip.mp4`, duration: 8 } },
+    ],
+  }
+  try {
+    const result = await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-video-xai' },
+      { mode: 'text', model: 'grok-imagine-video-1.5', prompt: 'a fox', aspectRatio: '16:9', resolution: '720P', seconds: 8 },
+      { family: 'xai' },
+    )
+    assert.equal(result.videos[0].mime, 'video/mp4')
+    assert.equal(result.videos[0].duration, 8, 'the duration comes from video.duration')
+    const body = upstream.state.submits[0].body
+    assert.equal(body.duration, 8, 'xAI takes a numeric duration')
+    assert.equal(body.resolution, '720p', 'xAI resolution is lowercase')
+    assert.equal(upstream.state.polls[0].id, 'req_xai_1', 'the request_id is the polled id')
+  } finally {
+    await upstream.close()
+  }
+
+  // The escape hatch must not turn into a trap: a user who pastes the exact
+  // submit URL must still be polled at `<base>/videos/{id}`, not at
+  // `…/videos/generations/videos/{id}`.
+  const full = await startUpstream()
+  full.state.script = {
+    submit: { request_id: 'req_xai_full' },
+    polls: [{ status: 'done', video: { url: `http://127.0.0.1:${full.port}/x/full.mp4` } }],
+  }
+  try {
+    await generateVideo(
+      { apiUrl: `${full.base}/videos/generations`, apiKey: 'k', apiUrlFull: true },
+      { mode: 'text', model: 'grok-imagine-video-1.5', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+      { family: 'xai' },
+    )
+    assert.equal(full.state.polls[0].id, 'req_xai_full', 'the status URL is derived from the full submit URL')
+  } finally {
+    await full.close()
+  }
+})
+
+await check('V1c wan2.2-t2v stays text-only and send standard resolution', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { id: 'vid_t2v', status: 'queued' },
+    polls: [{ status: 'succeeded', url: `http://127.0.0.1:${upstream.port}/t.mp4` }],
+  }
+  try {
+    await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'k' },
+      { mode: 'image', model: 'wan2.2-t2v', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5, image: 'data:image/png;base64,QUJD' },
+      { family: 'comemoe' },
+    )
+    const body = upstream.state.submits[0].body
+    assert.equal(body.resolution, 'standard', 'wan2.2-t2v only accepts standard')
+    assert.ok(!('image_url' in body), 'a text-only model must not receive a reference frame')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1c2 Volcengine Seedance submits content[] and reads content.video_url', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    // ark.cn-beijing.volces.com: create answers `{ id }`, a finished task nests
+    // the clip under `content.video_url` and states its length in `duration`.
+    submit: { id: 'cgt-20260101-abc' },
+    polls: [
+      { id: 'cgt-20260101-abc', status: 'running' },
+      { id: 'cgt-20260101-abc', status: 'succeeded', content: { video_url: `http://127.0.0.1:${upstream.port}/ark/clip.mp4` }, duration: 5 },
+    ],
+  }
+  const png = 'data:image/png;base64,QUJD'
+  try {
+    const result = await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'k' },
+      {
+        mode: 'keyframe',
+        model: 'doubao-seedance-2-0-260128',
+        prompt: 'a lantern floating up',
+        aspectRatio: '9:16',
+        resolution: '1080P',
+        seconds: 5,
+        firstFrame: png,
+        lastFrame: png,
+      },
+      { family: 'seedance' },
+    )
+    assert.equal(result.videos[0].duration, 5, 'the clip length comes from the poll body')
+    const body = upstream.state.submits[0].body
+    assert.equal(body.model, 'doubao-seedance-2-0-260128')
+    assert.equal(body.resolution, '1080p', 'Ark wants a lowercase resolution')
+    assert.equal(body.duration, 5, 'Ark takes an integer number of seconds')
+    assert.equal(body.ratio, '9:16', 'the ratio field is `ratio`, not aspect_ratio')
+    assert.ok(!('prompt' in body), 'Ark has no top-level prompt: it rides in content[]')
+    assert.equal(body.watermark, false, 'the watermark defaults to true upstream, so it must be sent off')
+    assert.equal(body.generate_audio, false, 'a silent clip is what the panel asked for')
+    assert.deepEqual(body.content[0], { type: 'text', text: 'a lantern floating up' })
+    assert.deepEqual(body.content[1], { type: 'image_url', image_url: { url: png }, role: 'first_frame' })
+    assert.deepEqual(body.content[2], { type: 'image_url', image_url: { url: png }, role: 'last_frame' })
+    assert.equal(upstream.state.polls[0].id, 'cgt-20260101-abc', 'the task is polled by its Ark task id')
+    assert.equal(upstream.state.polls[0].authorization, 'Bearer k')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1c3 Seedance clamps duration and resolution to what the model accepts', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { id: 'cgt-fast' },
+    polls: [{ status: 'succeeded', content: { video_url: `http://127.0.0.1:${upstream.port}/ark/fast.mp4` } }],
+  }
+  try {
+    // 2.0 accepts 4-15s and fast/mini cap at 720p: a 1080P/30s request is a
+    // guaranteed 400 upstream, so it is narrowed here instead of explained away.
+    await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'k' },
+      { mode: 'text', model: 'doubao-seedance-2-0-fast-260128', prompt: 'p', aspectRatio: '1:1', resolution: '1080P', seconds: 30 },
+      { family: 'seedance' },
+    )
+    const fast = upstream.state.submits[0].body
+    assert.equal(fast.duration, 15, '2.x caps at 15 seconds')
+    assert.equal(fast.resolution, '720p', 'fast/mini reject 1080p')
+
+    upstream.state.submits.length = 0
+    // 1.0 accepts 2-12s and documents 480p/720p/1080p.
+    await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'k' },
+      { mode: 'text', model: 'doubao-seedance-1-0-pro-250528', prompt: 'p', aspectRatio: '16:9', resolution: '1080P', seconds: 1 },
+      { family: 'seedance' },
+    )
+    const pro = upstream.state.submits[0].body
+    assert.equal(pro.duration, 2, '1.0 starts at 2 seconds')
+    assert.equal(pro.resolution, '1080p', '1.0 pro accepts 1080p')
+    assert.ok(!('generate_audio' in pro), '1.0 has no audio track, so the field must not be sent')
+
+    // Modes the id cannot express are dropped rather than offered and rejected.
+    // The tier word is what narrows, so the check uses the undated alias form.
+    const proFast = host.describeVideoModel('seedance-1-0-pro-fast')
+    assert.deepEqual(proFast.modes, ['text', 'image'], '1.0 pro fast has no last frame and no reference images')
+    assert.deepEqual(host.describeVideoModel('doubao-seedance-1-0-pro-250528').modes, ['text', 'image', 'keyframe'], '1.0 pro keeps first/last frame')
+    assert.deepEqual(host.describeVideoModel('doubao-seedance-2-0-260128').modes, ['text', 'image', 'keyframe', 'reference'], '2.x adds multi-reference')
+
+    upstream.state.submits.length = 0
+    // A channel alias is whatever the user typed; the capabilities belong to
+    // the upstream id it maps to. Narrowing on the alias would let a 1080P
+    // request through to a fast model and come back as an opaque 400.
+    await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'k' },
+      { mode: 'text', model: 'seedance-fast-hd', upstream: 'doubao-seedance-2-0-fast-260128', prompt: 'p', aspectRatio: '16:9', resolution: '1080P', seconds: 5 },
+      { family: 'seedance' },
+    )
+    const aliased = upstream.state.submits[0].body
+    assert.equal(aliased.model, 'doubao-seedance-2-0-fast-260128', 'the upstream id is what the provider receives')
+    assert.equal(aliased.resolution, '720p', 'capability narrowing follows the upstream id, not the alias')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1c4 the panel describes the upstream id a channel alias maps to', async () => {
+  // The panel narrows its mode/tier pickers from the model it shows. A channel
+  // alias hides the real id, so the narrowing must resolve it first — otherwise
+  // the picker offers 1080P for a fast model and the request comes back 400.
+  const channels = [
+    { videoModels: [{ alias: 'seedance-fast-hd', id: 'doubao-seedance-2-0-fast-260128' }] },
+    { videoModels: [{ alias: 'plain-alias' }] },
+  ]
+  assert.equal(
+    host.resolveVideoModelId('seedance-fast-hd', channels),
+    'doubao-seedance-2-0-fast-260128',
+    'an alias resolves to the id the provider receives',
+  )
+  assert.equal(host.resolveVideoModelId('plain-alias', channels), 'plain-alias', 'a row without an id stays its own alias')
+  assert.equal(host.resolveVideoModelId('unmapped', channels), 'unmapped', 'an unmapped model passes through unchanged')
+  assert.equal(host.resolveVideoModelId('  ', channels), '', 'a blank model resolves to blank, not to a false match')
+
+  const panelEntry = host.describeVideoModel(host.resolveVideoModelId('seedance-fast-hd', channels))
+  assert.deepEqual(panelEntry.resolutions, ['480P', '720P'], 'the picker must not offer 1080P for a fast id')
+  assert.equal(host.normalizeVideoResolution('seedance-fast-hd', '1080P'), '1080P', 'the alias alone cannot narrow anything')
+  assert.equal(
+    host.normalizeVideoResolution(host.resolveVideoModelId('seedance-fast-hd', channels), '1080P'),
+    '720P',
+    'resolving first is what makes the narrowing apply',
+  )
+})
+
+await check('V1c5 a completed task with no URL falls back to GET /videos/{id}/content (#9)', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { id: 'task_no_url_1', status: 'queued' },
+    polls: [
+      { id: 'task_no_url_1', status: 'in_progress', progress: 30 },
+      // The terminal body OpenAI's video API returns: no url anywhere, and an
+      // explicit `object`. This is what made 1.15.1 report a finished render as
+      // failed (#9).
+      { id: 'task_no_url_1', object: 'video', status: 'completed', progress: 100, model: 'wan3.0-video' },
+    ],
+  }
+  try {
+    const result = await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-content-test' },
+      { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'a cat', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+      { family: 'agnes' },
+    )
+    assert.equal(result.videos[0].mime, 'video/mp4')
+    assert.equal(result.videos[0].bytes.length, MP4.length, 'the clip bytes come from the content endpoint')
+    assert.equal(upstream.state.downloads.length, 1, 'exactly one fetch of the finished clip')
+    assert.equal(upstream.state.downloads[0].path, '/v1/videos/task_no_url_1/content', 'the content endpoint is the status URL + /content')
+    assert.equal(upstream.state.downloads[0].authorization, 'Bearer sk-content-test', 'the content fetch carries the same key')
+  } finally {
+    await upstream.close()
+  }
+  // A URL-carrying poll must NOT go to /content: the fallback is a fallback.
+  const withUrl = await startUpstream()
+  withUrl.state.script = {
+    submit: { id: 'task_with_url', status: 'queued' },
+    polls: [{ status: 'completed', url: `http://127.0.0.1:${withUrl.port}/direct.mp4` }],
+  }
+  try {
+    const result = await generateVideo(
+      { apiUrl: withUrl.base, apiKey: 'sk-content-test' },
+      { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'a cat', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+      { family: 'agnes' },
+    )
+    assert.equal(result.videos[0].bytes.length, MP4.length)
+    assert.equal(withUrl.state.downloads[0].path, '/direct.mp4', 'a body URL is still preferred over /content')
+    assert.ok(!withUrl.state.downloads.some(row => row.path.endsWith('/content')), 'no redundant content fetch')
+  } finally {
+    await withUrl.close()
+  }
+})
+
+await check('V1c6 a content fallback that 404s reports the download leg, not a silent success (#9)', async () => {
+  const upstream = await startUpstream()
+  // `contentMissing` makes the fake answer 404 on /content, which is what a
+  // relay says when the id is wrong or the artifact expired.
+  upstream.state.script = {
+    submit: { id: 'task_gone', status: 'queued' },
+    polls: [{ id: 'task_gone', status: 'completed' }],
+    contentMissing: true,
+  }
+  try {
+    await assert.rejects(
+      generateVideo(
+        { apiUrl: upstream.base, apiKey: 'k', channelName: 'ContentMissing' },
+        { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+        { family: 'agnes' },
+      ),
+      (error) => {
+        assert.equal(error.code, 'video-download-failed', 'a missing artifact is a download failure')
+        assert.match(error.message, /HTTP 404/, 'the wire status reaches the user')
+        return true
+      },
+    )
+  } finally {
+    await upstream.close()
+  }
+  const entry = host.listDiagnostics().find(row => row.channel === 'ContentMissing')
+  assert.ok(entry !== undefined, 'a failed content fetch leaves a diagnostic entry')
+  assert.equal(entry.phase, 'video-download', 'the phase names the leg that failed')
+  assert.match(entry.url, /\/v1\/videos\/task_gone\/content$/, 'the entry records the content address')
+})
+
+await check('V1c7 启航AIGC Wan 3.0 uses the flat submit + shared task reader', async () => {
+  // The model id is the gateway's `wan-3-0`. Detection must not fall through
+  // to the generic OpenAI-style `/videos` shape, and every reference has to
+  // ride the documented `images` array as a data URI.
+  const entry = host.describeVideoModel('wan-3-0')
+  assert.equal(entry.family, 'qihang', 'wan-3-0 has its own request-shaping family')
+  assert.deepEqual(entry.modes, ['text', 'image', 'keyframe', 'reference'])
+  assert.deepEqual(entry.resolutions, ['480P', '720P', '1080P'])
+  assert.deepEqual(entry.aspectRatios, ['16:9', '9:16', '1:1', '4:3', '3:4'])
+  assert.deepEqual(host.videoDurationsFor('wan-3-0'), [5, 10, 15, 20, 30])
+
+  const upstream = await startUpstream()
+  const png = 'data:image/png;base64,QUJD'
+  upstream.state.script = {
+    submit: { id: 'task_qh_1', object: 'video', task_id: 'task_qh_1', status: 'pending' },
+    polls: [
+      { id: 'task_qh_1', status: 'processing', is_final: false },
+      {
+        id: 'task_qh_1',
+        type: 'video',
+        status: 'completed',
+        is_final: true,
+        output_url: `http://127.0.0.1:${upstream.port}/out/wan.mp4`,
+        data: [{ url: `http://127.0.0.1:${upstream.port}/out/wan.mp4`, type: 'video' }],
+        duration: 15,
+      },
+    ],
+  }
+  try {
+    const result = await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-qihang' },
+      {
+        mode: 'reference',
+        model: 'wan-3-0',
+        prompt: '一只猫在雨后的巷子里奔跑',
+        aspectRatio: '9:16',
+        resolution: '1080P',
+        seconds: 15,
+        image: png,
+        images: [png],
+      },
+    )
+    const submit = upstream.state.submits[0]
+    assert.equal(submit.body.model, 'wan-3-0')
+    assert.equal(submit.body.mode, 'reference', 'the panel mode is translated to the gateway enum')
+    assert.equal(submit.body.duration, 15, 'duration is a top-level integer')
+    assert.equal(submit.body.resolution, '1080p', 'resolution uses the documented lowercase enum')
+    assert.equal(submit.body.aspect_ratio, '9:16')
+    assert.deepEqual(submit.body.images, [png, png], 'references ride in images as data URIs')
+    assert.ok(!('params' in submit.body), 'the flat endpoint must not receive the media-generate envelope')
+    assert.equal(submit.authorization, 'Bearer sk-qihang')
+    assert.equal(upstream.state.polls[0].id, 'task_qh_1', 'polling uses the shared /tasks reader')
+    assert.equal(upstream.state.polls[0].authorization, 'Bearer sk-qihang')
+    assert.equal(result.videos[0].bytes.length, MP4.length)
+    assert.equal(result.videos[0].duration, 15)
+
+    // A keyframe request with only a first frame is a first-frame render, not
+    // a two-frame one; the gateway would reject `first-last` without a tail.
+    upstream.state.polls.length = 0
+    upstream.state.submits.length = 0
+    upstream.state.script.polls = [{
+      id: 'task_qh_2',
+      status: 'completed',
+      is_final: true,
+      // No output_url: the documented `data[]` alias must still resolve.
+      data: [{ url: `http://127.0.0.1:${upstream.port}/out/wan-tail.mp4`, type: 'video' }],
+    }]
+    const single = await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-qihang' },
+      {
+        mode: 'keyframe',
+        model: 'wan-3-0',
+        prompt: '镜头缓慢推进',
+        aspectRatio: '16:9',
+        resolution: '720P',
+        seconds: 5,
+        firstFrame: png,
+      },
+    )
+    assert.equal(upstream.state.submits[0].body.mode, 'first-frame')
+    assert.deepEqual(upstream.state.submits[0].body.images, [png])
+    assert.equal(single.videos[0].bytes.length, MP4.length, 'data[0].url is accepted as the result address')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1c8 启航AIGC failures keep the gateway error class', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { id: 'task_qh_fail', task_id: 'task_qh_fail', status: 'pending' },
+    polls: [{
+      id: 'task_qh_fail',
+      status: 'failed',
+      is_final: true,
+      error: { message: '内容审核未通过' },
+      error_class: 'content_blocked',
+    }],
+  }
+  try {
+    await assert.rejects(
+      () => generateVideo(
+        { apiUrl: upstream.base, apiKey: 'k' },
+        { mode: 'text', model: 'wan-3-0', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+      ),
+      (error) => {
+        assert.match(error.message, /内容审核未通过/)
+        assert.match(error.message, /content_blocked/, 'the machine-readable class is not dropped')
+        return true
+      },
+    )
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1d keyframe and reference modes send family-correct fields', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'v', status: 'queued' },
+    polls: [{ status: 'completed', metadata: { url: `http://127.0.0.1:${upstream.port}/k.mp4` } }],
+  }
+  const png = 'data:image/png;base64,QUJD'
+  try {
+    await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'k' },
+      { mode: 'keyframe', model: 'agnes-video-2.5', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5, firstFrame: png, lastFrame: png },
+      { family: 'agnes' },
+    )
+    const keyframe = upstream.state.submits[0].body
+    assert.equal(keyframe.mode, 'keyframe')
+    assert.equal(keyframe.first_frame, png)
+    assert.equal(keyframe.last_frame, png)
+    assert.ok(!('images' in keyframe), 'keyframe mode must not also send a reference array')
+
+    upstream.state.submits.length = 0
+    await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'k' },
+      { mode: 'reference', model: 'agnes-video-2.5', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5, image: png, images: [png] },
+      { family: 'agnes' },
+    )
+    const reference = upstream.state.submits[0].body
+    assert.equal(reference.mode, 'reference')
+    assert.deepEqual(reference.images, [png, png])
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1d2 a reference-mode submit with no frame never reaches the provider', async () => {
+  // The panel's own guard used to cover `image` and `keyframe` but not
+  // `reference`, so the button stayed enabled and the provider answered with a
+  // rejection that explained nothing. The engine is the boundary that matters:
+  // an Agent tool call bypasses the panel entirely.
+  const upstream = await startUpstream()
+  try {
+    await assert.rejects(
+      () => generateVideo(
+        { apiUrl: upstream.base, apiKey: 'k' },
+        { mode: 'reference', model: 'agnes-video-2.5', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+        { family: 'agnes' },
+      ),
+      /参考图|reference/i,
+    )
+    assert.equal(upstream.state.submits.length, 0, 'nothing may be submitted without a reference frame')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1e an unknown family fails loudly instead of guessing', async () => {
+  await assert.rejects(
+    () => generateVideo(
+      { apiUrl: 'http://127.0.0.1:1/v1', apiKey: 'k' },
+      { mode: 'text', model: 'totally-unknown-model', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+      {},
+    ),
+    /无法识别视频模型|unknown/i,
+  )
+})
+
+await check('V1f a provider failure surfaces its own message', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = { submit: { video_id: 'v' }, polls: [{ status: 'failed', error: { message: '内容审核未通过' } }] }
+  try {
+    await assert.rejects(
+      () => generateVideo(
+        { apiUrl: upstream.base, apiKey: 'k' },
+        { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+        { family: 'agnes' },
+      ),
+      /内容审核未通过/,
+    )
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1g a transient status failure is retried, not failed', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_blip', status: 'queued' },
+    // The status endpoint answers 503 twice, then reports the finished clip:
+    // one hiccup must not fail a render the provider is still working on.
+    pollFailures: [503, 503],
+    polls: [{ status: 'completed', metadata: { url: `http://127.0.0.1:${upstream.port}/blip.mp4`, duration: 5 } }],
+  }
+  try {
+    const result = await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'k' },
+      { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+      { family: 'agnes' },
+    )
+    assert.equal(result.videos.length, 1, 'the clip is still produced after the blips')
+    assert.ok(upstream.state.polls.length >= 3, 'the poll loop retried the failed status requests')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V1h a status endpoint that keeps failing gives up with its own error', async () => {
+  host.clearDiagnostics()
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_dead', status: 'queued' },
+    // Never recovers: the retry budget is bounded, so this rejects with the
+    // provider's own message instead of looping until the family deadline.
+    pollFailures: [503, 503, 503, 503, 503, 503, 503, 503, 503, 503],
+    polls: [{ status: 'running' }],
+  }
+  try {
+    await assert.rejects(
+      () => generateVideo(
+        { apiUrl: upstream.base, apiKey: 'k', channelName: 'DeadStatus' },
+        { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+        { family: 'agnes' },
+      ),
+      /upstream hiccup/,
+      'the provider error text surfaces instead of a bare timeout',
+    )
+    assert.ok(upstream.state.polls.length <= 6, `the retry budget is bounded (saw ${upstream.state.polls.length} polls)`)
+  } finally {
+    await upstream.close()
+  }
+
+  // A status endpoint that failed the WHOLE budget is the archetypal "it just
+  // sat there" report. The single blip V1g retries is deliberately NOT recorded
+  // (writing every blip would bury this one), so the exhausted budget is the
+  // end of the story and has to be on the record, with the wire code and the
+  // task it was polling (#38, video parity).
+  const exhausted = host.listDiagnostics().find(entry => entry.channel === 'DeadStatus')
+  assert.ok(exhausted !== undefined, 'the exhausted poll retry budget leaves a diagnostic entry')
+  assert.equal(exhausted.phase, 'video-poll', 'the phase says the render started')
+  assert.equal(exhausted.failureCode, 'video-status-failed', 'a spent budget is recorded as a failure, not as transient')
+  assert.equal(exhausted.status, 503, 'the status the endpoint kept answering with is kept')
+  assert.equal(exhausted.method, 'GET')
+  assert.match(exhausted.url, /\/v1\/videos\/vid_dead$/, 'the entry names the task that was being polled')
+  assert.match(exhausted.requestExcerpt ?? '', /vid_dead/, 'the record names the polled task id')
+  assert.match(exhausted.requestExcerpt ?? '', /retries/, 'the record says the budget was spent')
+})
+
+// ---------------------------------------------------------------------- V1i
+await check('V1i the snapgen protocol pins the measured wire contract', async () => {
+  // snapgen is hand-rolled (anti-bot guard + two aspect dialects), so the
+  // primitives are pinned against values measured from the live site. Offline:
+  // no network, no Chrome.
+  const stableId = 'PLCMCfNYgsGNevfsHMB-X2'
+  // A fixed clock makes the time bucket deterministic (bucket 29891520).
+  const fixedNow = 1793491200000
+  assert.equal(
+    host.snapgenGuard('/api/video-gen/meta', 'POST', stableId, fixedNow),
+    'AXqzKwplznqKeksMMUuwW1sByBvArGHVJL2yFYOC_tMvzc9YmoroAtA989oET2edzDA_yT0sC5dfZYa6MCwLl19lhrowK_34HWWGuhFWZoIhVmaCIQ',
+    'the submit guard matches the bytes the shipped page emits',
+  )
+  assert.equal(
+    host.snapgenGuard('/api/history/abc', 'GET', stableId, fixedNow),
+    'AXqzKwplznqKeksMMUuwW1sByBvAPSW7aGGqcNFM6tzmgjGE4qll5Bmg5P9Q3OxjHYlpaL0sC5dfZYa6MCwLl19lhrowK_34HWWGuhFWZoIhVmaCIQ',
+    'the request mac covers the path and the method, so a different route signs differently',
+  )
+  const guard = host.snapgenGuard('/api/video-gen/meta', 'POST', stableId, fixedNow)
+  assert.equal(guard.length, 114, 'the header is 85 bytes of base64url, padding stripped')
+  assert.equal(Buffer.from(guard, 'base64url').length, 85, 'version + digest + bucket + mac + fingerprint')
+
+  // The guard signs the path the SERVER routes on. Signing the bare route was
+  // answered with GUARD_INVALID by the live API, so this stays pinned.
+  // Byte layout: [1 version][16 device digest][4 bucket][32 request mac][32 fingerprint].
+  // The digest and the bucket do not depend on the route, the mac does.
+  const bareBytes = Buffer.from(host.snapgenGuard('/video-gen/meta', 'POST', stableId, fixedNow), 'base64url')
+  const mountedBytes = Buffer.from(guard, 'base64url')
+  assert.deepEqual(bareBytes.subarray(0, 21), mountedBytes.subarray(0, 21), 'version, device digest and time bucket are route-independent')
+  assert.notDeepEqual(bareBytes.subarray(21), mountedBytes.subarray(21), 'the request mac signs the full path, so the /api mount is inside it, not stripped from it')
+
+  // Two aspect dialects: grok-video forwards ratios, everything else speaks
+  // orientations and fixes its duration.
+  assert.deepEqual(
+    host.snapgenWireParams('grok-1.5-lite', { aspectRatio: '16:9', resolution: '1080P', seconds: 10 }),
+    { aspectRatio: 'landscape', resolution: '1080p', seconds: 10 },
+    'grok-1.5-lite takes an orientation and a lowercase tier',
+  )
+  assert.deepEqual(
+    host.snapgenWireParams('grok-video', { aspectRatio: '4:3', resolution: '720P', seconds: 6 }),
+    { aspectRatio: '4:3', resolution: '720p', seconds: 6 },
+    'grok-video forwards the ratio verbatim',
+  )
+  assert.deepEqual(
+    host.snapgenWireParams('muse-ai-video', { aspectRatio: '9:16', resolution: '1080P', seconds: 5 }),
+    { aspectRatio: 'portrait', resolution: '', seconds: 10 },
+    'muse has no tiers and only renders 10 seconds',
+  )
+  assert.deepEqual(
+    host.snapgenWireParams('vela-ai-video', { aspectRatio: '1:1', resolution: '720P', seconds: 10 }),
+    { aspectRatio: 'square', resolution: '', seconds: 5 },
+    'vela only renders 5 seconds',
+  )
+  assert.throws(
+    () => host.snapgenWireParams('muse-ai-video', { aspectRatio: '4:3', resolution: '720P', seconds: 10 }),
+    (error) => error.code === 'snapgen-aspect',
+    'an aspect the model cannot express is refused here, not by a 400 after the upload',
+  )
+  assert.equal(host.snapgenWire('grok-video').endpoint, '/video-gen/grok-stream')
+  assert.equal(host.snapgenWire('muse-ai-video').endpoint, '/video-gen/meta')
+  assert.equal(host.snapgenWire('vela-ai-video').endpoint, '/video-gen/vela')
+  assert.equal(host.snapgenWire('grok-video').streaming, true, 'grok answers with an SSE stream')
+  assert.equal(host.snapgenWire('muse-ai-video').streaming, false, 'muse answers with plain JSON')
+  assert.equal(host.snapgenWire('nope'), undefined)
+
+  // Durations are per family: the panel used to hardcode 5/10, which would have
+  // hidden every snapgen clip length.
+  assert.deepEqual(host.videoDurationsFor('grok-video'), [6, 10, 15])
+  assert.deepEqual(host.videoDurationsFor('muse-ai-video'), [10], 'one fixed length, so the picker offers one pill')
+  assert.deepEqual(host.videoDurationsFor('vela-ai-video'), [5])
+  assert.deepEqual(host.videoDurationsFor('agnes-video-2.5-flash'), [5, 10], 'other families keep the default list')
+  assert.deepEqual(host.videoDurationsFor(''), [5, 10], 'an unknown model must not lose the picker')
+
+  // The snapgen ids must not be mistaken for the OpenAI-shaped fallback:
+  // 'grok-imagine-video-1.5' is xAI and posts /videos/generations.
+  assert.equal(host.describeVideoModel('grok-1.5-lite').family, 'snapgen')
+  assert.equal(host.describeVideoModel('muse-ai-video').family, 'snapgen')
+  assert.equal(host.describeVideoModel('grok-imagine-video-1.5').family, 'xai')
+  assert.deepEqual(host.describeVideoModel('grok-1.5-lite').modes, ['text'], 'grok image-mode was never measured, so it is not offered')
+  assert.deepEqual(host.describeVideoModel('muse-ai-video').modes, ['text', 'image'], 'a muse submit with one PNG finished normally')
+  assert.deepEqual(host.describeVideoModel('muse-ai-video').resolutions, [], 'muse has no tiers to pick')
+
+  // One string per channel, so all three credential shapes are accepted.
+  const bare = host.parseSnapgenCredentials('some-refresh-token')
+  assert.equal(bare.refreshToken, 'some-refresh-token')
+  assert.equal(bare.accessToken, '', 'a refresh token alone is enough: the access token is minted on demand')
+  assert.equal(bare.stableId.length, 22, 'a device id is derived when the user does not pin one')
+  assert.equal(bare.cdpPort, 9333)
+  const json = host.parseSnapgenCredentials('{"refresh_token":"r","cdp_port":9444}')
+  assert.equal(json.cdpPort, 9444, 'the port of the Chrome that mints Turnstile is configurable')
+  const jwt = 'aaa.bbb.cccccccccccccccccccccccccccccccccccccccccccccccc'
+  assert.equal(host.parseSnapgenCredentials(jwt).accessToken, jwt, 'a JWT is read as the access token')
+  assert.equal(
+    host.parseSnapgenCredentials('some-refresh-token').stableId,
+    bare.stableId,
+    'the derived device id is stable across restarts',
+  )
+})
+
+// ---------------------------------------------------------------------- V1j
+await check('V1j a snapgen submit is refused before the network when it cannot work', async () => {
+  host.clearDiagnostics()
+  // An unmetered host would still be a wrong test: these two refusals have to
+  // happen locally, so the URL points nowhere on purpose.
+  const upstream = { apiUrl: 'http://127.0.0.1:9/v1', apiKey: '', channelName: 'SnapgenEmpty' }
+  await assert.rejects(
+    () => generateVideo(upstream, { mode: 'text', model: 'grok-1.5-lite', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 10 }),
+    (error) => error.code === 'snapgen-credentials',
+    'an empty secret explains what to paste instead of failing at the guard',
+  )
+  const recorded = host.listDiagnostics().find(entry => entry.channel === 'SnapgenEmpty')
+  assert.ok(recorded !== undefined, 'the refusal is on the diagnostics record like every other family')
+  assert.match(recorded.url, /api\.snapgen\.ai\/api\/video-gen\/grok-1\.5-lite$/, 'the record names the node it would have called')
+
+  // Only the measured modes are wired: first/last frame and multi-reference
+  // were never exercised against the real API.
+  await assert.rejects(
+    () => generateVideo(
+      { apiUrl: 'http://127.0.0.1:9/v1', apiKey: 'r', channelName: 'SnapgenMode' },
+      { mode: 'keyframe', model: 'muse-ai-video', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 10, firstFrame: 'data:image/png;base64,AAAA', lastFrame: 'data:image/png;base64,AAAA' },
+    ),
+    (error) => error.code === 'video-bad-reference',
+    'an unmeasured mode is refused up front, not after a paid submit',
+  )
+})
+
+await check('V1k muse-video speaks its own closed body and resolves a relative clip URL', async () => {
+  // Measured against the upstream's /v1/videos: supported fields are exactly
+  // model, prompt, duration, aspect_ratio, resolution, image, images, videos,
+  // audios, files -- the generic `seconds`/`size` pair is a 400 every time.
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { id: 'muse_1', task_id: 'muse_1', status: 'queued', object: 'video' },
+    polls: [
+      { id: 'muse_1', status: 'in_progress', progress: 40 },
+      // The finished body names the clip by a path RELATIVE to the API base.
+      { id: 'muse_1', status: 'completed', progress: 100, url: '/v1/videos/muse_1/content', video: { url: '/v1/videos/muse_1/content' } },
+    ],
+  }
+  try {
+    const result = await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-muse', channelName: 'MuseChannel' },
+      { mode: 'text', model: 'muse-video', prompt: 'a fox in snow', aspectRatio: '16:9', resolution: '1080P', seconds: 5 },
+      { family: 'muse' },
+    )
+    assert.equal(result.videos[0].mime, 'video/mp4')
+    const submitted = upstream.state.submits[0]
+    assert.equal(submitted.body.duration, 5, 'duration is a NUMBER, not the string "5"')
+    assert.equal(submitted.body.resolution, '1080p', 'resolution is lowercase')
+    assert.equal(submitted.body.aspect_ratio, '16:9')
+    assert.ok(!('seconds' in submitted.body), 'seconds is not a Muse parameter')
+    assert.ok(!('size' in submitted.body), 'size is not a Muse parameter')
+    assert.equal(submitted.authorization, 'Bearer sk-muse')
+    assert.equal(upstream.state.polls[0].id, 'muse_1', 'the poll uses the task id')
+    // A relative result URL has to be resolved against the API base before it
+    // can be fetched at all, and only then does the same-origin check pass --
+    // which is what forwards the key this upstream requires (401 without it).
+    const download = upstream.state.downloads.at(-1)
+    assert.equal(download.path, '/v1/videos/muse_1/content', 'the relative path reaches the provider as an absolute request')
+    assert.equal(download.authorization, 'Bearer sk-muse', 'the key is forwarded to the API origin that issued the path')
+  } finally {
+    await upstream.close()
+  }
+
+  // Image mode sends a BARE data URL in `image` (no `{ url }` wrapper), and the
+  // catalogue narrows the vocabulary so the panel cannot offer a 4:3 or 480P
+  // pick this upstream answers with a 400.
+  const still = await startUpstream()
+  still.state.script = {
+    submit: { id: 'muse_2', status: 'queued' },
+    polls: [{ id: 'muse_2', status: 'completed', url: `http://127.0.0.1:${still.port}/m.mp4` }],
+  }
+  try {
+    await generateVideo(
+      { apiUrl: still.base, apiKey: 'k' },
+      { mode: 'image', model: 'muse-video', prompt: 'p', aspectRatio: '4:3', resolution: '720P', seconds: 5, image: 'data:image/png;base64,QUJD' },
+      { family: 'muse' },
+    )
+    const body = still.state.submits[0].body
+    assert.equal(body.image, 'data:image/png;base64,QUJD', 'the frame rides as a bare data URL')
+    assert.ok(!('aspect_ratio' in body), 'a ratio Muse cannot express is dropped, not forwarded into a 400')
+  } finally {
+    await still.close()
+  }
+
+  const catalog = host.describeVideoModel('muse-video')
+  assert.equal(catalog.family, 'muse', 'muse-video is its own family, not the generic fallback')
+  assert.deepEqual(catalog.resolutions, ['720P', '1080P'], '480p is rejected upstream, so it is not offered')
+  assert.deepEqual(catalog.aspectRatios, ['16:9', '9:16', '1:1'])
+  assert.deepEqual(catalog.modes, ['text', 'image'])
+  // The exact-match guard must not swallow snapgen's completely different id.
+  assert.equal(host.describeVideoModel('muse-ai-video').family, 'snapgen', 'snapgen keeps its own muse id')
+  assert.equal(host.describeVideoModel('kling-v2-master').family, 'openai-video', 'the generic fallback still works')
+})
+
+// ---------------------------------------------------------------------- V1l
+await check('V1l MiniMax-H3 speaks the Nbility content contract, 768P only', async () => {
+  // Contract: https://nbility.ai/docs/api/videos/minimax-h3. Two things are not
+  // generic and both are measured:
+  //  - the tier is fixed at 768P (720P/1080P answer `MiniMax-H3 supports only
+  //    768P at normalizeRequest`);
+  //  - every reference must be a PUBLIC HTTPS URL, so a family of its own is
+  //    needed to run the upload leg before the submit.
+  const catalog = host.describeVideoModel('MiniMax-H3')
+  assert.equal(catalog.family, 'minimax', 'the content array plus upload leg is its own family')
+  assert.deepEqual(catalog.resolutions, ['768P'], 'the only tier the upstream accepts')
+  assert.deepEqual(
+    catalog.modes,
+    ['text', 'image', 'keyframe', 'reference'],
+    'frames travel as first_frame / last_frame / reference_image roles',
+  )
+  assert.deepEqual(
+    catalog.aspectRatios,
+    ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    'six ratios documented as accepted',
+  )
+  assert.deepEqual(host.videoDurationsFor('MiniMax-H3'), [5, 10, 15], 'the panel exposes the useful 1-15s steps')
+  // A different model on the same gateway is NOT affected by the branch.
+  assert.equal(host.describeVideoModel('doubao-seedance-2-0').family, 'seedance', 'the Seedance id keeps its own family')
+  assert.deepEqual(host.describeVideoModel('kling-v2-master').resolutions, ['480P', '720P', '1080P'], 'a generic model keeps every tier')
+
+  // Every tier degrades to 768P, and nothing else moves: a 1080P ask must not
+  // land on 480P, and 768P must survive as itself rather than becoming 720P.
+  assert.equal(host.normalizeVideoResolution('MiniMax-H3', '1080P'), '768P', 'a 1080P ask degrades to the only supported tier')
+  assert.equal(host.normalizeVideoResolution('MiniMax-H3', '480P'), '768P', 'a 480P ask upgrades to the only supported tier')
+  assert.equal(host.normalizeVideoResolution('MiniMax-H3', '768P'), '768P', 'the supported tier is kept as written')
+  assert.equal(host.normalizeVideoResolution('MiniMax-H3', 'nonsense'), '768P', 'an unknown word falls back to a tier that works, not to a 400')
+
+  // Tier parsing is centralised now: the routes, the agent tools and the panel
+  // all go through it, so a new tier cannot be silently rewritten to 720P in
+  // one of the four places it used to be spelled out.
+  assert.equal(host.parseVideoResolution('768p'), '768P', 'case and padding are normalised')
+  assert.equal(host.parseVideoResolution(' 1080P '), '1080P', 'a known tier survives trimming')
+  assert.equal(host.parseVideoResolution(undefined), '720P', 'a missing tier keeps the default')
+  assert.equal(host.parseVideoResolution('4K'), '720P', 'a word the plugin cannot name falls back to the default')
+  // The ranking is the same list the planner compares against, and 768P must
+  // sit between its neighbours or a plan would "raise" quality by accident.
+  assert.ok(host.resolutionRank('720P') < host.resolutionRank('768P'), '768P ranks above 720P')
+  assert.ok(host.resolutionRank('768P') < host.resolutionRank('1080P'), '768P ranks below 1080P')
+
+  // Text-only: the documented flat body, with `duration`/`ratio` as the
+  // upstream names them.
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { id: 'task_mm', object: 'video', status: 'queued', progress: 0 },
+    polls: [
+      { id: 'task_mm', status: 'in_progress', progress: 33 },
+      { id: 'task_mm', status: 'completed', progress: 100, url: `http://127.0.0.1:${upstream.port}/mm.mp4`, resolution: '768P', ratio: '16:9', seconds: 5 },
+    ],
+  }
+  try {
+    const result = await generateVideo(
+      { apiUrl: upstream.base, apiKey: 'sk-mm', channelName: 'Nbility' },
+      { mode: 'text', model: 'MiniMax-H3', prompt: 'ocean waves at sunset', aspectRatio: '16:9', resolution: '1080P', seconds: 5 },
+    )
+    assert.equal(result.videos[0].mime, 'video/mp4')
+    const body = upstream.state.submits[0].body
+    assert.equal(body.model, 'MiniMax-H3')
+    assert.equal(body.prompt, 'ocean waves at sunset', 'text-only uses the flat prompt form')
+    assert.equal(body.resolution, '768P', 'a 1080P ask is sent as the only tier the upstream takes')
+    assert.equal(body.duration, 5, 'duration is an integer, not the generic string seconds')
+    assert.equal(body.ratio, '16:9')
+    assert.ok(!('content' in body), 'text-only omits the content array')
+    assert.ok(!('size' in body), 'the generic size field is not sent')
+    assert.ok(!('seconds' in body), 'the generic seconds field is not sent')
+    assert.equal(upstream.state.uploads.length, 0, 'text-only uploads nothing')
+    assert.equal(upstream.state.submits[0].authorization, 'Bearer sk-mm')
+    assert.equal(upstream.state.polls[0].id, 'task_mm', 'the poll uses the task id the gateway returned')
+  } finally {
+    await upstream.close()
+  }
+})
+
+// ---------------------------------------------------------------------- V1n
+await check('V1n MiniMax-H3 uploads every frame and carries its role', async () => {
+  // Measured: data URIs are refused outright (`Reference media requires a
+  // public HTTPS URL; uploads and Base64 are not supported`), while
+  // `POST /v1/media/uploads` with a multipart file answers {url, expires_at}.
+  // The role decides what the frame means, and first/last may not be mixed with
+  // reference_image -- so each mode is asserted on its own.
+  const PNG = 'data:image/png;base64,iVBORw0KGgo='
+  const cases = [
+    { mode: 'image', fields: { image: PNG }, roles: ['first_frame'], files: 1 },
+    { mode: 'keyframe', fields: { firstFrame: PNG, lastFrame: PNG }, roles: ['first_frame', 'last_frame'], files: 2 },
+    { mode: 'reference', fields: { image: PNG, images: [PNG, PNG] }, roles: ['reference_image', 'reference_image', 'reference_image'], files: 3 },
+  ]
+  for (const item of cases) {
+    const upstream = await startUpstream()
+    upstream.state.script = {
+      submit: { id: 'task_ref', object: 'video', status: 'queued' },
+      polls: [{ status: 'completed', url: `http://127.0.0.1:${upstream.port}/ref.mp4` }],
+    }
+    try {
+      // 1080P on purpose: the mode under test must not depend on the caller
+      // having picked the right tier.
+      await generateVideo(
+        { apiUrl: upstream.base, apiKey: 'sk-mm', channelName: 'Nbility' },
+        { mode: item.mode, model: 'MiniMax-H3', prompt: 'she turns to the window', aspectRatio: '9:16', resolution: '1080P', seconds: 8, ...item.fields },
+      )
+      assert.equal(upstream.state.uploads.length, item.files, `${item.mode}: one upload per frame`)
+      const firstUpload = upstream.state.uploads[0]
+      assert.equal(firstUpload.authorization, 'Bearer sk-mm', `${item.mode}: the upload carries the key`)
+      assert.equal(firstUpload.mime, 'image/png', `${item.mode}: the part is typed with the frame's own mime`)
+      assert.match(firstUpload.filename, /^reference-\d+\.png$/, `${item.mode}: the part is named for the frame`)
+      assert.ok(firstUpload.bytes > 0, `${item.mode}: the frame bytes reach the wire`)
+
+      const body = upstream.state.submits[0].body
+      assert.equal(body.resolution, '768P', `${item.mode}: the tier is always 768P`)
+      assert.equal(body.duration, 8, `${item.mode}: duration is the requested integer`)
+      assert.equal(body.ratio, '9:16', `${item.mode}: the ratio survives`)
+      assert.equal(Array.isArray(body.content), true, `${item.mode}: frames need the content array`)
+      const text = body.content[0]
+      assert.deepEqual(text, { type: 'text', text: 'she turns to the window' }, `${item.mode}: exactly one text item leads`)
+      const media = body.content.slice(1)
+      assert.deepEqual(
+        media.map(entry => entry.role),
+        item.roles,
+        `${item.mode}: each frame travels under the role the contract names`,
+      )
+      for (const [index, entry] of media.entries()) {
+        assert.equal(entry.type, 'image_url', `${item.mode}: a frame is an image_url item`)
+        assert.equal(
+          entry.image_url.url,
+          `https://media.example.test/${index + 1}.png`,
+          `${item.mode}: the item carries the UPLOADED url, never a data URI`,
+        )
+        assert.equal(entry.image_url.url.startsWith('data:'), false, `${item.mode}: no base64 leaves the host`)
+      }
+    } finally {
+      await upstream.close()
+    }
+  }
+})
+
+// ---------------------------------------------------------------------- V1o
+await check('V1o a rejected upload explains itself before any render starts', async () => {
+  // The upload leg fails on its own terms: the file was refused, so no task
+  // exists and no render is billed. Recording it under its own phase keeps that
+  // distinct from "the submit was rejected".
+  host.clearDiagnostics()
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    uploadStatus: 413,
+    uploadBody: { error: { message: 'file too large' } },
+    submit: { id: 'task_never', status: 'queued' },
+    polls: [{ status: 'completed', url: `http://127.0.0.1:${upstream.port}/never.mp4` }],
+  }
+  try {
+    await assert.rejects(
+      generateVideo(
+        { apiUrl: upstream.base, apiKey: 'sk-mm', channelName: 'Nbility' },
+        { mode: 'image', model: 'MiniMax-H3', prompt: 'a room', aspectRatio: '16:9', resolution: '768P', seconds: 5, image: 'data:image/png;base64,iVBORw0KGgo=' },
+      ),
+      error => {
+        assert.equal(error.code, 'video-upload-failed')
+        assert.match(error.message, /file too large/, 'the upstream wording survives')
+        assert.match(error.message, /HTTP 413/, 'the status survives')
+        return true
+      },
+    )
+    assert.equal(upstream.state.submits.length, 0, 'no submit is attempted after a refused upload')
+    const entry = host.listDiagnostics().find(row => row.phase === 'video-upload')
+    assert.ok(entry !== undefined, 'the failure is recorded under the upload phase')
+    assert.equal(entry.url, 'http://127.0.0.1:' + upstream.port + '/v1/media/uploads', 'the entry names the upload url')
+    assert.equal(entry.status, 413)
+    assert.equal(entry.failureCode, 'video-upload-failed')
+    assert.equal(entry.hadAuth, true)
+  } finally {
+    await upstream.close()
+  }
+
+  // An empty prompt is answered with an opaque 400, and uploading first would
+  // waste the transfer: the guard has to run before the first upload.
+  const quiet = await startUpstream()
+  quiet.state.script = { submit: { id: 'task_none', status: 'queued' }, polls: [] }
+  try {
+    await assert.rejects(
+      generateVideo(
+        { apiUrl: quiet.base, apiKey: 'sk-mm' },
+        { mode: 'image', model: 'MiniMax-H3', prompt: '   ', aspectRatio: '16:9', resolution: '768P', seconds: 5, image: 'data:image/png;base64,iVBORw0KGgo=' },
+      ),
+      error => {
+        assert.equal(error.code, 'video-bad-prompt')
+        return true
+      },
+    )
+    assert.equal(quiet.state.uploads.length, 0, 'an empty prompt is refused before any upload')
+  } finally {
+    await quiet.close()
+  }
+})
+
+// ---------------------------------------------------------------------- V2/V3
+// ---------------------------------------------------------------------- V2/V3
+await check('V2 the runtime persists a clip and the store serves it', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_store', status: 'queued' },
+    polls: [{ status: 'completed', metadata: { url: `http://127.0.0.1:${upstream.port}/stored.mp4`, duration: 7 } }],
+  }
+  try {
+    const runtime = new host.ImageGenerationRuntime(() => ({
+      channels: [{
+        id: 'default',
+        preset: '',
+        name: 'VideoChannel',
+        apiUrl: upstream.base,
+        apiKey: 'sk-test',
+        apiUrlFull: false,
+        models: [],
+        videoModels: [{ alias: 'agnes-video-2.5-flash', id: 'agnes-video-2.5-flash' }],
+      }],
+      defaultChannelId: 'default',
+    }))
+    const result = await runtime.runVideo({
+      mode: 'text',
+      model: 'agnes-video-2.5-flash',
+      prompt: 'stored clip',
+      aspectRatio: '16:9',
+      resolution: '720P',
+      seconds: 5,
+    })
+    assert.equal(result.videos.length, 1, 'the finished clip is returned')
+    assert.match(result.videos[0].url, /\/api\/dsh-imagegen\/video\/file\//, 'the result is a same-origin served URL, not raw bytes')
+    assert.equal(result.historyError, undefined, 'persistence succeeded')
+
+    const listed = await host.listVideoHistory()
+    assert.equal(listed.length, 1, 'the clip is in the video history')
+    assert.equal(listed[0].duration ?? undefined, undefined, 'history keeps its own shape')
+    assert.equal(listed[0].seconds, 5)
+
+    // The store reads the file back for the Range-capable route.
+    const file = listed[0].videos[0].url.split('/').pop()
+    const read = await host.readVideoFile(file)
+    assert.ok(read !== undefined, 'the stored clip is readable by name')
+    assert.equal(read.size, MP4.length)
+    assert.equal(read.mime, 'video/mp4')
+
+    // Path traversal must not resolve.
+    assert.equal(await host.readVideoFile('../index.json'), undefined, 'a traversal name is rejected')
+    assert.equal(await host.readVideoFile('nope.txt'), undefined, 'a non-video extension is rejected')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V3 the video routes answer over real HTTP', async () => {
+  // Drive the real route handlers through a real HTTP server. Building the
+  // request/response pair by hand would test a fiction; a socket round trip
+  // exercises the loopback guard, body reading and JSON envelope for real.
+  const tasks = []
+  const stored = []
+  const routes = host.makeRoutes({
+    settings: { describe: () => [], mutate: async () => ({}) },
+    resolve: () => ({ apiUrl: '', apiKey: '' }),
+    resolveChannels: () => ({ channels: [], defaultChannelId: '' }),
+    runtime: {
+      queue: { submit: () => ({ id: 'x' }), list: () => [], get: () => undefined, cancel: () => undefined, retry: () => undefined, summaries: () => [] },
+      videoQueue: {
+        submit: request => { const task = { id: `vt-${tasks.length + 1}`, request, status: 'queued', createdAt: Date.now() }; tasks.push(task); return task },
+        summaries: () => tasks.map(task => ({ ...task, resultAvailable: false })),
+        get: id => tasks.find(task => task.id === id),
+        cancel: id => tasks.find(task => task.id === id),
+        retry: id => tasks.find(task => task.id === id),
+        list: () => tasks,
+        subscribe: () => () => {},
+        // 路由在列表前会调它，桩也必须答——否则测的就不是路由本身。
+        restorePending: async () => ({ restored: 0 }),
+      },
+      runVideo: async () => ({ videos: [] }),
+    },
+    video: {
+      list: async () => stored,
+      remove: async () => stored,
+      clear: async () => stored,
+      // One served clip so the Range path can be exercised for real.
+      readFile: async name => name === 'clip-0.mp4' ? { path: '', size: MP4.length, mime: 'video/mp4' } : undefined,
+    },
+  })
+  assert.ok(routes.filter(route => String(route.path).includes('/video/')).length >= 10,
+    'the video route family is registered')
+
+  // Serve exactly the video routes, dispatching the way the host router does.
+  const exact = new Map(routes.filter(r => r.kind !== 'prefix').map(r => [r.path, r.handler]))
+  const prefixes = routes.filter(r => r.kind === 'prefix')
+  const server = createServer((req, res) => {
+    const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+    const handler = exact.get(pathname) ?? prefixes.find(r => pathname.startsWith(`${r.path}/`))?.handler
+    if (handler === undefined) { res.writeHead(404); res.end('no route'); return }
+    void handler(req, res)
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const origin = `http://127.0.0.1:${server.address().port}`
+  const post = async (path, body) => {
+    const response = await fetch(`${origin}${path}`, {
+      method: 'POST',
+      ...body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+    })
+    return { status: response.status, json: await response.json() }
+  }
+  try {
+    // A valid submit reaches the queue.
+    const accepted = await post('/api/dsh-imagegen/video/tasks/submit', { prompt: 'p', model: 'agnes-video-2.5-flash', mode: 'text' })
+    assert.equal(accepted.status, 200)
+    assert.equal(accepted.json.ok, true, 'the submit route accepts a valid video request')
+    assert.equal(tasks.length, 1, 'the request reached the video queue')
+
+    // A request without a prompt is refused with copy, not a crash.
+    const missing = await post('/api/dsh-imagegen/video/tasks/submit', { model: 'agnes-video-2.5-flash' })
+    assert.equal(missing.json.ok, false)
+    assert.match(missing.json.message, /prompt/)
+    assert.equal(tasks.length, 1, 'the invalid request never reached the queue')
+
+    // The queue list and history list both answer.
+    const listed = await post('/api/dsh-imagegen/video/tasks/list')
+    assert.equal(listed.json.ok, true)
+    assert.equal(listed.json.tasks.length, 1)
+    const history = await post('/api/dsh-imagegen/video/history/list')
+    assert.equal(history.json.ok, true)
+
+    // Canvas lineage must survive the route's request parser. It is how the
+    // canvas matches a finished render to its placeholder node; dropping it made
+    // every canvas run look failed while the render had actually succeeded.
+    const canvasRun = await post('/api/dsh-imagegen/video/tasks/submit', {
+      prompt: 'from the canvas',
+      model: 'agnes-video-2.5-flash',
+      mode: 'text',
+      canvas: { canvasId: 'canvas-77', sourceNodeId: 'cfg-9', nodeId: 'ph-9', referenceNodeIds: ['img-1', 'img-2'] },
+    })
+    assert.equal(canvasRun.json.ok, true, 'a canvas-originated submit is accepted')
+    const queued = tasks.at(-1)
+    assert.equal(queued.request.canvas?.canvasId, 'canvas-77', 'the canvas id survives the request parser')
+    assert.equal(queued.request.canvas?.nodeId, 'ph-9', 'the placeholder node id survives')
+    assert.equal(queued.request.canvas?.sourceNodeId, 'cfg-9', 'the source config node survives')
+    assert.deepEqual(queued.request.canvas?.referenceNodeIds, ['img-1', 'img-2'], 'the reference node ids survive')
+
+    // A malformed canvas block is ignored rather than polluting the task.
+    const badCanvas = await post('/api/dsh-imagegen/video/tasks/submit', {
+      prompt: 'no canvas id', model: 'agnes-video-2.5-flash', mode: 'text', canvas: { sourceNodeId: 'x' },
+    })
+    assert.equal(badCanvas.json.ok, true, 'a submit without a usable canvas id is still accepted')
+    assert.equal(tasks.at(-1).request.canvas, undefined, 'a canvas block without an id is dropped, not stored half-formed')
+
+    // One queued id resolves; an unknown id reports not-found.
+    const found = await post('/api/dsh-imagegen/video/tasks/get', { id: 'vt-1' })
+    assert.equal(found.json.ok, true)
+    const absent = await post('/api/dsh-imagegen/video/tasks/get', { id: 'nope' })
+    assert.equal(absent.json.ok, false)
+    assert.equal(absent.json.code, 'not-found')
+
+    // Removal requires an id.
+    const badRemove = await post('/api/dsh-imagegen/video/history/remove', {})
+    assert.equal(badRemove.json.ok, false)
+
+    // The file route: a traversal name and an unknown name both 404.
+    const traversal = await fetch(`${origin}/api/dsh-imagegen/video/file/..%2Findex.json`)
+    assert.equal(traversal.status, 404, 'a traversal name does not resolve')
+    const unknown = await fetch(`${origin}/api/dsh-imagegen/video/file/absent-0.mp4`)
+    assert.equal(unknown.status, 404, 'an unknown clip name does not resolve')
+    // A GET method on a POST-only route is refused.
+    const wrongMethod = await fetch(`${origin}/api/dsh-imagegen/video/tasks/list`)
+    assert.equal(wrongMethod.status, 405, 'a POST-only route refuses GET')
+  } finally {
+    await new Promise(resolve => server.close(resolve))
+  }
+})
+
+await check('V3b the clip route serves bytes and honors Range for seeking', async () => {
+  // A real fixture on disk: the route streams from the file system, so a
+  // fabricated buffer would not exercise the path that matters.
+  const clipDir = join(dataRoot, 'dsh-imagegen', 'videos', 'files')
+  mkdirSync(clipDir, { recursive: true })
+  const clipPath = join(clipDir, 'seek-0.mp4')
+  const body = Buffer.concat([MP4, Buffer.alloc(2048, 7)])
+  writeFileSync(clipPath, body)
+
+  const routes = host.makeRoutes({
+    settings: { describe: () => [], mutate: async () => ({}) },
+    resolve: () => ({ apiUrl: '', apiKey: '' }),
+    resolveChannels: () => ({ channels: [], defaultChannelId: '' }),
+    video: {
+      list: async () => [],
+      remove: async () => [],
+      clear: async () => [],
+      readFile: name => host.readVideoFile(name),
+    },
+  })
+  const exact = new Map(routes.filter(r => r.kind !== 'prefix').map(r => [r.path, r.handler]))
+  const prefixes = routes.filter(r => r.kind === 'prefix')
+  const server = createServer((req, res) => {
+    const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+    const handler = exact.get(pathname) ?? prefixes.find(r => pathname.startsWith(`${r.path}/`))?.handler
+    if (handler === undefined) { res.writeHead(404); res.end('no route'); return }
+    void handler(req, res)
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const origin = `http://127.0.0.1:${server.address().port}`
+  try {
+    const full = await fetch(`${origin}/api/dsh-imagegen/video/file/seek-0.mp4`)
+    assert.equal(full.status, 200, 'the whole clip is served')
+    assert.equal(full.headers.get('accept-ranges'), 'bytes', 'the route advertises range support')
+    assert.equal(full.headers.get('content-type'), 'video/mp4')
+    assert.equal(full.headers.get('x-content-type-options'), 'nosniff')
+    const fullBody = Buffer.from(await full.arrayBuffer())
+    assert.equal(fullBody.length, body.length, 'the whole clip arrives')
+
+    // A Range request must answer 206 with just the asked-for slice; without
+    // this the <video> element cannot seek.
+    const ranged = await fetch(`${origin}/api/dsh-imagegen/video/file/seek-0.mp4`, { headers: { range: 'bytes=100-199' } })
+    assert.equal(ranged.status, 206, 'a range request answers 206')
+    assert.equal(ranged.headers.get('content-range'), `bytes 100-199/${body.length}`)
+    assert.equal(ranged.headers.get('content-length'), '100')
+    const slice = Buffer.from(await ranged.arrayBuffer())
+    assert.equal(slice.length, 100, 'exactly the requested slice is returned')
+    assert.deepEqual(slice, body.subarray(100, 200), 'the slice matches the file bytes')
+
+    // An unsatisfiable range answers 416 with the real size (RFC 7233) rather
+    // than silently sending the whole clip with a 200.
+    const open = await fetch(`${origin}/api/dsh-imagegen/video/file/seek-0.mp4`, { headers: { range: 'bytes=999999-' } })
+    assert.equal(open.status, 416, 'an unsatisfiable range answers 416')
+    assert.equal(open.headers.get('content-range'), `bytes */${body.length}`)
+  } finally {
+    await new Promise(resolve => server.close(resolve))
+    rmSync(clipPath, { force: true })
+  }
+})
+
+
+await check('V1m an HTML response is explained as a wrong base URL, not echoed as markup', async () => {
+  // Measured: a gateway whose channel URL omitted `/v1` answered the submit
+  // with 200 and its own homepage. The bytes are not the user's problem -- the
+  // missing path segment is. This asserts the message names the likely cause
+  // and never contains the markup itself.
+  const upstream = await startUpstream()
+  upstream.state.script = { html: true }
+  try {
+    await assert.rejects(
+      () => generateVideo(
+        { apiUrl: upstream.base, apiKey: 'sk-html', channelName: 'WrongBase' },
+        { mode: 'text', model: 'MiniMax-H3', prompt: 'p', aspectRatio: '16:9', resolution: '768P', seconds: 5 },
+      ),
+      (error) => {
+        assert.match(error.message, /网页而不是接口响应/, 'the message names what came back')
+        assert.match(error.message, /\/v1/, 'and names the usual cause')
+        assert.ok(!/<meta|<html|charset=/i.test(error.message), 'the markup itself is not pasted into the message')
+        return true
+      },
+      'a 200 HTML body is a configured-address problem, not a provider rejection',
+    )
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V6 a freshly configured generic video model works through the runtime', async () => {
+  // Proves the "generic channel" claim: an operator adds an arbitrary video
+  // model to a channel and it routes without a code change, deriving its
+  // family from the model id rather than from a hard-coded list.
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { id: 'vid_generic', status: 'queued' },
+    polls: [{ status: 'completed', url: `http://127.0.0.1:${upstream.port}/generic.mp4` }],
+  }
+  try {
+    const runtime = new host.ImageGenerationRuntime(() => ({
+      channels: [{
+        id: 'fresh',
+        preset: '',
+        name: 'FreshChannel',
+        apiUrl: upstream.base,
+        apiKey: 'sk-generic',
+        apiUrlFull: false,
+        models: [],
+        // A model id the plugin has never seen wired before.
+        videoModels: [{ alias: 'my-kling', id: 'kling-v2-master' }],
+      }],
+      defaultChannelId: 'fresh',
+    }))
+    const result = await runtime.runVideo({
+      mode: 'text',
+      model: 'my-kling',
+      prompt: 'generic path',
+      aspectRatio: '16:9',
+      resolution: '720P',
+      seconds: 5,
+    })
+    assert.equal(result.videos.length, 1, 'the generic family produced a clip')
+    assert.equal(upstream.state.submits.length, 1, 'one submit reached the upstream')
+    assert.equal(upstream.state.submits[0].body.model, 'kling-v2-master', 'the alias maps to the configured upstream id')
+    assert.match(result.videos[0].url, /\/api\/dsh-imagegen\/video\/file\//, 'the clip was persisted and served')
+    // A video-named id classifies as the generic family (not unknown), which is
+    // what lets an operator wire an unwired provider without a code change.
+    assert.equal(host.describeVideoModel('kling-v2-master').family, 'openai-video')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V6b a channel-alias Seedance model routes and persists through the runtime', async () => {
+  // V1c2/V1c3 drive the engine directly. What a user actually does is pick an
+  // alias off a channel, so this goes through the runtime: alias → upstream
+  // id → family → Ark task path → downloaded clip on disk. The alias
+  // deliberately says "hd" while the upstream id is a 720p-capped fast model,
+  // so a capability check done on the alias would send an invalid tier.
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { id: 'cgt-runtime' },
+    polls: [
+      { status: 'queued' },
+      { status: 'running' },
+      { status: 'succeeded', content: { video_url: `http://127.0.0.1:${upstream.port}/runtime.mp4` }, duration: 5 },
+    ],
+  }
+  try {
+    const runtime = new host.ImageGenerationRuntime(() => ({
+      channels: [{
+        id: 'ark',
+        preset: 'volc-ark-seedream',
+        name: 'Ark',
+        apiUrl: upstream.base,
+        apiKey: 'k',
+        apiUrlFull: false,
+        models: [],
+        videoModels: [{ alias: 'seedance-hd', id: 'doubao-seedance-2-0-fast-260128' }],
+      }],
+      defaultChannelId: 'ark',
+    }))
+    const result = await runtime.runVideo({
+      mode: 'text',
+      model: 'seedance-hd',
+      prompt: 'a paper boat on a puddle',
+      aspectRatio: '16:9',
+      resolution: '1080P',
+      seconds: 5,
+    })
+    assert.equal(upstream.state.submits.length, 1, 'the Ark create route was used')
+    const body = upstream.state.submits[0].body
+    assert.equal(body.model, 'doubao-seedance-2-0-fast-260128', 'the channel alias maps to the real id')
+    assert.equal(body.resolution, '720p', 'the fast id caps at 720p even though the alias reads "hd"')
+    assert.equal(body.ratio, '16:9')
+    assert.equal(body.watermark, false)
+    assert.equal(upstream.state.polls.length, 3, 'the queued/running states are polled through to a terminal one')
+    assert.equal(result.videos.length, 1)
+    assert.equal(result.videos[0].duration, 5, 'the duration comes from the Ark task body')
+    assert.match(result.videos[0].url, /\/api\/dsh-imagegen\/video\/file\//, 'the clip was persisted and served')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V6c an explicit channelId wins over another channel carrying the same alias (#10-4)', async () => {
+  // Two channels both catalog `same-alias`, each mapping it to its own upstream
+  // id and holding its own key. Before this fix the host resolved purely by
+  // "which channel happens to configure the alias", so a user who picked B was
+  // silently rendered (and billed) on A. The assertion is on what the upstream
+  // actually received, not on internal state.
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_alias', status: 'queued' },
+    polls: [{ status: 'completed', metadata: { url: `http://127.0.0.1:${upstream.port}/alias.mp4`, duration: 5 } }],
+  }
+  try {
+    const channels = [
+      {
+        id: 'channel-a',
+        preset: '',
+        name: 'Channel A',
+        apiUrl: upstream.base,
+        apiKey: 'key-of-a',
+        apiUrlFull: false,
+        models: [],
+        videoModels: [{ alias: 'same-alias', id: 'agnes-video-2.5-flash' }],
+      },
+      {
+        id: 'channel-b',
+        preset: '',
+        name: 'Channel B',
+        apiUrl: upstream.base,
+        apiKey: 'key-of-b',
+        apiUrlFull: false,
+        models: [],
+        videoModels: [{ alias: 'same-alias', id: 'agnes-video-2.5' }],
+      },
+    ]
+    const runtime = new host.ImageGenerationRuntime(() => ({ channels, defaultChannelId: 'channel-a' }))
+    const request = { mode: 'text', model: 'same-alias', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 }
+
+    // 1) Explicit `channelId=B` must reach B's upstream id AND B's key.
+    await runtime.runVideo({ ...request, channelId: 'channel-b' })
+    assert.equal(upstream.state.submits.length, 1, 'one submit reached the upstream')
+    assert.equal(upstream.state.submits[0].body.model, 'agnes-video-2.5', 'the explicit channel decides which mapping is sent')
+    assert.equal(upstream.state.submits[0].authorization, 'Bearer key-of-b', 'and which credential pays for it')
+
+    // 2) No `channelId`: the historical fallback is preserved — the first
+    //    channel carrying the alias, not the default channel.
+    await runtime.runVideo(request)
+    assert.equal(upstream.state.submits.length, 2, 'the second submit reached the upstream')
+    assert.equal(upstream.state.submits[1].body.model, 'agnes-video-2.5-flash', 'an unqualified alias still resolves to the first channel holding it')
+    assert.equal(upstream.state.submits[1].authorization, 'Bearer key-of-a', 'and to that channel\'s key')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V6d an explicit channelId without the alias is refused, never taken over by another channel', async () => {
+  // The deliberate second step of the ordering: an explicit channel that does not
+  // configure the alias is used ANYWAY, so the upstream id degrades to the alias
+  // and validation refuses it. The alternative — quietly falling back to the
+  // channel that does configure it — would charge the user's other key for work
+  // they did not aim at that channel.
+  const runtime = new host.ImageGenerationRuntime(() => ({
+    channels: [
+      {
+        id: 'channel-a',
+        preset: '',
+        name: 'Channel A',
+        apiUrl: 'http://127.0.0.1:1/v1',
+        apiKey: 'key-of-a',
+        apiUrlFull: false,
+        models: [],
+        videoModels: [{ alias: 'same-alias', id: 'agnes-video-2.5-flash' }],
+      },
+      {
+        id: 'channel-b',
+        preset: '',
+        name: 'Channel B',
+        // Not reachable: the run must fail on validation before any HTTP call.
+        apiUrl: 'http://127.0.0.1:1/v1',
+        apiKey: 'key-of-b',
+        apiUrlFull: false,
+        models: [],
+        videoModels: [{ alias: 'other-alias', id: 'agnes-video-2.5' }],
+      },
+    ],
+    defaultChannelId: 'channel-a',
+  }))
+  await assert.rejects(
+    () => runtime.runVideo({ mode: 'text', model: 'same-alias', channelId: 'channel-b', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 }),
+    error => error?.code === 'video-unknown-model',
+    'the explicitly chosen channel is used even without the alias, so the run is refused instead of billed to the other channel',
+  )
+})
+
+await check('V7 an unknown-family model configured in a channel fails with guidance', async () => {
+  const runtime = new host.ImageGenerationRuntime(() => ({
+    channels: [{
+      id: 'fresh',
+      preset: '',
+      name: 'Fresh',
+      apiUrl: 'http://127.0.0.1:1/v1',
+      apiKey: 'k',
+      apiUrlFull: false,
+      models: [],
+      // No video-ish token at all: a chat model mistakenly pasted into the
+      // video catalog must not be guessed at.
+      videoModels: [{ alias: 'mystery', id: 'mystery-thing-9000' }],
+    }],
+    defaultChannelId: 'fresh',
+  }))
+  // Assert the stable wire code rather than the wording: the message is
+  // localized, but the code is part of the contract.
+  await assert.rejects(
+    () => runtime.runVideo({ mode: 'text', model: 'mystery', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 }),
+    error => error?.code === 'video-unknown-model',
+    'an unclassifiable model is refused with guidance rather than sent upstream',
+  )
+})
+
+
+// ---------------------------------------------------------------------- V4
+await check('V4 the Agent video tools submit, poll, cancel and enforce the allow switch', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_agent', status: 'queued' },
+    polls: [{ status: 'completed', metadata: { url: `http://127.0.0.1:${upstream.port}/agent.mp4`, duration: 5 } }],
+  }
+  const tools = new Map()
+  let allowed = true
+  try {
+    const runtime = new host.ImageGenerationRuntime(() => ({
+      channels: [{
+        id: 'default',
+        preset: '',
+        name: 'Default',
+        apiUrl: upstream.base,
+        apiKey: 'sk-test',
+        apiUrlFull: false,
+        models: [],
+        videoModels: [{ alias: 'agnes-video-2.5-flash', id: 'agnes-video-2.5-flash' }],
+      }],
+      defaultChannelId: 'default',
+    }), { append: async () => [] })
+    const dispose = host.registerAgentVideoTools({
+      tools: { register: definition => { tools.set(definition.name, definition); return () => { tools.delete(definition.name) } } },
+      attachments: { readImage: async ref => ({ ref, data: new Uint8Array([1, 2, 3]) }) },
+    }, runtime, () => ({
+      enabled: true,
+      allowAgentVideoGeneration: allowed,
+      defaultChannelId: 'default',
+      channels: [{
+        id: 'default',
+        preset: '',
+        name: 'Default',
+        apiUrl: 'configured',
+        apiKey: 'configured',
+        models: [],
+        videoModels: [{ alias: 'agnes-video-2.5-flash', id: 'agnes-video-2.5-flash' }],
+      }],
+    }))
+    try {
+      assert.ok(tools.has('generate_video'), 'generate_video is registered')
+      assert.ok(tools.has('generate_video_from_image'), 'generate_video_from_image is registered')
+      assert.ok(tools.has('get_video_generation_task'), 'get_video_generation_task is registered')
+      assert.ok(tools.has('cancel_video_generation_task'), 'cancel_video_generation_task is registered')
+
+      const generated = await tools.get('generate_video').execute({ prompt: 'an agent cat', seconds: 5 }, {})
+      assert.equal(generated.status, 'completed', 'the Agent tool waits for the render to finish')
+      assert.equal(generated.videos.length, 1)
+      assert.match(generated.videos[0].url, /\/api\/dsh-imagegen\/video\/file\//)
+      assert.equal(generated.videos[0].mime, 'video/mp4')
+
+      const rendered = tools.get('generate_video').output.render({ prompt: 'p' }, generated)
+      assert.equal(rendered.length, 1)
+      assert.equal(rendered[0].type, 'text', 'video results stay textual; a clip is never attached to the conversation')
+
+      const polled = await tools.get('get_video_generation_task').execute({ task_id: generated.task_id }, {})
+      assert.equal(polled.status, 'completed')
+
+      // The allow switch is honored per call.
+      allowed = false
+      await assert.rejects(() => tools.get('generate_video').execute({ prompt: 'blocked' }, {}), /disabled/i)
+      allowed = true
+
+      // Cancelling a missing task reports it instead of throwing something opaque.
+      await assert.rejects(() => tools.get('cancel_video_generation_task').execute({ task_id: 'nope' }, {}), /not found/i)
+    } finally {
+      dispose()
+    }
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V5 an unconfigured video model list is refused with actionable copy', async () => {
+  const tools = new Map()
+  const runtime = new host.ImageGenerationRuntime(() => ({ channels: [], defaultChannelId: '' }))
+  const dispose = host.registerAgentVideoTools({
+    tools: { register: definition => { tools.set(definition.name, definition); return () => { tools.delete(definition.name) } } },
+    attachments: { readImage: async ref => ({ ref, data: new Uint8Array([1]) }) },
+  }, runtime, () => ({ enabled: true, allowAgentVideoGeneration: true, defaultChannelId: '', channels: [] }))
+  try {
+    await assert.rejects(
+      () => tools.get('generate_video').execute({ prompt: 'p' }, {}),
+      /Sign in/i,
+    )
+  } finally {
+    dispose()
+  }
+})
+
+await check('V8 a clip deleted between stat and stream open ends the request, not the process', async () => {
+  // WHY this check exists: `readVideoFile` returns the path after `await
+  // fs.stat`, and the route opens the read stream afterwards. A clip removed in
+  // that window — the user deleting the entry, or the 30-entry cap evicting the
+  // oldest while the browser still preloads it — makes the stream emit ENOENT.
+  // `pipe()` forwards errors to the DESTINATION only, and the host installs no
+  // `uncaughtException` handler, so a bare `.pipe(res)` takes the whole dsh web
+  // process down. This drives the real route over a real socket and asserts the
+  // request ends without the suite dying.
+  //
+  // The race is reproduced deterministically rather than by timing: `readFile`
+  // hands back the path of a file that no longer exists, which is exactly the
+  // state the stat/open window produces.
+  const gone = join(mkdtempSync(join(tmpdir(), 'dsh-clip-gone-')), 'evicted.mp4')
+  const routes = host.makeRoutes({
+    settings: { describe: () => [], mutate: async () => ({}) },
+    resolve: () => ({ apiUrl: '', apiKey: '' }),
+    resolveChannels: () => ({ channels: [], defaultChannelId: '' }),
+    runtime: {
+      queue: { submit: () => ({ id: 'x' }), list: () => [], get: () => undefined, cancel: () => undefined, retry: () => undefined, summaries: () => [] },
+      videoQueue: { submit: () => ({ id: 'x' }), summaries: () => [], get: () => undefined, cancel: () => undefined, retry: () => undefined, list: () => [], subscribe: () => () => {}, restorePending: async () => ({ restored: 0 }) },
+      runVideo: async () => ({ videos: [] }),
+    },
+    video: {
+      list: async () => [],
+      remove: async () => [],
+      clear: async () => [],
+      // stat already succeeded (that is what the size is); the bytes are gone.
+      readFile: async name => name === 'evicted.mp4' ? { path: gone, size: MP4.length, mime: 'video/mp4' } : undefined,
+    },
+  })
+  const exact = new Map(routes.filter(r => r.kind !== 'prefix').map(r => [r.path, r.handler]))
+  const prefixes = routes.filter(r => r.kind === 'prefix')
+  const server = createServer((req, res) => {
+    const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+    const handler = exact.get(pathname) ?? prefixes.find(r => pathname.startsWith(`${r.path}/`))?.handler
+    if (handler === undefined) { res.writeHead(404); res.end('no route'); return }
+    void handler(req, res)
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const port = server.address().port
+  /**
+   * Drive the route with a raw socket rather than `fetch`.
+   *
+   * WHY: the correct behaviour here is `res.destroy()` — the response headers
+   * for a 206 are already on the wire, so the only honest ending is a torn-down
+   * connection. `fetch` reports that as a rejected promise, which says nothing
+   * about whether the process survived. A raw socket reports "the connection
+   * ended" and lets the assertions below be about the real question.
+   */
+  const rawGet = (path, extraHeaders = '') => new Promise((resolve, reject) => {
+    const socket = net.connect(port, '127.0.0.1', () => {
+      socket.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\n${extraHeaders}\r\n`)
+    })
+    let received = ''
+    socket.setTimeout(5_000, () => { socket.destroy(); reject(new Error('the route never ended the connection')) })
+    socket.on('data', chunk => { received += chunk.toString('latin1') })
+    socket.on('error', reject)
+    socket.on('close', () => resolve(received))
+  })
+
+  // A read error that reaches no listener kills the process outright, so this
+  // listener is also what turns "the suite died" into a legible failure.
+  let escaped
+  const onEscape = error => { escaped = error }
+  process.on('uncaughtException', onEscape)
+  try {
+    // A Range GET is the shape a <video> element actually sends while seeking.
+    // Note the response is NOT asserted to carry a 206 line: the stream fails
+    // before any byte is written, so the headers never leave the buffer and the
+    // connection just ends. What must hold is that it ENDS — `rawGet` only
+    // resolves on socket close, and rejects on its 5s stall timeout — and that
+    // nothing escaped the route.
+    await rawGet('/api/dsh-imagegen/video/file/evicted.mp4', 'Range: bytes=0-63\r\n')
+    assert.equal(escaped, undefined, 'the range read error never escaped the route')
+
+    // And the plain GET path, which is the other bare pipe.
+    await rawGet('/api/dsh-imagegen/video/file/evicted.mp4')
+    assert.equal(escaped, undefined, 'neither pipe lets the error escape')
+  } finally {
+    process.off('uncaughtException', onEscape)
+    await new Promise(resolve => server.close(resolve))
+    rmSync(gone, { force: true })
+  }
+})
+
+await check('V9 a failed video submit is explainable in the SAME diagnostics buffer (#38 parity)', async () => {
+  // Upstream's #38 gave the image chain a retained record of every attempt.
+  // Video is a different pipeline (submit → poll → download), so a user whose
+  // images work and whose videos do not had nothing to look at. This asserts
+  // the parity: the same buffer, with the phase naming which leg failed.
+  host.clearDiagnostics()
+
+  // 1. Refused connection: no response at all, so the URL and the socket code
+  //    are the only evidence the request ever left the process.
+  const closedPort = await (async () => {
+    const probe = createServer(() => {})
+    await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve))
+    const port = probe.address().port
+    await new Promise(resolve => probe.close(resolve))
+    return port
+  })()
+  await assert.rejects(
+    generateVideo(
+      { apiUrl: `http://127.0.0.1:${closedPort}/v1`, apiKey: 'sk-video-secret', channelName: 'MyVideoChannel' },
+      { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'a cat', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+      { family: 'agnes' },
+    ),
+  )
+  const refused = host.listDiagnostics().find(entry => entry.phase === 'video-submit')
+  assert.ok(refused !== undefined, 'a refused video submit leaves a diagnostic entry')
+  assert.equal(refused.url, `http://127.0.0.1:${closedPort}/v1/videos`, 'the entry records the FINAL submit URL')
+  assert.equal(refused.channel, 'MyVideoChannel', 'the entry names the channel so it maps to a settings row')
+  assert.equal(refused.model, 'agnes-video-2.5-flash')
+  assert.equal(refused.mode, 'text')
+  assert.equal(refused.method, 'POST')
+  assert.equal(refused.failureCode, 'video-unreachable')
+  assert.equal(refused.hadAuth, true, 'the entry records THAT a key was sent, never its value')
+  assert.equal(refused.status, undefined, 'a request that never got a response carries no status')
+  assert.ok(refused.requestBytes > 0, 'the entry records the submit body size')
+  assert.equal(refused.message.includes('sk-video-secret'), false, 'the key never reaches the message')
+
+  // 2. A non-2xx submit: the status and the gateway's own words have to survive.
+  const bad = createServer((_req, res) => {
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: 'unsupported aspect_ratio' }, request_id: 'vid_req_9' }))
+  })
+  await new Promise(resolve => bad.listen(0, '127.0.0.1', resolve))
+  const badPort = bad.address().port
+  try {
+    await assert.rejects(
+      generateVideo(
+        { apiUrl: `http://127.0.0.1:${badPort}/v1`, apiKey: 'k', channelName: 'BadVideo' },
+        { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'a dog', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+        { family: 'agnes' },
+      ),
+    )
+  } finally {
+    await new Promise(resolve => bad.close(resolve))
+  }
+  const rejected = host.listDiagnostics().find(entry => entry.channel === 'BadVideo')
+  assert.ok(rejected !== undefined, 'a rejected video submit leaves a diagnostic entry')
+  assert.equal(rejected.phase, 'video-submit')
+  assert.equal(rejected.status, 400, 'the upstream status is recorded')
+  assert.equal(rejected.failureCode, 'video-submit-failed')
+  assert.match(rejected.message, /unsupported aspect_ratio/, 'the upstream message reaches the record')
+  assert.match(rejected.bodyExcerpt ?? '', /vid_req_9/, 'the raw upstream body (with its request id) survives alongside parsing')
+  assert.match(rejected.requestExcerpt ?? '', /a dog/, 'the request excerpt keeps the prompt')
+  assert.equal(
+    (rejected.requestExcerpt ?? '').includes('data:image'),
+    false,
+    'reference images never enter the buffer as payloads',
+  )
+})
+
+await check('V9b the poll and download legs are recorded under their own phases', async () => {
+  host.clearDiagnostics()
+
+  // A render that STARTS and then fails is a different problem from a submit
+  // that never landed, and the phase is what tells them apart.
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_fail_1', status: 'queued' },
+    polls: [{ status: 'failed', error: { message: 'prompt rejected by the safety filter' } }],
+  }
+  try {
+    await assert.rejects(
+      generateVideo(
+        { apiUrl: upstream.base, apiKey: 'k', channelName: 'PollFail' },
+        { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+        { family: 'agnes' },
+      ),
+    )
+  } finally {
+    await upstream.close()
+  }
+  const polled = host.listDiagnostics().find(entry => entry.channel === 'PollFail')
+  assert.ok(polled !== undefined, 'a provider-side render failure leaves a diagnostic entry')
+  assert.equal(polled.phase, 'video-poll', 'the phase says the render started and the poll reported the failure')
+  assert.equal(polled.failureCode, 'video-failed')
+  assert.match(polled.message, /safety filter/, 'the provider\'s own reason is kept')
+  assert.equal(polled.method, 'GET')
+  assert.match(polled.url, /\/v1\/videos\/vid_fail_1$/, 'the status URL names the task that was being polled')
+  assert.match(polled.requestExcerpt ?? '', /vid_fail_1/, 'the record names the polled task id')
+
+  // The third leg: the status succeeded but the bytes did not. The clip usually
+  // comes from a CDN, so its address is the fact that settles it.
+  const cdn = await startUpstream()
+  cdn.state.script = {
+    submit: { video_id: 'vid_dl_1', status: 'queued' },
+    polls: [{ status: 'completed', metadata: { url: `http://127.0.0.1:${cdn.port}/gone/nothing` } }],
+  }
+  try {
+    await assert.rejects(
+      generateVideo(
+        { apiUrl: cdn.base, apiKey: 'k', channelName: 'DownloadFail' },
+        { mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'p', aspectRatio: '16:9', resolution: '720P', seconds: 5 },
+        { family: 'agnes' },
+      ),
+    )
+  } finally {
+    await cdn.close()
+  }
+  const download = host.listDiagnostics().find(entry => entry.channel === 'DownloadFail')
+  assert.ok(download !== undefined, 'a failed clip download leaves a diagnostic entry')
+  assert.equal(download.phase, 'video-download', 'the download leg has its own phase')
+  assert.equal(download.failureCode, 'video-download-failed')
+  assert.equal(download.status, 404)
+  assert.match(download.url, /\/gone\/nothing$/, 'the entry records the address the bytes were fetched from')
+})
+
+// ---------------------------------------------------------------- 重启恢复 (#10-1)
+
+/**
+ * A restart used to lose every in-flight render while the provider kept working
+ * and billing. The queue takes its persistence through injectable hooks, so the
+ * whole path runs against memory here and never touches the user's data folder.
+ */
+await check('V10 a restart reattaches an in-flight render and never submits it twice (#10-1)', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_resume_1', task_id: 'task_resume_1', status: 'queued' },
+    // Enough polls that the first "process" is abandoned while still running.
+    polls: [
+      { status: 'running', progress: 10 },
+      { status: 'running', progress: 40 },
+      { status: 'completed', metadata: { url: `http://127.0.0.1:${upstream.port}/out/clip.mp4`, duration: 5 } },
+    ],
+  }
+  const pending = new Map()
+  const hooks = {
+    readPending: async () => ({ tasks: [...pending.values()] }),
+    writePending: async entry => { pending.set(entry.localTaskId, entry) },
+    removePending: async id => { pending.delete(id) },
+    cancelRemote: async () => 'unsupported',
+  }
+  const run = async (request, signal) => await host.generateVideo(
+    { apiUrl: upstream.base, apiKey: 'sk-resume', channelName: 'Resume' },
+    request,
+    { signal },
+  )
+  try {
+    // First process: submit and let the engine announce the remote id.
+    const first = new host.VideoTaskQueue(run, 1, hooks)
+    first.submit({
+      mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'resume me',
+      aspectRatio: '16:9', resolution: '720P', seconds: 5,
+    })
+    for (let i = 0; i < 100 && pending.size === 0; i += 1) await new Promise(r => setTimeout(r, 10))
+    assert.equal(pending.size, 1, 'an in-flight submit is persisted before the poll loop finishes')
+    const saved = [...pending.values()][0]
+    assert.ok(saved.remoteTaskId.length > 0, 'the record carries the provider task id')
+
+    // Second process: nothing in memory, only the record the first one left.
+    const submitsBefore = upstream.state.submits.length
+    const second = new host.VideoTaskQueue(run, 1, hooks)
+    const outcome = await second.restorePending()
+    assert.equal(outcome.restored, 1, 'the record is put back into the queue')
+    assert.equal(upstream.state.submits.length, submitsBefore, 'a restore must never submit — and pay — again')
+
+    // 轮询是在后台异步推进的，机器忙时（并行构建、其它会话）4 秒不够；
+    // 用截止时间而不是固定轮次，抖动就不会变成假失败。
+    const deadline = Date.now() + 20_000
+    while (Date.now() < deadline && second.get(saved.localTaskId)?.status !== 'completed') {
+      await new Promise(r => setTimeout(r, 20))
+    }
+    const restored = second.get(saved.localTaskId)
+    assert.equal(restored?.status, 'completed', `the restored task finishes by polling the SAME remote render (polls=${upstream.state.polls.length})`)
+    assert.ok(restored?.resumedAt !== undefined, 'the panel can tell it was reattached after a restart')
+    assert.equal(pending.size, 0, 'the record is dropped once the render reaches a terminal state')
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V11 the pending index stays small: no base64 frames on disk (#10-1)', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_big_1', task_id: 'task_big_1', status: 'queued' },
+    polls: Array.from({ length: 40 }, () => ({ status: 'running', progress: 30 })),
+  }
+  const pending = new Map()
+  const queue = new host.VideoTaskQueue(async (request, signal) => await host.generateVideo(
+    { apiUrl: upstream.base, apiKey: 'sk-big', channelName: 'Big' },
+    request,
+    { signal },
+  ), 1, {
+    readPending: async () => ({ tasks: [] }),
+    writePending: async entry => { pending.set(entry.localTaskId, entry) },
+    removePending: async id => { pending.delete(id) },
+    cancelRemote: async () => 'unsupported',
+  })
+  try {
+    queue.submit({
+      mode: 'image', model: 'agnes-video-2.5-flash', prompt: 'p',
+      aspectRatio: '16:9', resolution: '720P', seconds: 5,
+      image: `data:image/png;base64,${'A'.repeat(200_000)}`,
+    })
+    for (let i = 0; i < 100 && pending.size === 0; i += 1) await new Promise(r => setTimeout(r, 10))
+    assert.equal(pending.size, 1, 'the reference-frame request is still persisted')
+    const serialized = JSON.stringify([...pending.values()])
+    assert.equal(serialized.includes('base64'), false, 'the index must not carry a base64 frame')
+    assert.equal(serialized.includes('data:image'), false, 'the index must not carry a data URL')
+    assert.ok(serialized.length < 4096, `the index stays small (got ${serialized.length} bytes)`)
+  } finally {
+    await upstream.close()
+  }
+})
+
+await check('V12 cancelling is honest: no fabricated endpoint, and the task says so (#10-2)', async () => {
+  const upstream = await startUpstream()
+  upstream.state.script = {
+    submit: { video_id: 'vid_cancel_1', task_id: 'task_cancel_1', status: 'queued' },
+    polls: Array.from({ length: 60 }, () => ({ status: 'running', progress: 15 })),
+  }
+  const queue = new host.VideoTaskQueue(async (request, signal) => await host.generateVideo(
+    { apiUrl: upstream.base, apiKey: 'sk-cancel', channelName: 'Cancel' },
+    request,
+    { signal },
+  ), 1, {
+    readPending: async () => ({ tasks: [] }),
+    writePending: async () => {},
+    removePending: async () => {},
+    cancelRemote: async () => 'unsupported',
+  })
+  try {
+    const task = queue.submit({
+      mode: 'text', model: 'agnes-video-2.5-flash', prompt: 'cancel me',
+      aspectRatio: '16:9', resolution: '720P', seconds: 5,
+    })
+    for (let i = 0; i < 100 && upstream.state.submits.length === 0; i += 1) await new Promise(r => setTimeout(r, 10))
+    // 等到轮询真的发生，才证明远端已经在渲染；在那之前取消不算「止损」。
+    for (let i = 0; i < 200 && upstream.state.polls.length === 0; i += 1) await new Promise(r => setTimeout(r, 10))
+    assert.ok(upstream.state.polls.length > 0, 'the render had really started before it was cancelled')
+    queue.cancel(task.id)
+    for (let i = 0; i < 100 && queue.get(task.id)?.remoteCancel === 'pending'; i += 1) await new Promise(r => setTimeout(r, 10))
+    assert.equal(queue.get(task.id)?.status, 'cancelled', 'the local task stops at once')
+    assert.equal(queue.get(task.id)?.remoteCancel, 'unsupported', 'this plugin has no measured cancel endpoint, and says so')
+    // 没有实测的取消端点，就不该向远端发任何 DELETE：这个假上游只认 submit /
+    // poll / download 三条路径，多出来的请求会落到兜底分支，不会被静默吞掉。
+    const pollsAtCancel = upstream.state.polls.length
+    await new Promise(r => setTimeout(r, 120))
+    assert.equal(upstream.state.polls.length, pollsAtCancel, 'the local abort really stopped the poll loop')
+  } finally {
+    await upstream.close()
+  }
+})
+
+console.log(results.join('\n'))
+console.log(process.exitCode === 1 ? '\nVIDEO SMOKE TEST FAILED' : '\nVIDEO SMOKE TEST OK')
+
+// Clean up the scratch data root (the module caches the path, so this is last).
+try { rmSync(dataRoot, { recursive: true, force: true }) } catch { /* best effort */ }

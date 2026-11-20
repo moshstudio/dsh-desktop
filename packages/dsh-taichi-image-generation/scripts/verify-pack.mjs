@@ -1,0 +1,423 @@
+/**
+ * Assemble the archive that would be published and inspect what is in it.
+ *
+ * WHY this is a script and not inline bash in the workflow: the negative
+ * verification has to re-run the same assertion after re-introducing a defect,
+ * and an assertion that exists in two places drifts. CI runs this file; the
+ * `pack` runner in verify-negative.mjs runs the same file against a mutated
+ * copy of the repository.
+ *
+ * What is checked, and why each one is here rather than left to review:
+ *
+ *  - `lib/index.js` and a template snapshot are present. The runtime resolves
+ *    the snapshots relative to lib/, so a tarball without them installs a
+ *    plugin whose template library is silently empty.
+ *  - `docs/videos/` is absent. ~37 MiB of demo recordings that no shipped
+ *    document references.
+ *  - `docs/images/` is absent. ~20 MiB of README screenshots (one 13 MiB GIF)
+ *    that nothing reads at runtime; GitHub renders them from the repository.
+ *  - Every entry point the packed manifest declares -- `main`, each `exports`
+ *    target, and `dsh.bundle.patch` -- is actually in the archive. A tarball
+ *    that installs and boots while `exports["./client"]` points at a file it
+ *    does not contain produces no error anywhere; the panel just never appears.
+ *
+ * A missing build is a real failure here, not a skip: packing without `lib/`
+ * would produce an archive that installs and does nothing.
+ */
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { readSourceText } from './lib/source-text.mjs'
+import { missingReleaseNotes, releaseNotesEntry } from './lib/release-shape.mjs'
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+
+/** Entries the archive must contain, relative to the `package/` root. */
+const REQUIRED = ['lib/index.js', 'src/templates/cases.json']
+
+/**
+ * Everything `package.json` tells a host to load, resolved the same way the
+ * host resolves it.
+ *
+ * `REQUIRED` above is a hand-maintained list, and a hand-maintained list can
+ * only confirm what somebody remembered to write down. The fields below are
+ * what actually gets loaded: `main` for the node half, every `exports` target
+ * (`.` executes in the host process, `./client` is what the browser fetches as
+ * `/plugins/<id>/client.js`), and the `dsh.bundle.patch` overlay the profile
+ * reads to even register the plugin.
+ *
+ * The failure this catches is silent, which is why it is checked here: a
+ * `files` edit that drops `lib/` or a renamed export produces an archive that
+ * installs cleanly, boots cleanly, and simply never appears in the UI -- "I
+ * installed it and nothing happened" with no error anywhere.
+ */
+function declaredEntryPoints (manifest) {
+  const declared = new Map()
+  const add = (label, value) => {
+    if (typeof value === 'string' && value !== '') declared.set(label, value)
+  }
+  add('main', manifest.main)
+  for (const [key, target] of Object.entries(manifest.exports ?? {})) {
+    // A conditional export (`{import: './x.js'}`) is not a string; the ones
+    // this package ships are, and a non-string is skipped rather than guessed.
+    add(`exports[${JSON.stringify(key)}]`, target)
+  }
+  add('dsh.bundle.patch', manifest.dsh?.bundle?.patch)
+  // The manifest icon the plugin manager and the market card draw. It is read
+  // from `package.json` (not from an export), so it is exactly the kind of
+  // entry a `files` edit drops silently: the card falls back to the generic
+  // artwork with no error anywhere.
+  add('icon', manifest.icon)
+  // `dsh.client` names no file (the client is found through `exports`), but a
+  // `dsh.profile`/`dsh.bundle` rename would silently unmount the plugin.
+  return [...declared]
+}
+
+/**
+ * Files npm and pnpm add to every archive whether or not `files` names them.
+ *
+ * `package.json`, the readme and the licence are the documented freebies;
+ * everything else has to be declared, so only these are excused from the
+ * `files` coverage check. They are matched by name because the packer matches
+ * by name -- `README.md`, `README.markdown`, `LICENSE`, `LICENCE.txt` all ride
+ * along.
+ */
+function alwaysShipped (target) {
+  const base = target.slice(target.lastIndexOf('/') + 1)
+  if (base === 'package.json') return true
+  return /^(readme|licen[cs]e|copying|notice)(\.[a-z]+)?$/i.test(base)
+}
+
+/**
+ * Whether a `files` entry would ship `target` on its own merits.
+ *
+ * A directory entry covers everything below it (`"lib"` ships `lib/index.js`),
+ * a file entry covers itself, and a wildcard entry is matched segment by segment.
+ *
+ * WHY this is asked separately from "is it in the archive": npm and pnpm do not
+ * pack ONLY what `files` names. `package.json`, README, LICENSE, the file named
+ * by `main`, and everything under `bin` are added regardless of `files`. So an
+ * entry point can be present in the tarball while the manifest does not actually
+ * declare it -- measured on this repository: with `"index.js"` removed from
+ * `files`, `pnpm pack` still shipped `package/index.js` because `main` pointed
+ * at it, and every archive-content check stayed green. That is the packer
+ * covering for the manifest, and the cover disappears the moment `main` is
+ * renamed or the package is packed by something that reads `files` literally.
+ */
+function filesCovers (files, target) {
+  const clean = target.replace(/^\.\//, '')
+  for (const raw of files) {
+    if (typeof raw !== 'string') continue
+    const entry = raw.replace(/^\.\//, '').replace(/\/$/, '')
+    if (entry === clean) return true
+    if (entry !== '' && clean.startsWith(entry + '/')) return true
+    if (!entry.includes('*')) continue
+    const parts = entry.split('*')
+    let index = 0
+    let ok = true
+    for (let position = 0; position < parts.length; position += 1) {
+      const part = parts[position]
+      if (part === '') continue
+      const found = clean.indexOf(part, index)
+      if (found < 0) { ok = false; break }
+      index = found + part.length
+    }
+    if (ok) return true
+  }
+  return false
+}
+
+/** Directories that must NOT be published, with the reason shown on failure. */
+const FORBIDDEN = [
+  { path: 'docs/videos/', why: 'demo recordings no shipped document references (~37 MiB)' },
+  { path: 'docs/images/', why: 'README screenshots that are never read at runtime (~20 MiB)' },
+]
+
+function fail (lines) {
+  for (const line of lines) console.error(line)
+  process.exit(1)
+}
+
+// Any .tgz already sitting in the tree would be picked up by a bare glob in
+// older versions of this check, so the archive name is derived from
+// package.json instead of guessed.
+//
+// pnpm's rule for a scoped package: `@scope/name` becomes `scope-name-version.tgz`
+// (the `@` and the `/` both become `-`). Stripping the scope entirely produces
+// `dsh-imagegen-video-1.7.6.tgz`, which does not exist -- and then the check
+// reports a missing archive that IS there.
+const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+const archiveName = `${String(pkg.name).replace(/^@/, '').replace('/', '-')}-${pkg.version}.tgz`
+const archivePath = join(ROOT, archiveName)
+
+// The build already ran (CI builds before testing, and the negative runner's
+// copy is built by its own runner), so packing must NOT re-run `prepare`: that
+// rebuilds 24 MiB of output for an archive whose contents are unchanged.
+//
+// Written as `--config.ignore-scripts=true` rather than the `--ignore-scripts`
+// shorthand because pnpm 10 REMOVED that shorthand: it answers
+// `ERROR Unknown option: 'ignore-scripts'` and the pack never happens, which
+// surfaces here as "pnpm pack did not produce <name>" and reads like a
+// packaging bug. The `--config.<key>=<value>` form is the documented escape
+// hatch for exactly this, and pnpm 9/10/12 all accept it (checked on 10.34.9
+// and 12.11.2, the version CI pins).
+rmSync(archivePath, { force: true })
+execFileSync('pnpm', ['pack', '--pack-destination', '.', '--config.ignore-scripts=true'], {
+  cwd: ROOT, encoding: 'utf8', stdio: 'ignore',
+})
+
+if (!existsSync(archivePath)) {
+  fail([
+    '',
+    `FAIL: \`pnpm pack\` did not produce ${archiveName}.`,
+    'The publish step cannot continue without an archive to inspect.',
+  ])
+}
+
+// `archiveName`, not `archivePath`, and always with `cwd: ROOT`: GNU tar reads
+// a colon in its first argument as `host:path`, so an absolute Windows path
+// like `E:/proj/x.tgz` makes it try to open an SSH connection to a host called
+// `E` (`tar: Cannot connect to E: resolve failed`). A relative name plus the
+// working directory has no colon in it on any platform.
+const listing = execFileSync('tar', ['-tzf', archiveName], { cwd: ROOT, encoding: 'utf8' })
+  .split(/\r?\n/).filter(line => line !== '')
+const entries = new Set(listing)
+
+// ------------------------------------------------------- the version, twice
+// The version lives in two places: `package.json` (what the registry and the
+// archive are named after) and `PLUGIN_VERSION` in `src/protocol.ts` (what the
+// host updater reports as `currentVersion` and what the panel shows). Nothing
+// derives one from the other. A bump that touches only `package.json` therefore
+// ships a coherent-looking package that tells every user it is one version
+// behind -- and the only guard that notices is smoke.mjs A3, which runs late,
+// in a different command, and reads as a test failure rather than as "you
+// forgot a file". That is exactly how 1.15.3 went out on the first attempt.
+//
+// Kept here, next to the notes-sheet check, because both are release-shape
+// assertions: cheap, local, and before anything is packed.
+// `readSourceText`, not `readFileSync`: this pattern anchors on `$`, which on a
+// CRLF checkout lands after the `\r` and matches nothing -- the guard would then
+// report that PLUGIN_VERSION moved, which is the wrong diagnosis.
+// Backfill mode: recorded versions are checked out at their own tag, where the
+// current release-shape invariants (notes sheet, PLUGIN_VERSION, publish
+// window) did not exist or were not enforced yet. Those were decided on the
+// current tree and cannot be retrofitted onto history; the content checks below
+// still guard the archive itself. `DSH_SKIP_VERSION_SHAPE=1` is set only by
+// the npm-backfill workflow, never by release.yml or the negative runner.
+const skipVersionShape = process.env.DSH_SKIP_VERSION_SHAPE === '1'
+if (!skipVersionShape) {
+  const protocolSource = readSourceText(join(ROOT, 'src/protocol.ts'))
+  const declaredVersion = protocolSource.match(/^export const PLUGIN_VERSION = '([^']+)'$/m)?.[1]
+  if (declaredVersion === undefined) {
+    fail([
+      '',
+      'FAIL: could not read PLUGIN_VERSION from src/protocol.ts.',
+      'The host updater and the client UI both read it from there; if the line',
+      'moved or changed shape, update this check rather than letting it pass.',
+    ])
+  }
+  if (declaredVersion !== pkg.version) {
+    fail([
+      '',
+      `FAIL: package.json says ${pkg.version} but src/protocol.ts says ${declaredVersion}.`,
+      'Both are read at runtime and neither is derived from the other, so a bump',
+      'must change both. With them apart, the update check compares the registry',
+      `against ${declaredVersion} and tells the user ${pkg.version} is available`,
+      'while they are already on it.',
+    ])
+  }
+}
+
+const missing = REQUIRED.filter(entry => !entries.has(`package/${entry}`))
+if (missing.length > 0) {
+  fail([
+    '',
+    'FAIL: the published archive is missing entries the runtime needs:',
+    ...missing.map(entry => `  - package/${entry}`),
+    'The host resolves bundled prompt snapshots relative to lib/, so an archive',
+    'without them installs a plugin whose template library is empty.',
+  ])
+}
+
+const present = FORBIDDEN.filter(entry => listing.some(line => line.startsWith(`package/${entry.path}`)))
+if (present.length > 0) {
+  fail([
+    '',
+    'FAIL: the published archive carries files that must not ship:',
+    ...present.map(entry => `  - ${entry.path} -- ${entry.why}`),
+    'These belong to the repository, not to the installed plugin.',
+  ])
+}
+
+// ------------------------------------------------------------- release notes
+// `release.yml` uses `docs/releases/<tag>.md` as the Release body and falls back
+// to GitHub's auto-generated "Full Changelog: <compare link>" line when the file
+// is absent -- printing only a ::warning nobody reads. v1.8.0 shipped that way,
+// so the page for a release with four user-visible features described none of
+// them, and the tag froze that page the moment it was created. A version bump
+// without its notes sheet is therefore a failure here, before anything is
+// packed, rather than a warning after the release exists.
+//
+// The second half is about the archive, not the Release: `docs/releases` is in
+// `files`, so a tarball that cannot carry its own notes means the manifest
+// drifted from the convention that every release has one.
+const notesEntry = releaseNotesEntry(pkg.version)
+// Defined in `scripts/lib/release-shape.mjs` and asked here as well as from
+// `verify-tracked.mjs`. The message is not repeated at either call site: this
+// check kept being reached only from CI's last step, after two releases had
+// already gone out with the local suite green.
+const missingNotes = missingReleaseNotes(ROOT, pkg.version)
+if (!skipVersionShape) {
+  if (missingNotes !== null) fail(missingNotes)
+  if (!entries.has(`package/${notesEntry}`)) {
+    fail([
+      '',
+      `FAIL: the archive does not contain ${notesEntry}, although \`files\` lists docs/releases.`,
+      'Every release ships its own notes; an archive without them means the',
+      'manifest and the repository no longer agree on what a release contains.',
+    ])
+  }
+}
+
+// The archive's own manifest is authoritative: `files` may be edited and the
+// packing happens from the tree, so what the manifest promises and what got
+// packed can disagree. Read the copy INSIDE the archive, not the one on disk.
+const packedManifest = JSON.parse(
+  execFileSync('tar', ['-xzOf', archiveName, 'package/package.json'], { cwd: ROOT, encoding: 'utf8' }),
+)
+const unresolved = declaredEntryPoints(packedManifest)
+  .map(([label, target]) => [label, target.replace(/^\.\//, '')])
+  // A `./locale/*.json` export names a PATTERN, not a file: the manifest is
+  // telling npm "whatever is in locale/ is addressable", and the wildcard is
+  // resolved by the resolver at import time. Comparing it to the archive's file
+  // list verbatim can never match, so every wildcard export reported "not in
+  // the archive" even when all 26 locale files were packed -- which is what a
+  // real CI run did. Expand the pattern against the archive first; a pattern
+  // that expands to NOTHING is still a real failure (that is the case this
+  // check exists for: an export pointing at a directory `files` no longer
+  // ships), so the emptiness test moves to the expanded result.
+  .flatMap(([label, target]) => {
+    if (!target.includes('*')) return [[label, target, entries.has(`package/${target}`)]]
+    const pattern = new RegExp(`^package/${target
+      .split('*')
+      .map(part => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+      .join('[^/]*')}$`)
+    const matches = [...entries].filter(entry => pattern.test(entry))
+    // One representative is enough: all matches are inside the pattern.
+    return matches.length > 0 ? [] : [[label, target, false]]
+  })
+  .filter(([, , found]) => !found)
+  .map(([label, target]) => [label, target])
+if (unresolved.length > 0) {
+  fail([
+    '',
+    'FAIL: the archive declares entry points it does not contain:',
+    ...unresolved.map(([label, target]) => `  - ${label} -> ${target} (not in the archive)`),
+    'The plugin would install and boot, and one of its halves would never load:',
+    'the host half throws at import time, or the browser half 404s and the',
+    'panel silently never appears. Neither error names the packaging mistake.',
+  ])
+}
+
+// The archive being complete is only half the promise. The OTHER half is that
+// the manifest is what put it there: every declared entry point has to be
+// shipped by a `files` entry, not by the packer adding `main` on its own.
+const undeclared = declaredEntryPoints(packedManifest)
+  .map(([label, target]) => [label, target.replace(/^\.\//, '')])
+  .filter(([, target]) => !alwaysShipped(target))
+  .filter(([, target]) => !filesCovers(packedManifest.files ?? [], target))
+if (undeclared.length > 0) {
+  fail([
+    '',
+    'FAIL: the archive contains entry points that `files` does not ship:',
+    ...undeclared.map(([label, target]) => `  - ${label} -> ${target}`),
+    'They are in the tarball only because the packer also ships `main` and `bin`',
+    'without being asked. Rename `main`, or pack with a tool that reads `files`',
+    'literally, and the entry point silently disappears while this check still',
+    'says the archive is complete.',
+  ])
+}
+
+// The host reads the icon itself: it base64-inlines the file into the plugin
+// metadata it hands the browser, and it REFUSES anything over 256 KiB -- the
+// card then shows the generic artwork and the only trace is a diagnostic string
+// nobody renders. A photo used as an icon is exactly the kind of file that
+// creeps past that limit when someone re-exports it at a larger size.
+const ICON_LIMIT_BYTES = 256 * 1024
+if (typeof packedManifest.icon === 'string' && packedManifest.icon !== '') {
+  const iconPath = packedManifest.icon.replace(/^\.\//, '')
+  const iconBytes = Number(execFileSync('tar', ['-xzOf', archiveName, `package/${iconPath}`], {
+    cwd: ROOT, encoding: 'buffer',
+  }).length)
+  if (iconBytes > ICON_LIMIT_BYTES) {
+    fail([
+      '',
+      `FAIL: ${iconPath} is ${iconBytes} bytes; the host rejects icons over ${ICON_LIMIT_BYTES}.`,
+      'The plugin still loads, but the manager and market cards fall back to the',
+      'generic artwork and no visible error says why.',
+    ])
+  }
+  console.log(`pack: icon ${iconPath} is ${iconBytes} bytes, under the host's ${ICON_LIMIT_BYTES}-byte cap`)
+}
+
+// Same reason as the tar calls above, in the other direction: `du` also reads a
+// colon as a remote host, and it needs `cwd: ROOT` to resolve the relative name.
+const sizeMiB = Number(execFileSync('du', ['-m', archiveName], { cwd: ROOT, encoding: 'utf8' }).split('\t')[0])
+const topLevel = [...new Set(listing.map(line => line.split('/')[1]).filter(Boolean))].sort()
+console.log(`pack: ${archiveName} (${sizeMiB} MiB) -- ${entries.size} entries, top level: ${topLevel.join(', ')}`)
+console.log('pack: required entries present; every declared entry point resolves')
+console.log('pack: no docs/videos, no docs/images')
+
+// ---------------------------------------------------------------- publish lag
+// The publish job verifies the version it just pushed by reading it back. That
+// read lags the write by MINUTES, not seconds -- measured on this repository
+// twice, and the second measurement is the one that matters:
+//
+//   1.7.8  -- `+ pkg@1.7.8` at 08:17:45Z, readable at 08:21:01Z: 3m16s. This is
+//             what first turned a 60-second window from "short" into "wrong".
+//   1.29.0 -- `+ pkg@1.29.0` at 16:55:58Z, readable at 17:02:09Z: 6m11s. The
+//             5-minute window that the first measurement justified was outgrown
+//             by this one, and the job failed on a publish that had worked.
+//
+// The lesson is not "5m was wrong" -- it is that the lag has no contract and
+// every window will eventually be outgrown by it. So the guard asks for a
+// window comfortably past the WORST measurement we have, not the average.
+//
+// This is a source invariant, not a runtime one, which is why it lives here
+// rather than in a browser check: nothing at install time can observe it, and
+// the cost of getting it wrong is a false failure that sends someone hunting
+// for a credential problem.
+const workflow = readSourceText(join(ROOT, '.github/workflows/release.yml'))
+const windowLoop = /for attempt in \$\(seq 1 (\d+)\); do[\s\S]{0,400}?not visible yet \(attempt \$attempt\/\d+\); waiting (\d+)s/.exec(workflow)
+if (!skipVersionShape) {
+  if (!windowLoop) {
+    fail([
+      '',
+      'FAIL: the npm publish job no longer has a bounded visibility loop.',
+      'It must retry the read-back and print the attempt count; without both, a',
+      'read lag is indistinguishable from a version that never published.',
+    ])
+  }
+  const [, attempts, interval] = windowLoop
+  const windowSeconds = Number(attempts) * Number(interval)
+  // 6m11s is the worst lag observed (1.29.0). The floor is that observation
+  // plus headroom, because a window equal to the worst case fails on the next
+  // slightly-worse day -- which is exactly how 5m failed.
+  if (windowSeconds < 600) {
+    fail([
+      '',
+      `FAIL: the publish visibility window is ${windowSeconds}s (${attempts} x ${interval}s), under 10 minutes.`,
+      'The registry read path lagged a successful publish by 6m11s on 1.29.0',
+      'and by 3m16s on 1.7.8. A shorter window reports a publish that worked as',
+      'a failed one, which costs a manual re-run and teaches nobody anything.',
+    ])
+  }
+  console.log(`pack: publish visibility window is ${windowSeconds}s, past the 6m11s read lag measured on 1.29.0`)
+} else {
+  console.log('pack: version-shape checks skipped (backfill mode)')
+}
+
+// Leave no archive behind in the working tree: the caller only wanted the
+// inspection, and a stray .tgz is what made older checks pick the wrong file.
+if (process.env.DSH_KEEP_ARCHIVE !== '1') rmSync(archivePath, { force: true })

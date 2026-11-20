@@ -1,0 +1,5114 @@
+/**
+ * The image studio: a three-column layout — left, a card-grouped
+ * configuration sidebar (mode tabs, prompt with counter, rounded parameter
+ * selectors, model dropdown + generate button); center, the result canvas;
+ * right, a persistent generation history column.
+ *
+ * Controls ride the system UI primitives (@deepseek-ai/dsh-client-ui-primitives,
+ * a platform module) so the studio matches the dsh shell look by construction.
+ */
+
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
+import { Button, IconListPenOutlineRegular, Pill, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { ImageGenApi } from './api.ts'
+import { errorMessage, tt } from './helpers.ts'
+import { openImageGenConfig } from './config-entry.tsx'
+import { TemplateLibrary } from './TemplateLibrary.tsx'
+import { ReferenceImages } from './ReferenceImages.tsx'
+import { editReferenceLimit, useEditReferences, EDIT_REFERENCE_LIMIT } from './reference-images.ts'
+import { ModuleTabs } from './ModuleTabs.tsx'
+import { InspirationGallery } from './InspirationGallery.tsx'
+import { CanvasWorkspace } from './CanvasWorkspace.tsx'
+import { PptWorkspace } from './PptWorkspace.tsx'
+import { ReplicaWorkspace, type ReplicaOutputSource } from './ReplicaWorkspace.tsx'
+import OutfitWorkspace from './OutfitWorkspace.tsx'
+import PromoWorkspace from './PromoWorkspace.tsx'
+import { AplusWorkspace } from './AplusWorkspace.tsx'
+import { ModelPicker, resolveModelChoice, type ModelPickerValue } from './ModelPicker.tsx'
+import { DiagnosticsButton, DiagnosticsPanel } from './DiagnosticsPanel.tsx'
+import { SignalsButton, SignalsPanel } from './SignalsPanel.tsx'
+import { GenerationLoading } from './GenerationLoading.tsx'
+import { useImageGenLanguageTick } from './use-language.ts'
+import type { CanvasSummary, EcommerceRefRole, GenerateMode, GenerateRequest, GeneratedImage, GenerationTask, GenerationTaskStatus, GenerationTaskSummary, HistoryEntry, HistoryImageRef, ProductSetDraft, ProductSetSlot, VideoHistoryEntry, VideoTaskSummary } from '../protocol.ts'
+import { AGENT_IMAGE_API, SUBSCRIPTION_API, SUBSCRIPTION_PROVIDERS, type SubscriptionProvider } from '../protocol.ts'
+import { channelIsConnected, usesDesktopAccount } from '../account-channel.ts'
+import type { ImageGenConfig, ImageGenScope, ImageModelGroup } from './settings-scope.ts'
+import { imageModelOptions, videoModelOptions } from './settings-scope.ts'
+import { VideoPanel } from './VideoPanel.tsx'
+import { aspectsOf, defaultRenderQuality, ImageOptionError, outputFormatsOf, qualitiesFor, referenceLimitOf, resolveImageRequest, type ImageCatalogModel, type ImageOutputFormat } from '../image-request-options.ts'
+import { describeModel, lifecycleNoticeKey, promptCharLimit } from '../model-catalog.ts'
+import {
+  addConversationAttachments, conversationInput, createConversationDrafts, releaseConversationDrafts,
+  removeConversationAttachment, CHAT_IMAGE_EVENT,
+  type ChatImageEventDetail, type ConversationDraftAttachment, type ConversationService,
+} from './conversation-sync.ts'
+import { Select } from './Select.tsx'
+import { useConversationImageAttachment } from './use-conversation-image-attachment.tsx'
+import { currentConversationSessionId } from './session-target.ts'
+import { ConversationSessionPicker } from './ConversationSessionPicker.tsx'
+import { ListingCopyCard } from './ListingCopyCard.tsx'
+import { ErrorDetail } from './ErrorDetail.tsx'
+import css from './panel.module.css'
+
+/** Size options, presented as aspect ratios (auto = let the model decide).
+ *  The host maps each ratio onto the model's own vocabulary: aspect_ratio for
+ *  Grok Imagine, the closest pixel size for OpenAI-compatible endpoints. */
+const SIZES = ['auto', '1:1', '3:4', '4:3', '9:16', '2:3', '3:2', '16:9', '21:9'] as const
+
+/** Follow-up reads of the clip list while the host drains poster frames.
+ *  Offsets from the first listing rather than gaps between attempts: the host's
+ *  drain is one bounded pass (~4s), so 2s catches the cheap clips and 5s is the
+ *  single look taken after that pass should have finished. Two timers, then it
+ *  stops for good — a permanent poller for a decoration is not worth the reads. */
+const POSTER_REFRESH_DELAYS_MS = [2000, 5000] as const
+/** Waterfall cards keep one readable width while the lane count follows the
+ *  measured gallery width. Keep these values in sync with `.galleryColumn`. */
+const GALLERY_CARD_WIDTH = 220
+const GALLERY_COLUMN_GAP = 16
+const GALLERY_HORIZONTAL_PADDING = 10
+
+type GalleryImageSource = Pick<HistoryEntry, 'workflow' | 'mode' | 'model' | 'prompt' | 'size' | 'quality' | 'detail' | 'refName'>
+
+/** A clip the host may yet decorate is one whose row is showing a glyph right
+ *  now: `poster` is either absent, or an empty string, and `videoRowOf` treats
+ *  both as "no still" — so keying the refetch off exactly that predicate keeps
+ *  "needs a poster" and "shows the film icon" the same condition. */
+function needsPosterBackfill(entries: VideoHistoryEntry[]): boolean {
+  return entries.some(entry => entry.videos.some(file => file.poster === undefined || file.poster === ''))
+}
+
+/** Fold freshly read posters into the rows the sidebar is already showing.
+ *
+ *  Only `poster` is copied, and only for an entry that is still in `current`.
+ *  A follow-up read is issued *before* its answer arrives, so the list it
+ *  returns describes the host as it was when the request left — taking that
+ *  list as the new state would undo a delete made during the window (the
+ *  removed clip is still in the answer) and would also drop a clip stored
+ *  during it (that clip is not in the answer yet). Both are avoided here
+ *  without extra bookkeeping: `current` stays the sole source of *which rows
+ *  exist*, and the answer may only fill in the still that is missing.
+ *
+ *  Returns `current` itself when nothing was filled so an idle follow-up read
+ *  costs no re-render. */
+function withBackfilledPosters(current: VideoHistoryEntry[], fresh: VideoHistoryEntry[]): VideoHistoryEntry[] {
+  const byId = new Map(fresh.map(entry => [entry.id, entry]))
+  let changed = false
+  const next = current.map(entry => {
+    const update = byId.get(entry.id)
+    if (update === undefined) return entry
+    // Paired by `url`, not by index: a clip's own file list is the same list in
+    // both answers, but its order is not something this side controls, and
+    // attaching one clip's still to another would be worse than no still.
+    const posterByUrl = new Map<string, string>()
+    for (const file of update.videos) {
+      if (file.poster !== undefined && file.poster !== '') posterByUrl.set(file.url, file.poster)
+    }
+    if (posterByUrl.size === 0) return entry
+    let entryChanged = false
+    const videos = entry.videos.map(file => {
+      if (file.poster !== undefined && file.poster !== '') return file
+      const poster = posterByUrl.get(file.url)
+      if (poster === undefined) return file
+      entryChanged = true
+      return { ...file, poster }
+    })
+    if (!entryChanged) return entry
+    changed = true
+    return { ...entry, videos }
+  })
+  return changed ? next : current
+}
+
+const SIZE_KEYS: Record<string, 'size.auto' | 'size.square' | 'size.portrait34' | 'size.landscape43' | 'size.portrait916' | 'size.portrait23' | 'size.landscape32' | 'size.wide169' | 'size.ultrawide21'> = {
+  auto: 'size.auto',
+  '1:1': 'size.square',
+  '3:4': 'size.portrait34',
+  '4:3': 'size.landscape43',
+  '9:16': 'size.portrait916',
+  '2:3': 'size.portrait23',
+  '3:2': 'size.landscape32',
+  '16:9': 'size.wide169',
+  '21:9': 'size.ultrawide21',
+}
+
+/** Quality options, shown as output-resolution tiers (auto = let the model
+ *  decide). The host maps them: resolution for Grok, quality level for
+ *  OpenAI-compatible endpoints (1k→low, 2k→medium, 4k→high). */
+const QUALITIES = ['auto', '1k', '2k', '4k'] as const
+
+function qualityLabel(option: string): string {
+  switch (option) {
+    case 'auto': return tt('quality.auto')
+    case '1k': return tt('quality.1k')
+    case '2k': return tt('quality.2k')
+    case '4k': return tt('quality.4k')
+    case 'low': return tt('quality.low')
+    case 'medium': return tt('quality.medium')
+    case 'high': return tt('quality.high')
+    case 'xhigh': return tt('quality.xhigh')
+    case 'max': return tt('quality.max')
+    default: return option
+  }
+}
+
+/** Menu keeps the descriptive name ("1:1 方图"). Unknown ratios stay as published. */
+function sizeMenuLabel(option: string): string {
+  const key = SIZE_KEYS[option]
+  return key === undefined ? option : tt(key)
+}
+
+/** Closed trigger is the ratio itself. `auto` has no ratio, so it shows 「自动」. */
+function sizeTriggerLabel(option: string): string {
+  return option === 'auto' ? tt('size.auto') : option
+}
+
+function countLabel(option: number): string {
+  switch (option) {
+    case 1: return tt('count.one')
+    case 2: return tt('count.two')
+    case 3: return tt('count.three')
+    default: return tt('count.four')
+  }
+}
+
+function detailLabel(option: string): string {
+  if (option === 'standard') return tt('detail.standard')
+  if (option === 'high') return tt('detail.high')
+  return tt('detail.auto')
+}
+
+function outputFormatLabel(option: string): string {
+  if (option === 'gif') return tt('params.outputGif')
+  if (option === 'svg') return tt('params.outputSvg')
+  return tt('params.outputStill')
+}
+
+/** Detail options ('' = omit the passthrough). */
+const DETAILS = ['', 'standard', 'high'] as const
+
+const REF_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+// The local DSH attachment backend defaults to a 2000px per-side limit. Keep
+// the full-resolution result in the studio, but normalize the conversation
+// copy before it enters the native composer and durable edit staging route.
+const CONVERSATION_IMAGE_MAX_DIMENSION = 2000
+const CONVERSATION_IMAGE_JPEG_QUALITY = 0.9
+const PREVIEW_SCALE_MIN = 0.5
+const PREVIEW_SCALE_MAX = 3
+const PREVIEW_SCALE_STEP = 0.25
+/** Pointer travel below this stays a click. Issue #31 wanted drag-to-pan; a
+ *  hand that moves one pixel while clicking must not pan instead. */
+const PREVIEW_DRAG_THRESHOLD = 3
+const CONFIG_COLLAPSED_STORAGE_KEY = 'dsh-imagegen-config-collapsed'
+const ECOMMERCE_DRAFT_STORAGE_KEY = 'dsh-imagegen-ecommerce-draft'
+/** Reference roles an uploaded product asset can play (slot selections can
+ *  also pick 'none'). 'layout' is the one role whose image is not a picture of
+ *  the product: it is a composition template the result borrows zoning from. */
+const ECOMMERCE_ASSET_ROLES = ['product', 'packaging', 'detail', 'style', 'layout'] as const
+type EcommerceAssetRole = Exclude<EcommerceRefRole, 'none'>
+const MAX_ECOMMERCE_ASSETS = 4
+const ECOMMERCE_ROLE_PROMPT_LABELS: Record<EcommerceAssetRole, string> = {
+  product: '商品主体',
+  packaging: '包装',
+  detail: '细节/角度',
+  style: '风格参考',
+  layout: '版式参考',
+}
+/** One uploaded product asset. Session-only: data URLs are far too large for
+ *  the localStorage draft, so assets never persist across reloads. */
+interface ProductAsset {
+  id: string
+  dataUrl: string
+  name: string
+  role: EcommerceAssetRole
+}
+
+const PRODUCT_SET_SLOTS: ProductSetSlot[] = [
+  { key: 'main', label: '主图', description: '干净背景，突出商品主体', count: 1, enabled: true, refRole: 'product' },
+  { key: 'selling-point', label: '卖点图', description: '用画面展示商品核心卖点', count: 2, enabled: true, refRole: 'product' },
+  { key: 'scene', label: '场景图', description: '真实生活或使用场景', count: 2, enabled: true, refRole: 'product' },
+  { key: 'detail', label: '细节图', description: '材质、结构或工艺特写', count: 1, enabled: true, refRole: 'detail' },
+  { key: 'spec', label: '规格图', description: '尺寸、容量或参数展示', count: 1, enabled: false, refRole: 'product' },
+  { key: 'model', label: '使用图', description: '人物上手或穿戴效果', count: 1, enabled: false, refRole: 'product' },
+]
+
+/** Legacy pixel sizes saved by older versions, mapped onto the current
+ *  aspect-ratio vocabulary so restoring old history entries still works. */
+const LEGACY_SIZE_TO_RATIO: Record<string, string> = {
+  '512x512': '1:1',
+  '1024x1024': '1:1',
+  '1536x1024': '3:2',
+  '1024x1536': '2:3',
+  '1792x1024': '16:9',
+  '1024x1792': '9:16',
+}
+
+/** Legacy quality levels saved by older versions, mapped onto resolution. */
+const LEGACY_QUALITY_TO_RES: Record<string, string> = {
+  low: '1k',
+  medium: '2k',
+  high: '4k',
+}
+
+/** Normalize a saved size value into a current dropdown option. */
+function normalizeSize(value: string): string {
+  if ((SIZES as readonly string[]).includes(value)) return value
+  return LEGACY_SIZE_TO_RATIO[value] ?? 'auto'
+}
+
+/** Normalize a saved quality value into a current dropdown option. */
+function normalizeQuality(value: string): string {
+  if ((QUALITIES as readonly string[]).includes(value)) return value
+  return LEGACY_QUALITY_TO_RES[value] ?? 'auto'
+}
+
+function clampPreviewScale(scale: number): number {
+  return Math.min(PREVIEW_SCALE_MAX, Math.max(PREVIEW_SCALE_MIN, scale))
+}
+
+/** Keep the image canvas preference across panel remounts without making it
+ * part of the host settings document. */
+function readConfigCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(CONFIG_COLLAPSED_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+const CHAT_COLLAPSED_STORAGE_KEY = 'dsh-imagegen:chat-collapsed'
+
+type SubscriptionChannelState = 'logged-in' | 'logged-out' | 'unknown'
+
+const INITIAL_SUBSCRIPTION_STATES: Record<SubscriptionProvider, SubscriptionChannelState> = {
+  'chatgpt-sub': 'unknown',
+  'grok-sub': 'unknown',
+  'google-sub': 'unknown',
+  'openrouter-sub': 'unknown',
+}
+const CONFIG_WIDTH_STORAGE_KEY = 'dsh-imagegen:config-width'
+const CONFIG_WIDTH_MIN = 260
+const CONFIG_WIDTH_MAX = 480
+const CONFIG_WIDTH_DEFAULT = 300
+
+/** The chat pane starts collapsed unless the user explicitly opened it. */
+function readChatOpen(): boolean {
+  try {
+    return window.localStorage.getItem(CHAT_COLLAPSED_STORAGE_KEY) === 'open'
+  } catch {
+    return false
+  }
+}
+
+function readConfigWidth(): number {
+  try {
+    const raw = window.localStorage.getItem(CONFIG_WIDTH_STORAGE_KEY)
+    if (raw === null) return CONFIG_WIDTH_DEFAULT
+    const value = Number(raw)
+    if (Number.isFinite(value) && value > 0) return Math.min(CONFIG_WIDTH_MAX, Math.max(CONFIG_WIDTH_MIN, Math.round(value)))
+  } catch { /* storage unavailable */ }
+  return CONFIG_WIDTH_DEFAULT
+}
+
+/** Read the current config from the settings scope snapshot. */
+function useConfig(scope: ImageGenScope): ImageGenConfig | undefined {
+  const [value, setValue] = useState(scope.getSnapshot().value)
+  useEffect(() => scope.subscribe(() => { setValue(scope.getSnapshot().value) }), [scope])
+  return value
+}
+
+/** Track one redacted secret field without exposing its value to the panel. */
+function useSecretSet(scope: ImageGenScope, field: string): boolean {
+  const [isSet, setIsSet] = useState(scope.getSecretSetSnapshot(field))
+  useEffect(() => scope.subscribeSecretSets(() => { setIsSet(scope.getSecretSetSnapshot(field)) }), [field, scope])
+  return isSet
+}
+
+/** Seconds one comparison task has been running, from its own start time.
+ *  A comparison board shows several tasks at once, so a single shared timer
+ *  would report the wrong duration for every card but the first. */
+function taskElapsedSeconds(task: GenerationTask): number {
+  const startedAt = task.startedAt ?? task.createdAt
+  return Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+}
+
+/** Tick a seconds counter while `running`. */
+function useElapsed(running: boolean, startedAt: number | null): number {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!running || startedAt === null) {
+      setElapsed(0)
+      return
+    }
+    const update = (): void => {
+      setElapsed(Math.max(1, Math.round((Date.now() - startedAt) / 1000)))
+    }
+    update()
+    const timer = window.setInterval(update, 1000)
+    return () => window.clearInterval(timer)
+  }, [running, startedAt])
+  return elapsed
+}
+
+/** Data URL for a generated image. */
+function srcOf(image: GeneratedImage): string {
+  return `data:${image.mime};base64,${image.b64}`
+}
+
+/** Decode one durable conversation attachment into the panel's image shape. */
+async function attachmentToGenerated(ref: ImageAttachmentRef): Promise<GeneratedImage> {
+  const query = new URLSearchParams({
+    attachment_id: String(ref.attachmentId),
+    media_type: ref.mediaType,
+    bytes: String(ref.bytes),
+    width: String(ref.width),
+    height: String(ref.height),
+  })
+  const response = await fetch(`${AGENT_IMAGE_API}?${query.toString()}`)
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  const blob = await response.blob()
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(new Error('image read failed'))
+    reader.readAsDataURL(blob)
+  })
+  const comma = dataUrl.indexOf(',')
+  if (comma < 0) throw new Error('image decode failed')
+  return { b64: dataUrl.slice(comma + 1), mime: ref.mediaType }
+}
+
+/** Convert a generated image into the browser-owned draft format. */
+function generatedImageToFile(image: GeneratedImage, index: number): File {
+  const binary = atob(image.b64)
+  const bytes = new Uint8Array(binary.length)
+  for (let offset = 0; offset < binary.length; offset += 1) bytes[offset] = binary.charCodeAt(offset)
+  return makeFile([bytes], `dsh-image-${index + 1}.${extensionOf(image.mime)}`, { type: image.mime })
+}
+
+/** Decode a data URL into a browser File for the native composer. */
+function dataUrlToFile(dataUrl: string, name: string): File {
+  const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,(.*)$/su.exec(dataUrl)
+  if (match === null || match[1] === undefined || match[2] === undefined) throw new Error('image processing returned an invalid data URL')
+  const binary = atob(match[2])
+  const bytes = new Uint8Array(binary.length)
+  for (let offset = 0; offset < binary.length; offset += 1) bytes[offset] = binary.charCodeAt(offset)
+  return makeFile([bytes], name, { type: match[1] })
+}
+
+/**
+ * Fetch a served clip and wrap it as a File for the native composer.
+ *
+ * A clip is NOT resized or re-encoded: the composer's file path streams the
+ * browser File to the host as-is (a clip is far too large to convert to a data
+ * URL first, which is the image path). The name is taken from the URL so the
+ * attachment rail shows something recognizable.
+ */
+/**
+ * Build a File in whichever realm actually offers the constructor.
+ *
+ * The bare `File` global is not guaranteed: the plugin bundle runs in a realm
+ * that can differ from the document's (and in tests the constructor simply is
+ * not on the module global), which surfaces as "File is not defined". The
+ * browser window is checked first because that is the realm whose File the
+ * composer wants.
+ */
+function makeFile(parts: BlobPart[], name: string, options: { type: string }): File {
+  const ctor = (globalThis as { File?: typeof File }).File
+    ?? (globalThis as { window?: { File?: typeof File } }).window?.File
+  if (ctor === undefined) throw new Error('File is unavailable in this browser')
+  return new ctor(parts, name, options)
+}
+
+async function clipUrlToFile(url: string, name: string): Promise<File> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`video fetch failed: HTTP ${response.status}`)
+  const blob = await response.blob()
+  if (blob.size === 0) throw new Error('video is empty')
+  const type = blob.type !== '' ? blob.type : 'video/mp4'
+  // Read the bytes rather than handing the Blob to the File constructor: a Blob
+  // created by another realm (a test's jsdom, an iframe) is not a native Blob to
+  // this realm's File, which then silently wraps the OBJECT instead of its bytes
+  // (observed: a 3-byte blob produced a 13-byte File). Copying the bytes makes
+  // the File correct in every realm, and `arrayBuffer` is also what the host
+  // upload wants.
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  if (bytes.byteLength === 0) throw new Error('video is empty')
+  return makeFile([bytes], name, { type })
+}
+
+/** A file name for one clip, derived from its served URL. */
+function clipFileName(url: string, fallback: string): string {
+  const last = url.split('?')[0]?.split('/').pop() ?? ''
+  return last !== '' && /\.(mp4|webm|mov|mkv)$/i.test(last) ? last : `${fallback}.mp4`
+}
+
+/** Read intrinsic dimensions without changing the original preview. */
+function imageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => {
+      const width = image.naturalWidth || image.width
+      const height = image.naturalHeight || image.height
+      if (width < 1 || height < 1) reject(new Error('image dimensions are unavailable'))
+      else resolve({ width, height })
+    }
+    image.onerror = () => reject(new Error('image decode failed'))
+    image.src = dataUrl
+  })
+}
+
+/** Prepare the smaller conversation copy required by the host attachment policy. */
+async function prepareConversationImage(image: GeneratedImage, index: number): Promise<{ file: File; dataUrl: string }> {
+  const dataUrl = srcOf(image)
+  const { width, height } = await imageDimensions(dataUrl)
+  const longestSide = Math.max(width, height)
+  if (longestSide <= CONVERSATION_IMAGE_MAX_DIMENSION) {
+    return { file: generatedImageToFile(image, index), dataUrl }
+  }
+
+  const scale = CONVERSATION_IMAGE_MAX_DIMENSION / longestSide
+  const targetWidth = Math.max(1, Math.round(width * scale))
+  const targetHeight = Math.max(1, Math.round(height * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = targetWidth
+  canvas.height = targetHeight
+  const context = canvas.getContext('2d')
+  if (context === null) throw new Error('image resize is unavailable in this browser')
+  const source = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const sourceImage = new Image()
+    sourceImage.onload = () => resolve(sourceImage)
+    sourceImage.onerror = () => reject(new Error('image decode failed'))
+    sourceImage.src = dataUrl
+  })
+  context.drawImage(source, 0, 0, targetWidth, targetHeight)
+  const resizedDataUrl = canvas.toDataURL('image/jpeg', CONVERSATION_IMAGE_JPEG_QUALITY)
+  return {
+    dataUrl: resizedDataUrl,
+    file: dataUrlToFile(resizedDataUrl, `dsh-image-${index + 1}.jpg`),
+  }
+}
+
+/** 主视图正在展示的会话；没有打开的会话时为 undefined。 */
+function currentSessionOf(sessions: ISessions | undefined): SessionId | undefined {
+  return currentConversationSessionId(sessions)
+}
+
+/** Follow the host's authoritative session selection while the image panel stays mounted. */
+function useCurrentSessionId(sessions: ISessions | undefined): SessionId | undefined {
+  const [sessionId, setSessionId] = useState<SessionId | undefined>(() => currentSessionOf(sessions))
+  useEffect(() => {
+    if (sessions === undefined) {
+      setSessionId(undefined)
+      return
+    }
+    const sync = (): void => { setSessionId(currentSessionOf(sessions)) }
+    sync()
+    return sessions.list.subscribe(sync)
+  }, [sessions])
+  return sessionId
+}
+
+/**
+ * 最近活跃会话的工作区目录，用作铺板卡的默认值。
+ *
+ * 它已经**不是**铺板的唯一来源：用户可以在卡上改成任何目录（见
+ * `host-directory.ts`）。宿主对「当前会话」没有权威投影（见 `currentSessionOf`），
+ * 所以只认一件宿主真实报出来的事：**有会话在跑**。那是唯一能说明「用户正在
+ * 那儿干活」的信号；没有就留空，让用户自己选目录——不拿 `ids[0]` 顶替。
+ */
+function useCurrentWorkspace(sessions: ISessions | undefined): string | undefined {
+  const read = (): string | undefined => {
+    const snapshot = sessions?.list.getSnapshot()
+    if (snapshot === undefined) return undefined
+    const byId = snapshot.byId ?? {}
+    const ids = Array.isArray(snapshot.ids) ? snapshot.ids : []
+    const running = ids.find(id => byId[id]?.running === true)
+    if (running === undefined) return undefined
+    // `byId` 在某些外壳的快照里是空的；缺字段只说「不知道工作区在哪」，
+    // 不能让它抛异常把整个面板带崩。
+    const cwd = byId[running]?.cwd
+    return typeof cwd === 'string' && cwd !== '' ? cwd : undefined
+  }
+  const [workspace, setWorkspace] = useState<string | undefined>(read)
+  useEffect(() => {
+    if (sessions === undefined) {
+      setWorkspace(undefined)
+      return
+    }
+    const sync = (): void => { setWorkspace(read()) }
+    sync()
+    return sessions.list.subscribe(sync)
+  }, [sessions])
+  return workspace
+}
+
+/** Find the host mounted in the shell's left navigation region. */
+function useSidebarHistoryHost(): HTMLDivElement | null {
+  const [host, setHost] = useState<HTMLDivElement | null>(() => (
+    document.querySelector<HTMLDivElement>('[data-dsh-imagegen-history-host]')
+  ))
+  useEffect(() => {
+    const sync = (): void => {
+      setHost(document.querySelector<HTMLDivElement>('[data-dsh-imagegen-history-host]'))
+    }
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [])
+  return host
+}
+
+/** Fetch persisted history image refs and decode them back to in-memory
+ *  GeneratedImage[] (base64), so the canvas/preview can reuse the same
+ *  rendering path as a fresh generation. */
+async function historyImagesToGenerated(refs: HistoryImageRef[]): Promise<GeneratedImage[]> {
+  return Promise.all(refs.map(async ref => {
+    const response = await fetch(ref.url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const blob = await response.blob()
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+      reader.onerror = () => reject(new Error('image read failed'))
+      reader.readAsDataURL(blob)
+    })
+    const comma = dataUrl.indexOf(',')
+    return {
+      b64: comma >= 0 ? dataUrl.slice(comma + 1) : '',
+      mime: ref.mime,
+      ...ref.revisedPrompt === undefined ? {} : { revisedPrompt: ref.revisedPrompt },
+    }
+  }))
+}
+
+/**
+ * Fold per-entry image reads into one result set, keeping whatever arrived.
+ *
+ * WHy this is a pure function taking settled promises rather than awaiting
+ * itself: the failure mode it exists to prevent (#49) is invisible from the
+ * outside — a rejected batch and an empty group both leave the board blank, so
+ * the only way to hold the behaviour still is to test this directly.
+ *
+ * `Promise.all` was the whole bug. A comparison group has one entry per model,
+ * and a single unreadable member (its file evicted, a 404, a transient fetch
+ * failure) rejected the entire batch: `setImages` never ran and the board stayed
+ * on "prompt + N 张" with no picture. Four models meant four times the chance of
+ * showing nothing.
+ *
+ * @param settled - one per entry, in group order.
+ * @returns every image that loaded, and how many entries failed.
+ */
+export function collectHistoryGroupImages(
+  settled: ReadonlyArray<PromiseSettledResult<GeneratedImage[]>>,
+): { images: GeneratedImage[]; failed: number } {
+  const images: GeneratedImage[] = []
+  let failed = 0
+  for (const outcome of settled) {
+    if (outcome.status === 'fulfilled') images.push(...outcome.value)
+    else failed += 1
+  }
+  return { images, failed }
+}
+
+/** Compact, locale-independent timestamp for history entries. */
+function formatTime(timestamp: number): string {
+  const d = new Date(timestamp)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function defaultEcommerceDraft(): ProductSetDraft {
+  return {
+    projectId: '', projectName: '', category: '通用商品', platform: '通用', language: '中文', customLanguage: '', size: '1:1',
+    // Off by default: it is a platform requirement, not a look, and turning it
+    // on silently changes the main image's aspect ratio.
+    whiteBackground: false,
+    productName: '', promptInfo: '',
+    slots: PRODUCT_SET_SLOTS.map(slot => ({ ...slot })),
+  }
+}
+
+/** Standard copy-language choices; custom keeps uncommon locales usable. */
+const ECOMMERCE_COPY_LANGUAGES = [
+  ['中文', '中文'],
+  ['English', 'English'],
+  ['Русский', 'Русский'],
+  ['日本語', '日本語'],
+  ['한국어', '한국어'],
+  ['Français', 'Français'],
+  ['Deutsch', 'Deutsch'],
+  ['Español', 'Español'],
+  ['Português', 'Português'],
+  ['custom', '自定义'],
+] as const
+
+function effectiveEcommerceLanguage(draft: ProductSetDraft): string {
+  return draft.language === 'custom' ? draft.customLanguage?.trim() ?? '' : draft.language
+}
+
+function ecommerceVisualBrief(slot: ProductSetSlot, index: number): string {
+  const variants: Record<string, string[]> = {
+    main: ['以纯净高级背景完整展示商品主体，突出正面与侧面结构、材质和屏幕/镜头等关键设计，商品居中但保留自然阴影和真实比例'],
+    'selling-point': [
+      '制作卖点视觉图：用局部放大、功能结果或使用场景形成构图分区，突出核心功能和购买理由，不要只是商品正面照',
+      '制作第二张卖点视觉图：聚焦差异化优势和附加价值，使用与第一张不同的视角、背景、光线和视觉重点',
+    ],
+    scene: [
+      '制作真实生活场景图：商品自然融入室内或日常环境，加入合理背景道具和环境光，呈现使用氛围，不要白底棚拍',
+      '制作第二张场景图：换成不同环境或使用时刻，如户外、办公或休闲场景，机位、背景、光线和整体氛围必须与第一张明显不同',
+    ],
+    detail: ['制作微距细节图：近距离突出材质、工艺、接口或结构，浅景深、高细节，构图聚焦局部而非完整商品'],
+    spec: ['制作规格信息图：突出尺寸、容量或参数关系，使用清晰的辅助构图和留白，不复制主图构图'],
+    model: ['制作人物使用图：展示手持、佩戴或实际使用状态，突出人与商品的交互和真实尺度'],
+  }
+  const choices = variants[slot.key] ?? ['使用与同组其他图片不同的构图、视角、背景和视觉重点']
+  return choices[Math.min(index, choices.length - 1)]!
+}
+
+/**
+ * The aspect ratio one image of `slot` is actually requested at.
+ *
+ * Pure on purpose so the rule can be tested without mounting the panel. The
+ * one case that overrides the draft's own choice is the compliance switch: a
+ * white-background main image must be square, because that is what Amazon and
+ * the other strict platforms require of a hero image. Every other slot — and
+ * every slot when the switch is off — keeps whatever the user picked.
+ *
+ * `whiteBackground` is deliberately read through `=== true` rather than as a
+ * boolean: the field is optional and a draft saved before it existed does not
+ * carry it at all, which must behave exactly like `false`.
+ */
+function ecommerceSlotSize(draft: ProductSetDraft, slot: ProductSetSlot): string {
+  return draft.whiteBackground === true && slot.key === 'main' ? '1:1' : draft.size
+}
+
+/** The white-background compliance clause for the main image, or '' when the
+ *  switch is off or this is not the main slot.
+ *
+ *  A pure function for the same reason as ecommerceSlotSize: this text is a
+ *  platform requirement, not a style preference, so it has to be assertable
+ *  on its own. It is appended to the main slot's prompt and nowhere else —
+ *  a scene or selling-point image with a white background would be its own
+ *  kind of wrong. */
+function ecommerceWhiteBackgroundClause(draft: ProductSetDraft, slot: ProductSetSlot): string {
+  if (draft.whiteBackground !== true || slot.key !== 'main') return ''
+  return '主图平台合规硬约束：背景必须是纯白 #FFFFFF，严禁出现任何文字、水印、Logo 叠加、边框、投影、道具、场景或其他颜色；商品正面平铺居中，商品占画面至少 85%，主体边缘完整、不被裁切，不留多余负空间。'
+}
+
+function ecommercePrompt(draft: ProductSetDraft, slot: ProductSetSlot, index = 0, assets: readonly ProductAsset[] = []): string {
+  const info = draft.promptInfo.trim() || '突出商品真实材质、结构和核心价值；保持商品颜色、形状、Logo、包装文字和结构真实，不添加不存在的配件'
+  const language = effectiveEcommerceLanguage(draft) || '中文'
+  const product = draft.productName.trim() || '该商品'
+  // Every uploaded asset of this slot's role reaches the model, so the prompt
+  // has to say which picture carries which constraint. One blanket
+  // "以参考图为参考" sentence leaves the model free to blend four angles into
+  // a single hybrid product; naming each picture keeps its job explicit.
+  const role = slot.refRole
+  const refAssets = role === undefined || role === 'none' ? [] : assets.filter(asset => asset.role === role)
+  const refClause = refAssets.length === 0
+    ? ''
+    : refAssets[0].role === 'layout'
+      // A layout reference is a composition template, not a picture of the
+      // product. Saying so is not politeness: left unqualified, the model
+      // copies the template's own subject into the result, which is the one
+      // outcome the role exists to avoid.
+      ? `本图以上传的版式参考图为参考（共 ${refAssets.length} 张：${refAssets.map((asset, order) => `第 ${order + 1} 张版式${asset.name !== '' ? `「${asset.name}」` : ''}`).join('，')}）：只借用它的画面分区、留白比例、文字块位置与视觉节奏，严禁复制版式图中的商品、道具或场景，也不得把它当作商品参考；商品外观一律以上文与商品参考图为准。`
+      : `本图以上传的${ECOMMERCE_ROLE_PROMPT_LABELS[refAssets[0].role]}图片为参考（共 ${refAssets.length} 张：${refAssets.map((asset, order) => `第 ${order + 1} 张为${ECOMMERCE_ROLE_PROMPT_LABELS[asset.role]}${asset.name !== '' ? `「${asset.name}」` : ''}`).join('，')}），商品与风格必须与参考图保持一致；`
+  const distinct = slot.key === 'main'
+    ? ''
+    : '这不是商品主图的简单复刻：只复用参考图中的商品外观和身份，必须重新设计背景、机位、构图、道具和光效，不得输出与主图相同的白底正面居中画面。'
+  const whiteBackground = ecommerceWhiteBackgroundClause(draft, slot)
+  return `生成一张电商${slot.label}。视觉目标：${ecommerceVisualBrief(slot, index)}。${distinct}商品身份与一致性约束：${product}的外形、比例、颜色、材质、镜头模组、Logo 与核心结构必须与${refClause === '' ? '文字描述' : '参考图'}保持一致，只允许改变场景、视角、构图和光效，不得重新发明或替换商品。商品品类：${draft.category}；平台：${draft.platform}；语言：${language}。${whiteBackground}${refClause}商品信息与要求：${info}。整体要求：商品主体清晰、比例真实、光线自然、细节真实、适合电商发布。`
+}
+
+/** Effective prompt for one image of a slot: the per-image override written in
+ *  the pre-generation preview board wins over the auto-composed prompt. */
+function ecommerceSlotPrompt(draft: ProductSetDraft, slot: ProductSetSlot, index: number, assets: readonly ProductAsset[] = []): string {
+  const override = draft.promptOverrides?.[`${slot.key}-${index + 1}`]
+  return override !== undefined && override.trim() !== '' ? override : ecommercePrompt(draft, slot, index, assets)
+}
+
+/**
+ * How many reference images the selected model's channel can be relied on to
+ * transmit. This mirrors src/engine.ts's edit branches, and it must stay in
+ * step with them.
+ *
+ * Kept separate from editReferenceLimit() on purpose. That helper answers a
+ * different question (how many canvas references the session should accept)
+ * and is conservative by design, returning 1 for dall-e, qwen and minimax;
+ * the engine's generic branch would in fact send those five. Reusing it here
+ * would warn users on channels that are not losing anything.
+ *
+ * `unknown` counts as 1 rather than 5, and that is the deliberate asymmetry.
+ * The engine's generic branch does send several references, so from "how many
+ * does the host put on the wire" the answer for an unrecognised model really
+ * is five. But this number is not a measurement — it is what the UI tells the
+ * user they can rely on, and the notice it feeds warns about loss rather than
+ * promising capacity. A gateway whose id describeModel() does not know is
+ * exactly the case where we cannot see whether it keeps the extras or quietly
+ * drops them, and a warning that fires one time too often is recoverable
+ * ("switch model" is one click), while a coverless clip is not. Only the three
+ * families whose branches are known to carry the primary plus four extras get
+ * the larger number.
+ */
+function catalogModelFor(config: ImageGenConfig | undefined, channelId: string, alias: string): ImageCatalogModel | undefined {
+  const catalog = config?.imageCatalog ?? []
+  const channel = (config?.channels ?? []).find(item => item.id === channelId)
+  const upstream = channel?.models.find(item => item.alias === alias)?.id || alias
+  return catalog.find(item => item.id === upstream || item.name === alias)
+}
+
+function ecommerceReferenceLimit(model: string): number {
+  const { family } = describeModel(model)
+  if (family === 'grok' || family === 'nanobanana' || family === 'unknown') return 1
+  // gpt-image / dall-e / zhipu / qwen / minimax all fall to the engine's
+  // generic OpenAI-style branch, which repeats `image[]` once per reference
+  // (`src/engine.ts`, `.slice(0, 4)` on the extras). Seedream has its own JSON
+  // array branch carrying the same count. Five is therefore the primary plus
+  // the engine's four extras — a coincidence of two limits, not one limit.
+  return EDIT_REFERENCE_LIMIT
+}
+
+/** Consistency prefix for slots generated after the main image exists. */
+function withAnchorNote(prompt: string): string {
+  return '商品套图一致性约束：附件是本套商品的主图，图中商品（外形、颜色、材质、Logo、包装文字）必须与附件完全一致，不得重新发明商品。' + prompt
+}
+
+/**
+ * Grow the prompt box to fit its text.
+ *
+ * A fallback for engines without `field-sizing: content` (`panel.module.css`
+ * sets it for the ones that have it). Height is reset to `auto` first so the
+ * box can shrink as well as grow — reading `scrollHeight` without the reset
+ * returns the previous, larger content height and the box would only ever
+ * ratchet upward. `max-height` in the stylesheet caps the growth, so this is
+ * the floor of the behaviour, not its whole definition.
+ *
+ * @param node - the textarea to resize.
+ */
+function autoGrowPrompt(node: HTMLTextAreaElement): void {
+  node.style.height = 'auto'
+  node.style.height = `${node.scrollHeight}px`
+}
+
+/** Studio tabs: the generation modes plus the gallery view and video. */
+type PanelTab = GenerateMode | 'video' | 'gallery'
+
+/** The generation sub-modes shown in the mode row, in arrow-key order. */
+const MODE_TABS = ['text', 'edit', 'video'] as const satisfies readonly PanelTab[]
+
+/** Top-level workspaces inside the panel. 'normal' is the classic studio;
+ *  more task-oriented modes (prototype, …) can join alongside 'ecommerce'. */
+type PanelWorkspace = 'normal' | 'ecommerce' | 'canvas' | 'ppt' | 'replica' | 'outfit' | 'promo' | 'aplus'
+
+/**
+ * What the panel hands the canvas when the user asks to add something.
+ *
+ * Images are imported by COPY (the host writes them into the canvas asset
+ * store); a clip is imported BY REFERENCE (its served URL), because copying a
+ * clip would duplicate tens of megabytes per node.
+ */
+type CanvasImportRequest =
+  | { source: 'history' | 'gallery'; entryId: string; imageIndex: number }
+  | { source: 'video'; url: string; mime: string; duration?: number; title?: string }
+
+type GalleryFilter = string
+type ComparisonSession = { taskIds: string[]; prompt: string; comparisonId: string }
+type HistoryGroup = { key: string; entries: HistoryEntry[]; models: string[] }
+
+/**
+ * Which saved generation the result board is showing.
+ *
+ * Exactly one of the three surfaces can be open, and this type is what says so:
+ * there is no value meaning "an image history and a clip". `null` means the
+ * board shows the current run instead of anything recalled.
+ *
+ * Every reader derives from this one value (see `viewingHistoryId` and friends
+ * near the state), so the sidebar's active row and the board's contents are
+ * two views of the same fact and cannot drift apart.
+ */
+type BoardView =
+  | { kind: 'history', id: string }
+  | { kind: 'video', id: string }
+  | { kind: 'gallery', id: string }
+  | null
+
+/**
+ * Which of the two result surfaces the board is allowed to paint right now.
+ *
+ * `BoardView` says what the user SELECTED; it says nothing about `images`,
+ * which the generation pipeline fills on its own (`setImages` in the poll that
+ * notices a finished task). Gating the image grid on `images.length` alone
+ * therefore let a finished generation paint beside an open clip -- the two
+ * surfaces were gated on two different facts, so neither gate could see the
+ * other.
+ *
+ * So "may the image grid paint?" is answered here, once, from the selection.
+ * Every surface reads `resultSurface`, and `resultSurfaceOf` is a closed switch
+ * over `BoardView`, so a fourth surface cannot be added without deciding what it
+ * displaces: the `assertNever` at the end of it makes that a compile error.
+ */
+type ResultSurface =
+  | { kind: 'video', clip: VideoHistoryEntry }
+  | { kind: 'images' }
+
+/** Exhaustiveness guard: adding a `BoardView` kind fails the build here. */
+function assertNever(value: never): never {
+  throw new Error(`unhandled result surface: ${JSON.stringify(value)}`)
+}
+
+/**
+ * Resolve the one surface the board may paint.
+ *
+ * A selected clip that is no longer in the list (deleted, refetched away)
+ * yields `images`: that is what the board did before the clip was selected, and
+ * it is the only other surface that can show anything.
+ */
+function resultSurfaceOf(view: BoardView, clip: VideoHistoryEntry | null): ResultSurface {
+  if (view === null) return { kind: 'images' }
+  switch (view.kind) {
+    case 'video':
+      // `clip` is the resolved entry for `view.id`; a stale id -- the row was
+      // deleted while it was open -- means fall back rather than paint nothing.
+      return clip === null ? { kind: 'images' } : { kind: 'video', clip }
+    case 'history':
+    case 'gallery':
+      // Both are image generations: same grid, and only the parameter line
+      // differs, which is decided further down.
+      return { kind: 'images' }
+    default:
+      return assertNever(view)
+  }
+}
+
+/**
+ * One sidebar row in the unified history.
+ *
+ * Image and video history live in separate host stores with genuinely different
+ * shapes (an image entry indexes bytes in its own index; a clip entry names a
+ * file in the video store), so the two are unified HERE, at the view layer,
+ * rather than by merging the stores. That keeps each store's invariants intact
+ * and makes this a purely presentational composition.
+ */
+interface UnifiedHistoryRow {
+  key: string
+  kind: 'image' | 'video' | 'canvas'
+  createdAt: number
+  prompt: string
+  /** Model names shown in the row's meta line. */
+  models: string[]
+  /** Thumbnail / preview URL, when one exists. */
+  thumbUrl?: string
+  /** Right-hand meta line parts beyond model + time (built by each branch). */
+  meta: string
+  /** The backing image group (image rows only). */
+  group?: HistoryGroup
+  /** The backing clip entry (video rows only). */
+  entry?: VideoHistoryEntry
+  /**
+   * The saved canvas (canvas rows only).
+   *
+   * WHY canvases are rows at all: a canvas is where all of this work happens,
+   * so it belongs in the same list as the output — but it is a DOCUMENT, not a
+   * generation. The row therefore only opens it; there is nothing to add to the
+   * gallery or to another canvas.
+   */
+  canvas?: CanvasSummary
+}
+
+/** Adapt one video-history entry into a sidebar row. */
+function videoRowOf(entry: VideoHistoryEntry): UnifiedHistoryRow {
+  // The host extracts a poster frame when it saves a clip, so most rows now
+  // have a still to show; a clip saved before that existed has none, and the
+  // thumbnail slot falls back to the film glyph.
+  //
+  // The row still never mounts a <video>: a list of thirty clips each holding
+  // a decoder is the cost this branch exists to avoid, and a poster is a plain
+  // still the browser can lazy-load like any other image.
+  const poster = entry.videos[0]?.poster
+  return {
+    key: `video:${entry.id}`,
+    kind: 'video',
+    createdAt: entry.createdAt,
+    prompt: entry.prompt,
+    models: [entry.model],
+    ...poster === undefined || poster === '' ? {} : { thumbUrl: poster },
+    meta: `${entry.aspectRatio} · ${entry.resolution} · ${entry.seconds}s`,
+    entry,
+  }
+}
+
+/** Adapt one image history group into a sidebar row. */
+function imageRowOf(group: HistoryGroup): UnifiedHistoryRow {
+  const entry = group.entries[0]!
+  const isComparison = group.models.length > 1
+  const imageCount = group.entries.reduce((total, item) => total + item.images.length, 0)
+  const kindLabel = isComparison
+    ? tt('compare.title')
+    : entry.workflow === 'ecommerce'
+      ? `${tt('ecommerce.short')}${entry.projectName !== undefined && entry.projectName !== '' ? ` · ${entry.projectName}` : ''}`
+      : tt(`mode.${entry.mode === 'edit' ? 'edit' : 'text'}` as const)
+  return {
+    key: group.key,
+    kind: 'image',
+    createdAt: entry.createdAt,
+    prompt: entry.prompt,
+    models: group.models,
+    ...entry.images.length > 0 ? { thumbUrl: entry.images[0]!.url } : {},
+    meta: `${entry.outputFormat === 'gif' ? 'GIF · ' : entry.outputFormat === 'svg' ? 'SVG · ' : ''}${kindLabel} · ${imageCount} ${tt('history.images')}`,
+    group,
+  }
+}
+
+/** Adapt one saved canvas into a sidebar row. */
+function canvasRowOf(summary: CanvasSummary): UnifiedHistoryRow {
+  return {
+    key: `canvas:${summary.id}`,
+    kind: 'canvas',
+    // `updatedAt` rather than `createdAt`: the list answers "what was I working
+    // on", and a canvas the user just edited belongs at the top even if it is
+    // weeks old.
+    createdAt: summary.updatedAt,
+    prompt: summary.title,
+    // A canvas has no model of its own: the nodes inside it each carry one.
+    // Leaving this empty keeps the model filter from ever matching it.
+    models: [],
+    ...summary.thumb === undefined || summary.thumb === '' ? {} : { thumbUrl: summary.thumb },
+    meta: `${tt('history.canvasKind')} · ${tt('history.canvasNodes', { count: summary.nodeCount })}`,
+    canvas: summary,
+  }
+}
+
+/**
+ * Merge several newest-first lists into one newest-first list.
+ *
+ * WHY a merge and not a sort: each store already returns its own rows in order,
+ * and re-sorting the union would also reorder rows WITHIN a store. That matters
+ * for the image list — a comparison group and a product set do not necessarily
+ * follow `createdAt` among themselves, and the row a click opens depends on
+ * which entry is first in its group.
+ */
+function mergeNewestFirst<T extends { createdAt: number }>(lists: ReadonlyArray<readonly T[]>): T[] {
+  const cursors = lists.map(() => 0)
+  const merged: T[] = []
+  for (;;) {
+    let picked = -1
+    for (let index = 0; index < lists.length; index += 1) {
+      const candidate = lists[index]![cursors[index]!]
+      if (candidate === undefined) continue
+      if (picked < 0) { picked = index; continue }
+      // `>` keeps the earlier list ahead on a tie, so equal timestamps keep a
+      // stable order instead of flipping between renders.
+      if (candidate.createdAt > lists[picked]![cursors[picked]!]!.createdAt) picked = index
+    }
+    if (picked < 0) return merged
+    merged.push(lists[picked]![cursors[picked]!]!)
+    cursors[picked] = cursors[picked]! + 1
+  }
+}
+
+/** One image unit in the ecommerce results canvas: a live queue task or a
+ *  restored history entry of the viewed product set. */
+interface EcommerceResultItem {
+  id: string
+  label: string
+  slotKey: string
+  status: GenerationTaskStatus
+  model: string
+  prompt: string
+  error?: string
+  images: GeneratedImage[]
+  /** Queue id for live tasks; absent on history-restored items. */
+  taskId?: string
+  /** The request to resubmit when regenerating this slot. */
+  source: GenerateRequest
+}
+
+function modelsOfHistoryEntry(entry: HistoryEntry): string[] {
+  return entry.comparisonModels?.length !== undefined && entry.comparisonModels.length > 1
+    ? entry.comparisonModels
+    : [entry.model]
+}
+
+/** Comparison runs collapse by comparisonId, product sets by projectId. */
+function historyGroupKey(entry: HistoryEntry): string {
+  if (entry.comparisonId !== undefined) return entry.comparisonId
+  if (entry.workflow === 'ecommerce' && entry.projectId !== undefined) return `project:${entry.projectId}`
+  return entry.id
+}
+
+/** Collapse the per-model history rows that belong to one comparison run. */
+function groupHistoryEntries(entries: HistoryEntry[]): HistoryGroup[] {
+  // 同 id 只留第一条：索引里若有去重之前写下的重复条目，它会让这个 group 的
+  // `entries` 多出几份、`imageCount` 算虚、「删除这一组」对同一个 id 发几次
+  // 请求。列表是只读投影，在这里收一次口是安全的。
+  const seen = new Set<string>()
+  const groups = new Map<string, HistoryGroup>()
+  for (const entry of entries) {
+    if (seen.has(entry.id)) continue
+    seen.add(entry.id)
+    const key = historyGroupKey(entry)
+    const existing = groups.get(key)
+    if (existing === undefined) {
+      groups.set(key, { key, entries: [entry], models: modelsOfHistoryEntry(entry) })
+    } else {
+      existing.entries.push(entry)
+      existing.models = [...new Set([...existing.models, ...modelsOfHistoryEntry(entry)])]
+    }
+  }
+  return [...groups.values()]
+}
+
+function newComparisonId(): string {
+  const cryptoApi = globalThis.crypto
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()
+  return `comparison-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+/** Fold a lightweight poll summary into a richer task already held locally. */
+function mergeTaskSummary(summary: GenerationTaskSummary, previous: GenerationTask | undefined): GenerationTask {
+  const { resultAvailable: _resultAvailable, ...task } = summary
+  if (previous === undefined) return task
+  const merged: GenerationTask = {
+    ...previous,
+    ...task,
+    request: { ...previous.request, ...task.request },
+  }
+  if (summary.resultAvailable && previous.result !== undefined) merged.result = previous.result
+  return merged
+}
+
+/** Stable key for one channel+model pair in the comparison selector. */
+function modelChoiceKey(choice: ModelPickerValue): string {
+  return `${choice.channelId}\u0000${choice.model}`
+}
+
+/** Decode a comparison key, rejecting malformed persisted state. */
+function modelChoiceFromKey(key: string): ModelPickerValue | undefined {
+  const separator = key.indexOf('\u0000')
+  if (separator < 0) return undefined
+  const channelId = key.slice(0, separator)
+  const model = key.slice(separator + 1)
+  return model === '' ? undefined : { channelId, model }
+}
+
+/**
+ * Focus management for an overlay that declares `role="dialog"
+ * aria-modal="true"`.
+ *
+ * Claiming a modal context without moving focus leaves a keyboard user behind
+ * it: the overlay looks open, but Tab and Esc still walk the page underneath.
+ * The container is given `tabIndex={-1}` so it can take focus itself, and the
+ * element that had focus is restored when the overlay closes.
+ *
+ * The opener is duck-typed rather than `instanceof HTMLElement` for the same
+ * reason CanvasWorkspace's matchesSelector is: jsdom hands out elements from a
+ * different realm, where the instance check silently fails.
+ */
+function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>): void {
+  useEffect(() => {
+    if (!open) return
+    const opener = document.activeElement
+    ref.current?.focus()
+    return () => {
+      if (opener !== null && typeof (opener as { focus?: unknown }).focus === 'function') {
+        (opener as HTMLElement).focus()
+      }
+    }
+  }, [open, ref])
+}
+
+/** Render the studio. */
+export function ImageGenPanel(props: {
+  api: ImageGenApi
+  scope: ImageGenScope
+  sessions?: ISessions
+  conversation?: ConversationService
+  /**
+   * 宿主的目录选择器（`ctx.uiWorkspace.pickDirectory`）。
+   *
+   * 可选：精简外壳不装载 workspace UI。缺席时铺板卡退回手输路径，而不是
+   * 把「从短剧文档铺板」整块拿掉。
+   */
+  pickDirectory?: () => Promise<string | null>
+  /** The panel is visible; inactive panels keep state but defer optional work. */
+  active?: boolean
+}) {
+  const { api, scope, sessions, conversation, pickDirectory, active = true } = props
+  const config = useConfig(scope)
+  // The plugin language follows the DSH interface (bridged from ctx.locale);
+  // this tick re-renders the tree so every tt() switches live — the template
+  // library and the inspiration wall render inside this tree.
+  useImageGenLanguageTick()
+  const enabled = config?.enabled ?? true
+  // Channel-aware model options: every selector keeps the owning channel so
+  // repeated aliases can never route through the wrong endpoint.
+  const modelOptions = imageModelOptions(config)
+  // Video choices for the canvas composer: derived from the channels' video
+  // catalogs, which are configured separately from the image model list.
+  const videoOptions = useMemo(() => videoModelOptions(config), [config])
+  const imageModels = modelOptions.models
+  const modelGroups: ImageModelGroup[] = modelOptions.groups
+  const defaultChannelId = modelOptions.defaultChannelId
+  const defaultModel = modelOptions.defaultModel
+  const apiUrl = defaultChannelId !== undefined && (config?.channels ?? []).length > 0
+    ? (config!.channels!.find(channel => channel.id === defaultChannelId)?.apiUrl ?? '')
+    : (config?.apiUrl ?? '')
+  const configured = apiUrl.trim() !== ''
+  const legacyKeySet = useSecretSet(scope, 'apiKey')
+  const promptKeySet = useSecretSet(scope, 'promptApiKey')
+  const channelKeySet = (config?.channels ?? []).some(channel => scope.getSecretSetSnapshot(`channelSecrets.${channel.id}`))
+  const apiKeySet = (config?.channels ?? []).length > 0 ? channelKeySet : legacyKeySet
+  const [subscriptionStates, setSubscriptionStates] = useState<Record<SubscriptionProvider, SubscriptionChannelState>>(INITIAL_SUBSCRIPTION_STATES)
+  const subscriptionChannelsKey = (config?.channels ?? [])
+    .filter(channel => channel.auth === 'subscription' && channel.subscription !== undefined)
+    .map(channel => `${channel.id}:${channel.subscription}`)
+    .sort()
+    .join('|')
+
+  useEffect(() => {
+    if (!active || subscriptionChannelsKey === '') return
+    let disposed = false
+    const refresh = (): void => {
+      void fetch(SUBSCRIPTION_API.status, { method: 'POST', cache: 'no-store' })
+        .then(async response => await response.json() as { ok?: boolean; statuses?: Record<string, { state?: string }> })
+        .then(body => {
+          if (disposed || body.ok !== true || body.statuses === undefined) return
+          setSubscriptionStates(current => {
+            const next = { ...current }
+            for (const provider of SUBSCRIPTION_PROVIDERS) {
+              const state = body.statuses?.[provider]?.state
+              if (state === 'logged-in' || state === 'logged-out' || state === 'unknown') next[provider] = state
+            }
+            return next
+          })
+        })
+        .catch(() => { /* status is advisory; generation still reports its real error */ })
+    }
+    refresh()
+    const timer = window.setInterval(refresh, 30_000)
+    return () => { disposed = true; window.clearInterval(timer) }
+  }, [active, subscriptionChannelsKey])
+
+  const accountSignedIn = config?.accountSignedIn === true
+  const connectedChannelIds = new Set(
+    (config?.channels ?? [])
+      .filter(channel => channelIsConnected(channel, {
+        accountSignedIn,
+        secretSet: scope.getSecretSetSnapshot(`channelSecrets.${channel.id}`),
+        subscriptionLoggedOut: channel.subscription !== undefined && subscriptionStates[channel.subscription] === 'logged-out',
+      }))
+      .map(channel => channel.id),
+  )
+  const connected = enabled && (config?.channels ?? []).length > 0
+    ? connectedChannelIds.size > 0
+    : enabled && configured && apiKeySet
+  /** Whether the channel behind one concrete model choice can submit now. */
+  const channelReady = (channelId: string): boolean => (config?.channels ?? []).length > 0
+    ? connectedChannelIds.has(channelId)
+    : enabled && configured && apiKeySet
+  const reusablePromptChannelIds = new Set(
+    (config?.channels ?? [])
+      .filter(channel => channel.auth !== 'subscription'
+        && channel.apiUrlFull !== true
+        && channel.apiUrl.trim() !== ''
+        && scope.getSecretSetSnapshot(`channelSecrets.${channel.id}`))
+      .map(channel => channel.id),
+  )
+  const promptEndpointConfigured = (config?.promptApiUrl ?? '').trim() !== '' || reusablePromptChannelIds.size > 0
+  const promptKeyConfigured = promptKeySet || reusablePromptChannelIds.size > 0
+  // The host picks a chat model from the signed-in Taichi gateway. Readiness is
+  // the published account flag, not a channel secret the overlay never stores.
+  const taichiPromptReady = accountSignedIn && (config?.channels ?? []).some(channel => usesDesktopAccount(channel) && channel.apiUrl.trim() !== '')
+  const promptReady = enabled && (taichiPromptReady || (
+    (config?.promptModel ?? '').trim() !== ''
+    && promptEndpointConfigured
+    && promptKeyConfigured
+  ))
+
+  const [tab, setTab] = useState<PanelTab>('text')
+  const [workspace, setWorkspace] = useState<PanelWorkspace>('normal')
+  const [canvasImportRequest, setCanvasImportRequest] = useState<CanvasImportRequest | undefined>()
+  /** Switch to a normal-generation tab, leaving any task workspace. */
+  const openTab = (next: PanelTab): void => {
+    setWorkspace('normal')
+    setTab(next)
+  }
+  const addEntryToCanvas = (source: 'history' | 'gallery', entryId: string, imageIndex = 0): void => {
+    setCanvasImportRequest({ source, entryId, imageIndex })
+    setWorkspace('canvas')
+  }
+  const [prompt, setPrompt] = useState('')
+  const [size, setSize] = useState<string>('')
+  const [quality, setQuality] = useState<string>('')
+  const [renderQuality, setRenderQuality] = useState('')
+  const [transparentBackground, setTransparentBackground] = useState(false)
+  const [count, setCount] = useState(1)
+  const [detail, setDetail] = useState('')
+  /** png, or gif/svg when the selected model's catalog lists it. */
+  const [outputFormat, setOutputFormat] = useState<ImageOutputFormat>('png')
+  const [model, setModel] = useState<string>('')
+  const [modelChannelId, setModelChannelId] = useState<string>('')
+  const [compareEnabled, setCompareEnabled] = useState(false)
+  /** Compare selections are `${channelId}\0${model}` so duplicate aliases stay distinct. */
+  const [compareModels, setCompareModels] = useState<string[]>([])
+  const [images, setImages] = useState<GeneratedImage[]>([])
+  const [addingToConversation, setAddingToConversation] = useState<number | string | null>(null)
+  const [galleryConversationAddingId, setGalleryConversationAddingId] = useState<string | null>(null)
+  const [historyConversationAddingId, setHistoryConversationAddingId] = useState<string | null>(null)
+  const [conversationMessage, setConversationMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  /**
+   * Upload-limit messages, kept apart from `error`.
+   *
+   * `error` renders as 「生成失败：…」, so a rejected fifth product image read
+   * as if generation itself had failed — there was no generation yet. Posting
+   * these to their own slot lets them render verbatim.
+   */
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null)
+  /** Session-only edit references: the first one is the primary `image`, the
+   *  rest travel as `images` (see GenerateRequest). Declared after `setError`
+   *  because the hook reports validation warnings through it. */
+  const catalogEntry = useMemo(() => catalogModelFor(config, modelChannelId, model), [config, modelChannelId, model])
+  const selectedChannel = (config?.channels ?? []).find(channel => channel.id === modelChannelId)
+  const editReferenceCapacity = catalogEntry === undefined
+    ? editReferenceLimit(model, selectedChannel)
+    : referenceLimitOf(catalogEntry, editReferenceLimit(model, selectedChannel))
+  const refs = useEditReferences(setError, { limit: editReferenceCapacity })
+  // Submission is brief; actual generation stays visible until the host
+  // queue reports that every queued/running task has finished.
+  const [submitting, setSubmitting] = useState(false)
+  const [enhancing, setEnhancing] = useState(false)
+  const [configGuide, setConfigGuide] = useState<'generation' | 'enhancement' | 'disabled' | null>(null)
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  /**
+   * Which saved generation the result board is showing, if any.
+   *
+   * ONE value, not three ids. It used to be three independent `useState`
+   * slots (`viewingHistoryId`, `viewingVideoId`, `galleryViewingId`) kept in
+   * step by hand: every "show me that" handler had to remember to null the
+   * other two, and `openVideoFromHistory` and `viewHistoryGroup` each forgot a
+   * different one. The result was two histories drawn at once — a playing clip
+   * with an image grid over it.
+   *
+   * A discriminated union makes that state unrepresentable: there is no value
+   * meaning "the clip AND the image history". Nothing has to be remembered, so
+   * nothing can be forgotten, and a future fourth surface cannot be added
+   * without deciding how it excludes the other three.
+   */
+  const [boardView, setBoardView] = useState<BoardView>(null)
+  const [gallery, setGallery] = useState<HistoryEntry[]>([])
+  /** Soft-deleted entries: hidden from the shelf, restorable for 30 days. */
+  const [galleryTrash, setGalleryTrash] = useState<HistoryEntry[]>([])
+  const [galleryTrashOpen, setGalleryTrashOpen] = useState(false)
+  /** The three selection ids are VIEWS of `boardView`, never separate state —
+   *  so they cannot disagree with each other or with what the board draws. */
+  const viewingHistoryId = boardView !== null && boardView.kind === 'history' ? boardView.id : null
+  const viewingVideoId = boardView !== null && boardView.kind === 'video' ? boardView.id : null
+  const galleryViewingId = boardView !== null && boardView.kind === 'gallery' ? boardView.id : null
+  const [galleryAdding, setGalleryAdding] = useState(false)
+  const [galleryMessage, setGalleryMessage] = useState<string | null>(null)
+  const [galleryFilter, setGalleryFilter] = useState<GalleryFilter>('all')
+  const galleryUploadRef = useRef<HTMLInputElement>(null)
+  const [galleryRatio, setGalleryRatio] = useState('all')
+  const [galleryTagFilter, setGalleryTagFilter] = useState<string | null>(null)
+  const [galleryView, setGalleryView] = useState<'masonry' | 'grid'>('masonry')
+  const [galleryColumnCount, setGalleryColumnCount] = useState(5)
+  const [gallerySort, setGallerySort] = useState<'newest' | 'oldest'>('newest')
+  const [galleryQuery, setGalleryQuery] = useState('')
+  const [galleryTagInput, setGalleryTagInput] = useState('')
+  const [editingGalleryTagsId, setEditingGalleryTagsId] = useState<string | null>(null)
+  const [galleryTagEditInput, setGalleryTagEditInput] = useState('')
+  const [selectedGalleryIds, setSelectedGalleryIds] = useState<Set<string>>(new Set())
+  const [gallerySelecting, setGallerySelecting] = useState(false)
+  // Clips live in their own host store; the sidebar merges them with the image
+  // history at render time (see UnifiedHistoryRow).
+  const [videoHistory, setVideoHistory] = useState<VideoHistoryEntry[]>([])
+  /**
+   * Saved canvases, listed in the sidebar as rows of their own.
+   *
+   * WHY canvases appear here at all: a canvas is the document all of this work
+   * happens in, so "go back to what I made" has to include it. They are read
+   * from their own store — nothing is copied into the image/video history.
+   */
+  const [canvasSummaries, setCanvasSummaries] = useState<CanvasSummary[]>([])
+  /** A canvas row was clicked: open that document in the canvas workspace. */
+  const [openCanvasId, setOpenCanvasId] = useState<string | undefined>()
+  const [historyQuery, setHistoryQuery] = useState('')
+  const [historyModelFilter, setHistoryModelFilter] = useState('all')
+  const [historyRatioFilter, setHistoryRatioFilter] = useState('all')
+  /** 'all' | 'image' | 'video' | 'canvas' — clips, images and canvases share one
+   *  list, so the only way to see just one kind used to be scrolling past the
+   *  others. */
+  const [historyKindFilter, setHistoryKindFilter] = useState<'all' | 'image' | 'video' | 'canvas'>('all')
+  const [preview, setPreview] = useState<{ images: GeneratedImage[]; index: number; source?: GalleryImageSource } | null>(null)
+  /** The gallery clip open in the full-screen player (images use `preview`). */
+  const [galleryClip, setGalleryClip] = useState<HistoryEntry | null>(null)
+  const [previewScale, setPreviewScale] = useState(1)
+  const [promptCopied, setPromptCopied] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [tasks, setTasks] = useState<GenerationTask[]>([])
+  // Video queue summaries, polled here so both the video tab and the canvas see
+  // one source of truth (the canvas matches its placeholder nodes by task id).
+  const [videoTasks, setVideoTasks] = useState<VideoTaskSummary[]>([])
+  const tasksRef = useRef<GenerationTask[]>([])
+  const initialDataRequestedRef = useRef(false)
+  // A FAILED read is not an empty one. The sidebar and the asset library both
+  // print "there is nothing here" whenever their list is empty, which a failed
+  // request does not establish — so each list keeps its own error and shows
+  // that instead (see loadInitialData).
+  const [historyLoadError, setHistoryLoadError] = useState<string | null>(null)
+  const [galleryLoadError, setGalleryLoadError] = useState<string | null>(null)
+  const taskPollStartedAtRef = useRef(Date.now())
+  const observedTaskIdsRef = useRef<Set<string>>(new Set())
+  const submittedTaskIdsRef = useRef<Set<string>>(new Set())
+  const [taskTrayOpen, setTaskTrayOpen] = useState(false)
+  /** #38: the retained record of upstream attempts, opened from the task tray. */
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  // The behaviour report is a separate overlay from the attempt record: one
+  // explains a single failure, the other a pattern across many generations.
+  const [signalsOpen, setSignalsOpen] = useState(false)
+  const [comparison, setComparison] = useState<ComparisonSession | null>(null)
+  const [comparisonFullscreen, setComparisonFullscreen] = useState(false)
+  const [ecommerce, setEcommerce] = useState<ProductSetDraft>(() => {
+    try {
+      const saved = window.localStorage.getItem(ECOMMERCE_DRAFT_STORAGE_KEY)
+      if (saved !== null) {
+        const merged: ProductSetDraft = { ...defaultEcommerceDraft(), ...JSON.parse(saved) as Partial<ProductSetDraft> }
+        // Drafts saved before reference roles existed keep working: every slot
+        // defaults to following the product image.
+        if (Array.isArray(merged.slots)) {
+          merged.slots = merged.slots.map(slot => ({ ...slot, refRole: slot.refRole ?? 'product' }))
+        }
+        // Same for the white-background switch, added later: a draft that
+        // predates it has no such field, and an explicit false is what that
+        // means — `=== true` above already treats `undefined` that way, and
+        // normalising here keeps the stored draft honest for the next read.
+        merged.whiteBackground = merged.whiteBackground === true
+        // Drafts from the three-field era (卖点/保护要素/风格) fold into 参数信息.
+        merged.promptInfo = typeof merged.promptInfo === 'string' ? merged.promptInfo : ''
+        if (merged.promptInfo.trim() === '') {
+          const legacy = [merged.sellingPoints ?? '', merged.protectedFeatures ?? '', merged.styleHint ?? '']
+            .map(part => part.trim())
+            .filter(part => part !== '')
+          if (legacy.length > 0) merged.promptInfo = legacy.join('\n')
+        }
+        return merged
+      }
+    } catch { /* ignore malformed or unavailable storage */ }
+    return defaultEcommerceDraft()
+  })
+  const [ecommercePreview, setEcommercePreview] = useState(false)
+  const [ecommerceGenerating, setEcommerceGenerating] = useState(false)
+  const [ecommerceEnhancing, setEcommerceEnhancing] = useState(false)
+  const [ecommercePolishingKey, setEcommercePolishingKey] = useState<string | null>(null)
+  const [ecommerceProjectId, setEcommerceProjectId] = useState<string | null>(null)
+  const [ecommerceAssets, setEcommerceAssets] = useState<ProductAsset[]>([])
+  /** History-restored product set currently shown in the results canvas. */
+  const [ecommerceRestored, setEcommerceRestored] = useState<{ projectId: string; projectName: string; items: EcommerceResultItem[] } | null>(null)
+  /** Pending main-image anchor: the main image task is in flight; once it
+   *  completes, the remaining slots are resubmitted with it as their shared
+   *  reference so every image in the set shows the same product. */
+  const [ecommerceAnchor, setEcommerceAnchor] = useState<{ projectId: string; mainTaskIds: string[]; remaining: GenerateRequest[] } | null>(null)
+  const [ecommerceRefOpen, setEcommerceRefOpen] = useState(false)
+  const [configCollapsed, setConfigCollapsed] = useState(readConfigCollapsed)
+  const [chatOpen, setChatOpen] = useState(readChatOpen)
+  const [configWidth, setConfigWidth] = useState(readConfigWidth)
+  const configAsideRef = useRef<HTMLElement>(null)
+  const currentSessionId = useCurrentSessionId(sessions)
+  /** 当前会话的工作区目录；画布的「从文档铺板」拿它去读 `剧集/EPxxx`。 */
+  const currentWorkspace = useCurrentWorkspace(sessions)
+  /**
+   * Image → conversation, with an explicit fallback when the host cannot say
+   * which conversation is current. `addingToConversation` below is kept for the
+   * video clip path only: clips have no `/edit_image`-style pending attachment,
+   * so folding them into this hook would merge two different flows.
+   */
+  const conversationAttachment = useConversationImageAttachment({
+    sessions,
+    conversation,
+    prompt,
+    prepareImage: prepareConversationImage,
+    attachImage: (sessionId, dataUrl, name) => api.attachConversationImage(sessionId, dataUrl, name),
+    messages: {
+      noSession: tt('conversation.noSession'),
+      unavailable: tt('conversation.unavailable'),
+      busy: tt('conversation.busy'),
+    },
+    onError: (caught) => { setError(errorMessage(caught)) },
+    onAdded: () => {
+      setConversationMessage(tt('conversation.added'))
+      window.setTimeout(() => { setConversationMessage(null) }, 2200)
+    },
+  })
+  const sidebarHistoryHost = useSidebarHistoryHost()
+  const modeGroups: ImageModelGroup[] = tab === 'edit'
+    ? modelGroups
+        .map(group => ({ ...group, models: group.models.filter(candidate => describeModel(candidate).supportsEdit) }))
+        .filter(group => group.models.length > 0)
+    : modelGroups
+  const modeModels = [...new Set(modeGroups.flatMap(group => group.models))]
+  const catalogAspects = catalogEntry === undefined ? [] : aspectsOf(catalogEntry)
+  const catalogQualities = catalogEntry === undefined ? [] : qualitiesFor(catalogEntry, catalogAspects.includes(size) ? size : catalogAspects[0] ?? '')
+  const catalogRenders = catalogEntry?.render_quality_options ?? []
+  const formatMode = tab === 'text' && !compareEnabled && workspace === 'normal' ? 'text' : 'edit'
+  const catalogFormats = catalogEntry === undefined ? ['png' as const] : outputFormatsOf(catalogEntry, formatMode)
+  const specialFormat = outputFormat !== 'png' && catalogFormats.includes(outputFormat)
+
+  /** Keep the visible selection inside the model that is actually selected.
+   *  An illegal ratio, tier, render quality or format snaps to that model's
+   *  first legal value so the control and the request stay the same. */
+  useEffect(() => {
+    if (catalogEntry === undefined) return
+    const aspects = aspectsOf(catalogEntry)
+    const nextAspect = aspects.includes(size) ? size : (aspects[0] ?? '')
+    if (nextAspect !== size) setSize(nextAspect)
+    const tiers = qualitiesFor(catalogEntry, nextAspect)
+    if (tiers.length === 0) {
+      if (quality !== '') setQuality('')
+    } else if (!tiers.includes(quality)) {
+      setQuality(tiers[0] ?? '')
+    }
+    const renders = catalogEntry.render_quality_options ?? []
+    if (renders.length === 0) {
+      if (renderQuality !== '') setRenderQuality('')
+    } else if (!renders.includes(renderQuality)) {
+      setRenderQuality(defaultRenderQuality(catalogEntry) ?? '')
+    }
+    const formats = outputFormatsOf(catalogEntry, tab === 'text' && !compareEnabled && workspace === 'normal' ? 'text' : 'edit')
+    if (!formats.includes(outputFormat)) setOutputFormat('png')
+    if (!(catalogEntry.background_options ?? []).includes('transparent') && transparentBackground) setTransparentBackground(false)
+    const ecommerceSize = aspects.includes('1:1') ? '1:1' : aspects[0]
+    if (ecommerceSize !== undefined) {
+      setEcommerce(previous => aspects.includes(previous.size) ? previous : { ...previous, size: ecommerceSize })
+    }
+  }, [catalogEntry, size, quality, renderQuality, outputFormat, transparentBackground, tab, compareEnabled, workspace])
+  /** Current adapter's reference capacity. A one-image model with several
+   *  thumbnails loaded would otherwise fail only at submit time, so the panel
+   *  warns as soon as the mismatch exists. */
+  const editLimitNotice = tab === 'edit' && refs.images.length > editReferenceCapacity
+    ? tt('edit.modelLimit', { count: editReferenceCapacity })
+    : null
+  /** Same question for the product-set flow, where one role may carry up to
+   *  MAX_ECOMMERCE_ASSETS pictures. The number is the selected model's, not the
+   *  workflow's, because the host forwards the role's whole asset list and the
+   *  channel drops whatever it cannot carry. See ecommerceReferenceLimit for
+   *  why this does not reuse editReferenceLimit(). */
+  const ecommerceReferenceCapacity = catalogEntry === undefined ? ecommerceReferenceLimit(model) : referenceLimitOf(catalogEntry, ecommerceReferenceLimit(model))
+  /** Upstream lifecycle of the selected id, as a sentence the user can act on.
+   *
+   *  Computed here rather than inside the render so the branch is testable and
+   *  the row stays a single ternary. `null` covers the overwhelming majority
+   *  (every active model, and every id we do not have on file) — the notice
+   *  only exists for ids the baseline explicitly records as retired.
+   *
+   *  Note what this does NOT do: it never changes `model`, disables generation,
+   *  or rewrites the request. A user can be pointed at a gateway that still
+   *  serves a model the vendor dropped, and blocking that would break a
+   *  workflow that works. See `model-baseline.ts`. */
+  const modelLifecycle = describeModel(model)
+  const modelLifecycleKey = lifecycleNoticeKey(modelLifecycle)
+  const modelLifecycleNotice = modelLifecycleKey === null
+    ? null
+    : tt(modelLifecycleKey, modelLifecycle.replacement === undefined ? undefined : { replacement: modelLifecycle.replacement })
+  const ecommerceRefOverflow = ecommerceAssets.reduce((worst, asset) => {
+    if (asset.role === 'style') return worst
+    return Math.max(worst, ecommerceAssets.filter(item => item.role === asset.role).length)
+  }, 0)
+  const ecommerceLimitNotice = workspace === 'ecommerce' && ecommerceRefOverflow > ecommerceReferenceCapacity
+    ? tt('ecommerce.refLimit', { count: ecommerceReferenceCapacity })
+    : null
+  const previewStage = useRef<HTMLDivElement>(null)
+  // Set by the pan gesture, consumed by the click that immediately follows it.
+  const previewDraggedRef = useRef(false)
+  // The three overlays that claim `role="dialog"`; see useDialogFocus.
+  const previewDialogRef = useRef<HTMLDivElement>(null)
+  const comparisonFullscreenRef = useRef<HTMLDivElement>(null)
+  const galleryClipRef = useRef<HTMLDivElement>(null)
+  const galleryLayoutRef = useRef<HTMLDivElement>(null)
+  // Replica renders own their progress and result board. Their host tasks still
+  // enter the shared queue/history, but must not make the ordinary workspace
+  // look busy or replace the image currently on its canvas.
+  const panelTasks = tasks.filter(task => task.request.workflow !== 'replica')
+  const activeTasks = panelTasks.filter(task => task.status === 'queued' || task.status === 'running')
+  const activeTask = activeTasks.find(task => task.status === 'running') ?? activeTasks[0]
+  const generating = submitting || activeTasks.length > 0
+  const generationStartedAt = activeTask?.startedAt ?? activeTask?.createdAt ?? null
+  const elapsed = useElapsed(generating, generationStartedAt)
+
+  useEffect(() => {
+    try { window.localStorage.setItem(ECOMMERCE_DRAFT_STORAGE_KEY, JSON.stringify(ecommerce)) } catch { /* optional draft persistence */ }
+  }, [ecommerce])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CONFIG_COLLAPSED_STORAGE_KEY, String(configCollapsed))
+    } catch {
+      // Embedded shells may disable local storage; the in-memory toggle still works.
+    }
+  }, [configCollapsed])
+
+  // Chat-pane visibility rides a document-level attribute so the center-column
+  // grid can drop the conversation entirely. Collapsed by default.
+  useEffect(() => {
+    if (chatOpen) delete document.documentElement.dataset.dshImagegenChatCollapsed
+    else document.documentElement.dataset.dshImagegenChatCollapsed = '1'
+    try { window.localStorage.setItem(CHAT_COLLAPSED_STORAGE_KEY, chatOpen ? 'open' : 'collapsed') } catch { /* optional */ }
+  }, [chatOpen])
+
+  useEffect(() => () => { delete document.documentElement.dataset.dshImagegenChatCollapsed }, [])
+
+  // Main-image anchor chain: when the main image task of a product set
+  // completes, resubmit the remaining slots with the generated main image as
+  // their shared reference. Cleared up front so a re-render cannot double-
+  // submit; failures surface as a canvas error.
+  useEffect(() => {
+    if (ecommerceAnchor === null) return
+    const anchor = ecommerceAnchor
+    const mains = tasks.filter(task => anchor.mainTaskIds.includes(task.id))
+    if (mains.length === 0) return
+    if (mains.every(task => task.status === 'failed' || task.status === 'cancelled')) {
+      setEcommerceAnchor(null)
+      setError(tt('ecommerce.anchorFailed'))
+      return
+    }
+    const done = mains.find(task => task.status === 'completed' && task.result !== undefined && task.result.images.length > 0)
+    if (done === undefined) return
+    setEcommerceAnchor(null)
+    const dataUrl = srcOf(done.result!.images[0]!)
+    const requests = anchor.remaining.map(request => ({
+      ...request,
+      mode: 'edit' as const,
+      image: dataUrl,
+      refName: 'set-main-anchor',
+      prompt: withAnchorNote(request.prompt),
+    }))
+    void Promise.all(requests.map(request => api.taskSubmit(request)))
+      .then(submitted => {
+        for (const task of submitted) submittedTaskIdsRef.current.add(task.id)
+        setTasks(previous => [...submitted, ...previous])
+      })
+      .catch(caught => { setError(errorMessage(caught)) })
+  }, [api, tasks, ecommerceAnchor])
+
+
+  // A saved settings change is authoritative. Keep both levels of the active
+  // selection and comparison choices inside the current channel/model matrix.
+  const modelPreferenceKey = `${modeGroups.map(group => `${group.id}:${group.models.join(',')}`).join('|')}\u0000${defaultModel ?? ''}`
+  useEffect(() => {
+    const preferred = defaultModel !== undefined && modeModels.includes(defaultModel) ? defaultModel : modeModels[0] ?? ''
+    const selected = resolveModelChoice(modeGroups, { channelId: modelChannelId, model: preferred }, defaultChannelId)
+    setModel(selected.model)
+    setModelChannelId(selected.channelId)
+    setCompareModels(previous => {
+      const retained = previous.filter(key => {
+        const choice = modelChoiceFromKey(key)
+        if (choice === undefined) return false
+        return modeGroups.some(group => group.id === choice.channelId && group.models.includes(choice.model))
+      })
+      if (retained.length > 0) return retained
+      return selected.model === '' ? [] : [modelChoiceKey(selected)]
+    })
+  }, [modelPreferenceKey])
+
+  const filteredGallery = gallery
+    .filter(entry => {
+      if (galleryFilter === 'all') return true
+      // Clips are their own category: without this they would land in the
+      // 'text' bucket (their mode is 'video', which matches neither text nor
+      // edit), so the text filter would appear to lose them.
+      if (galleryFilter === 'video') return entry.video !== undefined
+      if (galleryFilter === 'text') return entry.video === undefined && entry.mode === 'text'
+      if (galleryFilter === 'edit') return entry.video === undefined && entry.mode === 'edit'
+      return entry.model === galleryFilter
+    })
+    // A clip stores its aspect ratio in `size`; normalizeSize would fold '16:9'
+    // through the legacy-image map and could mis-bucket it, so compare the raw
+    // value first and fall back to the normalized image vocabulary.
+    .filter(entry => galleryRatio === 'all' || entry.size === galleryRatio || normalizeSize(entry.size) === galleryRatio)
+    .filter(entry => galleryTagFilter === null || (entry.tags ?? []).includes(galleryTagFilter))
+    .filter(entry => galleryQuery.trim() === '' || `${entry.prompt} ${entry.model} ${(entry.tags ?? []).join(' ')}`.toLocaleLowerCase().includes(galleryQuery.trim().toLocaleLowerCase()))
+    .slice()
+    .sort((a, b) => gallerySort === 'newest' ? b.createdAt - a.createdAt : a.createdAt - b.createdAt)
+
+  const galleryTagOptions = [...new Set(gallery.flatMap(entry => entry.tags ?? []))].sort((a, b) => a.localeCompare(b))
+  const galleryModels = [...new Set([...imageModels, ...gallery.map(entry => entry.model)])]
+
+  /**
+   * Keep the waterfall card width constant and derive the lane count from the
+   * actual gallery box, not the window viewport. The editor sidebars can be
+   * resized independently, so viewport media queries otherwise choose the wrong
+   * column count and leave unused space or clip the last lane.
+   */
+  useLayoutEffect(() => {
+    if (workspace !== 'normal' || tab !== 'gallery' || galleryView !== 'masonry') return
+    const layout = galleryLayoutRef.current
+    if (layout === null) return
+    const measure = (): void => {
+      const usableWidth = layout.clientWidth - GALLERY_HORIZONTAL_PADDING
+      if (usableWidth <= 0) return
+      const columns = Math.max(
+        1,
+        Math.floor((usableWidth + GALLERY_COLUMN_GAP) / (GALLERY_CARD_WIDTH + GALLERY_COLUMN_GAP)),
+      )
+      setGalleryColumnCount(previous => previous === columns ? previous : columns)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(layout)
+    window.addEventListener('resize', measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [galleryView, tab, workspace])
+
+  /**
+   * The sidebar's single, time-ordered list of what the user can go back to.
+   *
+   * Three sources with three different shapes feed it: image generations, clips,
+   * and saved canvases. Two rules decide what ends up here:
+   *
+   *  - **A generation that was produced BY a canvas is not listed.** Its bytes
+   *    are still written to their store (the canvas node, "add to gallery" and
+   *    the import routes all read them by id), but it is a step inside a canvas,
+   *    not a result of its own. Listing both the worked-on canvas and every card
+   *    it produced buried the list in the same work twice.
+   *  - **The canvas itself is.** That is the document the user actually wants to
+   *    return to, so a canvas row opens it.
+   */
+  const unifiedHistory = useMemo<UnifiedHistoryRow[]>(() => {
+    const query = historyQuery.trim().toLocaleLowerCase()
+    // Filter BEFORE grouping: a group keyed on one entry would otherwise split
+    // into a second group when its other entries were dropped.
+    const ownHistory = history.filter(entry => entry.canvas === undefined)
+    const ownVideos = videoHistory.filter(entry => entry.canvas === undefined)
+    const imageRows = groupHistoryEntries(ownHistory).map(imageRowOf)
+    // 同 id 只留最新那条，和存储层的写入去重对齐。
+    //
+    // 存储层现在按 id 覆盖，但**盘上已有的旧索引**可能还带着去重之前的重复
+    // 条目（`stage-e9-real` 那种测试污染就是）。前端若照单全收，几行会拿到
+    // 同一个 `video:${id}` React key——React 会丢掉其中一部分、把剩余的当成
+    // 同一行复用，表现就是「删了一条，列表里那条还在」。列表是只读投影，
+    // 在这里收一次口没有任何副作用。
+    const videoRows = [...new Map(ownVideos.map(entry => [entry.id, entry])).values()].map(videoRowOf)
+    const canvasRows = canvasSummaries.map(canvasRowOf)
+    const matches = (row: UnifiedHistoryRow, extra: string): boolean => {
+      if (historyKindFilter !== 'all' && row.kind !== historyKindFilter) return false
+      if (query !== '' && !`${row.prompt} ${row.models.join(' ')}`.toLocaleLowerCase().includes(query)) return false
+      if (historyModelFilter !== 'all' && !row.models.includes(historyModelFilter)) return false
+      if (historyRatioFilter !== 'all' && extra !== historyRatioFilter) return false
+      return true
+    }
+    // The ratio filter compares against each kind's own ratio vocabulary: an
+    // image size ('1:1', 'auto') and a clip aspect ratio ('16:9') are the same
+    // concept but stored differently. A canvas has neither — `''` never matches
+    // a selected ratio, which is the honest answer: a canvas is not one aspect.
+    return mergeNewestFirst<UnifiedHistoryRow>([
+      imageRows.filter(row => matches(row, normalizeSize(row.group!.entries[0]!.size))),
+      videoRows.filter(row => matches(row, row.entry!.aspectRatio)),
+      canvasRows.filter(row => matches(row, '')),
+    ])
+  }, [history, videoHistory, canvasSummaries, historyModelFilter, historyKindFilter, historyQuery, historyRatioFilter])
+
+  /**
+   * Every model name appearing in either store, for the model filter.
+   *
+   * Built from the entries the list actually shows: a model that only ever
+   * produced canvas output would otherwise appear as a filter option that can
+   * only ever empty the list.
+   */
+  const historyModelOptions = useMemo(() => [
+    ...new Set([
+      ...history.filter(entry => entry.canvas === undefined).flatMap(entry => modelsOfHistoryEntry(entry)),
+      ...videoHistory.filter(entry => entry.canvas === undefined).map(entry => entry.model),
+    ]),
+  ], [history, videoHistory])
+
+  /** Every ratio appearing in either store, for the ratio filter. */
+  const historyRatioOptions = useMemo(() => [
+    ...new Set([
+      ...history.filter(entry => entry.canvas === undefined).map(entry => normalizeSize(entry.size)),
+      ...videoHistory.filter(entry => entry.canvas === undefined).map(entry => entry.aspectRatio),
+    ]),
+  ], [history, videoHistory])
+
+  // Load the host-persisted history and gallery once, when the panel first
+  // becomes visible. Keeping this out of boot prevents eager full-size image
+  // requests while image generation is closed.
+  //
+  // A failed listing must be visible, and it must NOT masquerade as "no
+  // history": the empty copy asserts there are none, which a failed read does
+  // not establish. Each list therefore records its error, and the empty copy is
+  // gated on the absence of one; the retry re-runs this loader.
+  const loadInitialData = useCallback((): void => {
+    setHistoryLoadError(null)
+    setGalleryLoadError(null)
+    api.historyList()
+      .then(entries => { setHistory(entries) })
+      .catch(caught => { setHistoryLoadError(errorMessage(caught)) })
+    api.galleryList()
+      .then(result => { setGallery(result.entries); setGalleryTrash(result.trash) })
+      .catch(caught => { setGalleryLoadError(errorMessage(caught)) })
+    // Clips are listed from the same place they are shown: the unified sidebar,
+    // so a clip-listing failure lands on the sidebar's error line too.
+    api.videoHistoryList()
+      .then(entries => { setVideoHistory(entries) })
+      .catch(caught => { setHistoryLoadError(errorMessage(caught)) })
+    // Saved canvases are a third source for the same list. A failed read is
+    // reported on the same error line rather than shown as "no canvases": an
+    // empty answer here would look like the user's canvases were gone.
+    api.canvasList()
+      .then(projects => { setCanvasSummaries(projects) })
+      .catch(caught => { setHistoryLoadError(errorMessage(caught)) })
+  }, [api])
+
+  useEffect(() => {
+    if (!active || initialDataRequestedRef.current) return
+    initialDataRequestedRef.current = true
+    loadInitialData()
+  }, [active, loadInitialData])
+
+  /**
+   * 画布保存之后，历史里那一行要跟着变。
+   *
+   * WHY 不能只靠首次加载：那份列表一个会话只读一次，而画布**就是在这个面板
+   * 里**被改的——新建一张、往里面生成一张图、改个标题，切回来时列表还停在
+   * 打开面板那一刻。用户看到的是「我刚存的画布没进历史」，实际只是没重新读。
+   *
+   * 只在切到画布工作区时读，不在每次渲染读：这是个会遍历画布索引的请求，
+   * 而画布上的每次拖动都会重渲染。读失败不报错——画布本身没问题，只是列表
+   * 里那一行慢一拍，下一次切换会再读。
+   */
+  useEffect(() => {
+    if (!active || workspace !== 'canvas') return
+    api.canvasList()
+      .then(projects => { setCanvasSummaries(projects) })
+      .catch(() => { /* 下一次切换再读；列表只是慢一拍，不是坏了 */ })
+  }, [active, api, workspace])
+
+  /**
+   * The replica workspace renders its own result board and the shared poll
+   * skips its tasks, so nothing else reloads the history list when a replica
+   * render finishes. Re-read it here, the same way a completed main-panel task
+   * does, so the sidebar entry exists before the panel remounts.
+   */
+  const refreshHistoryAfterReplica = useCallback((): void => {
+    void api.historyList()
+      .then(entries => { setHistory(entries) })
+      .catch(caught => { setHistoryLoadError(errorMessage(caught)) })
+  }, [api])
+
+  // The host writes poster frames *after* it has answered the first listing, so
+  // a list read once at mount keeps showing the film glyph for clips whose still
+  // simply had not been extracted yet. Follow up while the panel is open; the
+  // first load still paints immediately and nothing here is awaited on the
+  // render path (requirement: non-blocking).
+  const posterRefreshScheduledRef = useRef(false)
+  const posterRefreshTimersRef = useRef<number[]>([])
+  const posterRefreshAliveRef = useRef(true)
+  useEffect(() => {
+    // Set on setup, not just left at its initial value: a double-invoked mount
+    // (StrictMode, or a remount that reuses the ref) runs the cleanup below and
+    // then sets up again, and a flag only ever cleared would leave the panel
+    // permanently refusing its own answers.
+    posterRefreshAliveRef.current = true
+    return () => {
+      posterRefreshAliveRef.current = false
+      for (const timer of posterRefreshTimersRef.current) window.clearTimeout(timer)
+      posterRefreshTimersRef.current = []
+    }
+  }, [])
+  useEffect(() => {
+    if (!active || posterRefreshScheduledRef.current) return
+    // Only clips that are still showing a glyph are worth another read; a list
+    // that is already fully decorated must cost zero follow-up requests.
+    if (!needsPosterBackfill(videoHistory)) return
+    posterRefreshScheduledRef.current = true
+    posterRefreshTimersRef.current = POSTER_REFRESH_DELAYS_MS.map(delay => window.setTimeout(() => {
+      api.videoHistoryList()
+        .then(entries => {
+          // Unmounted between the timer firing and the answer landing: setting
+          // state now would warn and, worse, keep the dead list alive.
+          if (!posterRefreshAliveRef.current) return
+          setVideoHistory(current => withBackfilledPosters(current, entries))
+        })
+        .catch(() => {
+          // The first listing already succeeded, so what is on screen is
+          // correct — this read only decorates it. Reporting it on the
+          // sidebar's error line would claim the list failed to load.
+        })
+    }, delay))
+  }, [active, api, videoHistory])
+
+  /** Retry after a failed first load: un-claim the one-shot read, then re-run it. */
+  const retryInitialData = (): void => {
+    initialDataRequestedRef.current = false
+    loadInitialData()
+  }
+
+  // Chat toolviews publish durable refs after they finish loading. Decode the
+  // refs through the same host-authorized route and make them the current
+  // canvas result for the selected session.
+  useEffect(() => {
+    const onChatImages = (event: Event): void => {
+      const detail = (event as CustomEvent<ChatImageEventDetail>).detail
+      if (detail === undefined || currentSessionId === undefined || detail.sessionId !== currentSessionId) return
+      void Promise.all(detail.refs.map(attachmentToGenerated))
+        .then(next => {
+          openTab('text')
+          setImages(next)
+          setComparison(null)
+          setBoardView(null)
+          setError(null)
+        })
+        .catch(caught => { setError(errorMessage(caught)) })
+    }
+    document.addEventListener(CHAT_IMAGE_EVENT, onChatImages)
+    return () => document.removeEventListener(CHAT_IMAGE_EVENT, onChatImages)
+  }, [currentSessionId])
+
+  useEffect(() => {
+    let disposed = false
+    let refreshing = false
+    const refresh = (): void => {
+      if (refreshing) return
+      refreshing = true
+      void (async () => {
+        try {
+          const summaries = await api.taskList()
+          if (disposed) return
+          const previousTasks = tasksRef.current
+          const previousById = new Map(previousTasks.map(task => [task.id, task] as const))
+          for (const summary of summaries) {
+            if ((summary.status === 'queued' || summary.status === 'running')
+              && summary.request.workflow !== 'replica') {
+              observedTaskIdsRef.current.add(summary.id)
+            }
+          }
+          // Hydrate only tasks created after this panel mounted, or tasks we
+          // already saw running. Completed tasks from older sessions stay
+          // lightweight; their images are available from history.
+          const needsHydration = summaries.filter(summary => {
+            const previous = previousById.get(summary.id)
+            return summary.request.workflow !== 'replica'
+              && summary.status === 'completed'
+              && summary.resultAvailable
+              && previous?.status !== 'completed'
+              && (submittedTaskIdsRef.current.has(summary.id)
+                || observedTaskIdsRef.current.has(summary.id)
+                || summary.createdAt >= taskPollStartedAtRef.current)
+          })
+          const fetched = await Promise.all(needsHydration.map(async summary => {
+            try {
+              return await api.taskGet(summary.id)
+            } catch {
+              return undefined
+            }
+          }))
+          if (disposed) return
+          const fullById = new Map(
+            fetched
+              .filter((task): task is GenerationTask => task !== undefined)
+              .map(task => [task.id, task] as const),
+          )
+          const pending = new Set(
+            needsHydration
+              .filter(summary => !fullById.has(summary.id))
+              .map(summary => summary.id),
+          )
+          const next = summaries.flatMap(summary => {
+            const full = fullById.get(summary.id)
+            if (full !== undefined) return [full]
+            const previous = previousById.get(summary.id)
+            // Omit the task or keep its old active state when hydration fails;
+            // the next poll then retries instead of settling without images.
+            if (pending.has(summary.id)) return previous === undefined ? [] : [previous]
+            return [mergeTaskSummary(summary, previous)]
+          })
+          for (const task of fullById.values()) observedTaskIdsRef.current.add(task.id)
+          const hydratedCompleted = next.filter(task => task.status === 'completed'
+            && task.result !== undefined
+            && !previousTasks.some(old => old.id === task.id && old.status === 'completed'))
+          tasksRef.current = next
+          // A failed task used to be invisible: the poll only reacted to
+          // `completed`, so a rejected request left the button re-enabled and
+          // the canvas pristine. Surface the first newly-failed task the same
+          // way a failed submit is surfaced, and pop the tray so its row (with
+          // retry) is on screen.
+          const failedNow = next.find(task => task.status === 'failed'
+            && task.error !== undefined && task.error !== ''
+            && task.request.workflow !== 'replica'
+            && !previousTasks.some(old => old.id === task.id && old.status === 'failed'))
+          setTasks(current => {
+            const completed = next.find(task => task.status === 'completed'
+              && task.result !== undefined
+              && task.request.workflow !== 'replica'
+              && !current.some(old => old.id === task.id && old.status === 'completed')
+              && !comparison?.taskIds.includes(task.id))
+            if (completed?.result !== undefined) {
+              setImages(completed.result.images)
+              if (completed.result.history !== undefined) setHistory(completed.result.history)
+              setError(completed.result.historyError ?? null)
+            }
+            return next
+          })
+          if (failedNow?.error !== undefined) {
+            setError(failedNow.error)
+            setTaskTrayOpen(true)
+          }
+          if (hydratedCompleted.length > 0) {
+            void api.historyList().then(entries => {
+              if (!disposed) setHistory(entries)
+            }).catch(() => {})
+          }
+        } catch {
+          // A transient host error must not stop the polling loop.
+        } finally {
+          refreshing = false
+        }
+      })()
+    }
+    refresh()
+    const timer = window.setInterval(refresh, 1500)
+    return () => { disposed = true; window.clearInterval(timer) }
+  }, [api, comparison])
+
+  // Ids of completed video renders whose history entry has already been
+  // fetched into the sidebar. A task's summary keeps pointing at its entry
+  // after a user deletes that entry (or after it ages out of the host's
+  // 30-entry cap), so keying the refetch off "the list is missing this id"
+  // would refetch on every tick forever; keying it off "this completion is
+  // new" fetches once per finished render.
+  const listedVideoEntriesRef = useRef<Set<string>>(new Set())
+  /** Guards state writes from a poll answer that lands after unmount. */
+  const videoPollAliveRef = useRef(false)
+  useEffect(() => {
+    videoPollAliveRef.current = true
+    return () => { videoPollAliveRef.current = false }
+  }, [])
+
+  // Poll the video queue. Video renders take minutes, so this ticks slowly; the
+  // summaries carry the finished clip, which both the video tab and the canvas
+  // consume (the canvas matches its placeholder nodes by task id).
+  //
+  // A finished render also appends to the host's video history, and the sidebar
+  // reads that list once (see the initialDataRequestedRef load above): without
+  // the refetch below, a clip that finished while the panel was open never
+  // reached the sidebar until a full reload. The image side has refreshed after
+  // every completion all along; the video side lost that refresh when its own
+  // list moved into the unified sidebar.
+  //
+  // This is the ONLY video poller in the panel. The video tab is handed this
+  // same function as `onRefreshTasks`, so a submit/cancel/retry it performs
+  // lands on this list immediately instead of starting a competing loop.
+  const refreshVideoTasks = useCallback((): void => {
+    const refetchFor = (tasks: VideoTaskSummary[]): boolean => {
+      let pending = false
+      for (const task of tasks) {
+        if (task.status !== 'completed' || task.resultEntryId === undefined) continue
+        if (listedVideoEntriesRef.current.has(task.resultEntryId)) continue
+        listedVideoEntriesRef.current.add(task.resultEntryId)
+        pending = true
+      }
+      return pending
+    }
+    void api.videoTaskList()
+      .then(next => {
+        if (!videoPollAliveRef.current) return
+        setVideoTasks(next)
+        if (!refetchFor(next)) return
+        void api.videoHistoryList()
+          .then(entries => { if (videoPollAliveRef.current) setVideoHistory(entries) })
+          .catch(() => { /* the next completed render tries again */ })
+      })
+      .catch(() => { /* a transient host error must not stop the loop */ })
+  }, [api])
+
+  useEffect(() => {
+    refreshVideoTasks()
+    const timer = window.setInterval(refreshVideoTasks, 5000)
+    return () => { window.clearInterval(timer) }
+  }, [refreshVideoTasks])
+
+  const openSettingsGuide = (kind: 'generation' | 'enhancement' | 'disabled'): void => {
+    setConfigGuide(kind)
+    openImageGenConfig(kind === 'enhancement' ? 'prompt' : kind === 'disabled' ? 'general' : 'channels')
+  }
+
+  const enhanceCurrentPrompt = async (): Promise<void> => {
+    if (prompt.trim() === '' || enhancing) return
+    if (!promptReady) {
+      openSettingsGuide('enhancement')
+      return
+    }
+    setEnhancing(true)
+    setError(null)
+    try {
+      setPrompt(await api.enhancePrompt(prompt))
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setEnhancing(false)
+    }
+  }
+
+  /** AI 帮写:整理/补全电商参数信息(提示词),走提示词增强通道。 */
+  const ecommerceEnhanceInfo = async (): Promise<void> => {
+    if (ecommerceEnhancing) return
+    if (!promptReady) {
+      openSettingsGuide('enhancement')
+      return
+    }
+    setEcommerceEnhancing(true)
+    setError(null)
+    try {
+      const instruction = [
+        '你是电商图文策划。请把下面的商品信息整理成一段可直接用于 AI 生图提示词的中文参数描述(120 字以内),',
+        '涵盖商品主体、规格材质、核心卖点与必须保留的特征;信息缺失处按商品类目合理补全,不要解释,只输出整理结果。',
+        `商品名称:${ecommerce.productName.trim() || '未提供'}`,
+        `商品类目:${ecommerce.category}`,
+        `商品平台:${ecommerce.platform}`,
+        `已有信息:${ecommerce.promptInfo.trim() !== '' ? ecommerce.promptInfo : '无,请根据商品名称与类目合理补全'}`,
+      ].join('\n')
+      const result = await api.enhancePrompt(instruction)
+      setEcommerce(previous => ({ ...previous, promptInfo: result }))
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setEcommerceEnhancing(false)
+    }
+  }
+
+  /** Polish one pre-generation ecommerce prompt through the chat model. */
+  const polishEcommercePrompt = async (slot: ProductSetSlot, index: number, key: string): Promise<void> => {
+    if (ecommercePolishingKey !== null) return
+    if (!promptReady) {
+      openSettingsGuide('enhancement')
+      return
+    }
+    const source = ecommerce.promptOverrides?.[key]?.trim() || ecommerceSlotPrompt(ecommerce, slot, index, ecommerceAssets.filter(item => item.role === (slot.refRole ?? 'product')))
+    setEcommercePolishingKey(key)
+    setError(null)
+    try {
+      const polished = await api.polishPrompt(source)
+      setEcommerce(previous => ({
+        ...previous,
+        promptOverrides: { ...previous.promptOverrides, [key]: polished },
+      }))
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setEcommercePolishingKey(null)
+    }
+  }
+
+  /** Read uploaded reference images into session-only data URLs. Validation
+   *  (type, 10 MiB each, 16 MiB total, 5 images) lives in useEditReferences so
+   *  the panel, the drop zone and paste all enforce the same limits. */
+  const acceptFiles = (files: Iterable<File> | ArrayLike<File> | undefined): void => {
+    if (files === undefined) return
+    refs.add(files)
+  }
+
+  /** Read uploaded product assets into session-only data-URL chips. Product
+   *  refs cap at MAX_ECOMMERCE_ASSETS; the style group holds a single image
+   *  that gets replaced on re-upload. */
+  const acceptEcommerceFiles = (files: FileList | undefined, role: 'product' | 'style' = 'product'): void => {
+    if (files === undefined) return
+    const accepted = Array.from(files).filter(file => file.type.startsWith('image/') && file.size <= REF_IMAGE_MAX_BYTES)
+    if (accepted.length === 0) {
+      setUploadNotice(tt('edit.uploadHint'))
+      return
+    }
+    setUploadNotice(null)
+    // Drop the extras here rather than inside the state updater: reading a
+    // sixth data URL only to throw it away wastes memory on images that can be
+    // megabytes each, and a 20-file drop would queue 20 readers.
+    const room = role === 'style'
+      ? 1
+      : Math.max(0, MAX_ECOMMERCE_ASSETS - ecommerceAssets.filter(item => item.role !== 'style').length)
+    if (role !== 'style' && accepted.length > room) setUploadNotice(tt('ecommerce.assetsFull'))
+    const incoming = role === 'style' ? accepted.slice(0, 1) : accepted.slice(0, room)
+    if (incoming.length === 0) return
+    for (const file of incoming) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result !== 'string') return
+        const dataUrl = reader.result
+        setEcommerceAssets(previous => {
+          if (role === 'style') {
+            const styleAsset = { id: newComparisonId(), dataUrl, name: file.name, role: 'style' as const }
+            return [...previous.filter(item => item.role !== 'style'), styleAsset]
+          }
+          if (previous.filter(item => item.role !== 'style').length >= MAX_ECOMMERCE_ASSETS) {
+            setUploadNotice(tt('ecommerce.assetsFull'))
+            return previous
+          }
+          return [...previous, { id: newComparisonId(), dataUrl, name: file.name, role: 'product' }]
+        })
+      }
+      reader.onerror = () => { setUploadNotice(tt('edit.uploadHint')) }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  /** Run one generation. */
+  const handleGenerate = async (): Promise<void> => {
+    if (submitting) return
+    if (!enabled) {
+      openSettingsGuide('disabled')
+      return
+    }
+    const selectedChoice = resolveModelChoice(modeGroups, { channelId: modelChannelId, model }, defaultChannelId)
+    if (!channelReady(selectedChoice.channelId)) {
+      openSettingsGuide('generation')
+      return
+    }
+    const promptText = prompt.trim()
+    if (promptText === '') {
+      setError(tt('prompt.required'))
+      return
+    }
+    if (tab === 'edit' && refs.images.length === 0) {
+      setError(tt('edit.required'))
+      return
+    }
+    const primary = refs.images[0]
+    const baseRequest: Omit<GenerateRequest, 'model' | 'channelId'> = {
+      mode: tab === 'edit' ? 'edit' : 'text',
+      prompt: promptText,
+      size,
+      quality,
+      ...renderQuality === '' ? {} : { renderQuality },
+      ...transparentBackground ? { background: 'transparent' as const } : {},
+      n: count,
+      detail: catalogEntry === undefined ? detail : '',
+      ...tab === 'edit' && primary !== undefined ? { image: primary.dataUrl } : {},
+      ...tab === 'edit' && refs.images.length > 1 ? { images: refs.images.slice(1).map(image => image.dataUrl) } : {},
+      ...tab === 'edit' && refs.images.length > 0 ? { refName: refs.images.map(image => image.name).join('、') } : {},
+      ...outputFormat === 'png' ? {} : { outputFormat },
+    }
+    setError(null)
+    setSubmitting(true)
+    try {
+      const targetChoices = (compareEnabled ? compareModels.map(modelChoiceFromKey).filter((choice): choice is ModelPickerValue => choice !== undefined) : [selectedChoice])
+        .filter(choice => modeGroups.some(group => group.id === choice.channelId && group.models.includes(choice.model)))
+      if (targetChoices.length === 0) {
+        setError(tt('compare.selectRequired'))
+        return
+      }
+      if (!targetChoices.every(choice => channelReady(choice.channelId))) {
+        openSettingsGuide('generation')
+        return
+      }
+      // A model whose adapter takes one reference cannot silently drop the
+      // extras: say which limit applies instead of sending a request the
+      // upstream will ignore. In compare mode the strictest target wins.
+      if (tab === 'edit' && refs.images.length > 0) {
+        const limit = Math.min(...targetChoices.map(choice => {
+          const entry = catalogModelFor(config, choice.channelId, choice.model)
+          const channel = (config?.channels ?? []).find(item => item.id === choice.channelId)
+          return entry === undefined ? editReferenceLimit(choice.model, channel) : referenceLimitOf(entry, editReferenceLimit(choice.model, channel))
+        }))
+        if (refs.images.length > limit) {
+          setError(tt('edit.modelLimit', { count: limit }))
+          return
+        }
+      }
+      for (const choice of targetChoices) {
+        const entry = catalogModelFor(config, choice.channelId, choice.model)
+        if (entry === undefined) continue
+        try {
+          resolveImageRequest(entry, {
+            aspect: size,
+            quality,
+            renderQuality,
+            background: transparentBackground ? 'transparent' : '',
+            outputFormat,
+            mode: tab === 'edit' ? 'edit' : 'text',
+          })
+        } catch (caught) {
+          if (caught instanceof ImageOptionError) {
+            setError(caught.message)
+            return
+          }
+          throw caught
+        }
+      }
+      const comparisonId = targetChoices.length > 1 ? newComparisonId() : undefined
+      const comparisonFields = comparisonId === undefined ? {} : { comparisonId, comparisonModels: targetChoices.map(choice => choice.model) }
+      const submitted = await Promise.all(targetChoices.map(choice => api.taskSubmit({
+        ...baseRequest,
+        model: choice.model,
+        ...choice.channelId === '' ? {} : { channelId: choice.channelId },
+        ...comparisonFields,
+      })))
+      for (const task of submitted) submittedTaskIdsRef.current.add(task.id)
+      setTasks(previous => [...submitted, ...previous.filter(item => !submitted.some(task => task.id === item.id))])
+      setComparison(comparisonId === undefined ? null : { taskIds: submitted.map(task => task.id), prompt: promptText, comparisonId })
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleEcommerceGenerate = async (): Promise<void> => {
+    if (ecommerceGenerateDisabled) return
+    const selectedChoice = resolveModelChoice(modeGroups, { channelId: modelChannelId, model }, defaultChannelId)
+    if (!enabled || !channelReady(selectedChoice.channelId)) { openSettingsGuide('generation'); return }
+    const projectId = ecommerce.projectId || newComparisonId()
+    const buildRequest = (slot: ProductSetSlot, index: number): GenerateRequest => {
+      // Every asset of the slot's role goes to the model, in upload order —
+      // the first one in `image` (single-reference channels only ever look
+      // there), the rest in `images`. A slot with no matching asset (or 'none')
+      // falls back to text-to-image.
+      const refRole = slot.refRole ?? 'product'
+      const assets = refRole === 'none' ? [] : ecommerceAssets.filter(item => item.role === refRole)
+      const [primary, ...extras] = assets
+      return {
+        mode: primary !== undefined ? 'edit' as const : 'text' as const,
+        model: selectedChoice.model,
+        prompt: ecommerceSlotPrompt(ecommerce, slot, index, assets),
+        // The white-background switch forces the main image to a square; every
+        // other slot keeps the draft's own ratio.
+        size: ecommerceSlotSize(ecommerce, slot),
+        quality,
+        ...renderQuality === '' ? {} : { renderQuality },
+        n: 1,
+        detail: catalogEntry === undefined ? detail : '',
+        ...(selectedChoice.channelId === '' ? {} : { channelId: selectedChoice.channelId }),
+        ...(primary !== undefined
+          ? { image: primary.dataUrl, refName: primary.name, ...(extras.length > 0 ? { images: extras.map(asset => asset.dataUrl) } : {}) }
+          : {}),
+        workflow: 'ecommerce' as const,
+        projectId,
+        projectName: ecommerce.productName.trim(),
+        slotKey: `${slot.key}-${index + 1}`,
+        slotLabel: slot.label,
+      }
+    }
+    // Anchor chain: with a main-image slot enabled, only the main image is
+    // submitted now; the remaining slots follow once it completes (see the
+    // anchor effect) so the whole set shares one product. Without a main
+    // slot, every slot submits immediately with its own reference.
+    const mainSlots = ecommerceSlots.filter(slot => slot.key === 'main')
+    const otherSlots = ecommerceSlots.filter(slot => slot.key !== 'main')
+    const anchorChain = mainSlots.length > 0 && otherSlots.length > 0
+    const leadSlots = anchorChain ? mainSlots : ecommerceSlots
+    const requests = leadSlots.flatMap(slot => Array.from({ length: slot.count }, (_, index) => buildRequest(slot, index)))
+    const remaining = anchorChain
+      ? otherSlots.flatMap(slot => Array.from({ length: slot.count }, (_, index) => {
+        const { image: _image, images: _images, refName: _refName, ...rest } = buildRequest(slot, index)
+        return rest
+      }))
+      : []
+    setEcommerceGenerating(true); setSubmitting(true); setError(null); setEcommerceProjectId(projectId); setEcommerceRestored(null); setEcommerceAnchor(null)
+    try {
+      const submitted = await Promise.all(requests.map(request => api.taskSubmit(request)))
+      for (const task of submitted) submittedTaskIdsRef.current.add(task.id)
+      setTasks(previous => [...submitted, ...previous])
+      setEcommercePreview(false)
+      if (anchorChain) setEcommerceAnchor({ projectId, mainTaskIds: submitted.map(task => task.id), remaining })
+    } catch (caught) { setError(errorMessage(caught)) } finally { setSubmitting(false); setEcommerceGenerating(false) }
+  }
+
+  /** Start over with a fresh product draft (the old results stay in history). */
+  const newEcommerceProduct = (): void => {
+    setEcommerce(defaultEcommerceDraft())
+    setEcommercePreview(false)
+    setEcommerceProjectId(null)
+    setEcommerceRestored(null)
+    setEcommerceAnchor(null)
+    setEcommerceAssets([])
+    refs.clear()
+    setError(null)
+  }
+
+  /** Re-run every image of one slot with its original request. */
+  const regenerateEcommerceSlot = async (label: string): Promise<void> => {
+    if (ecommerceGenerating) return
+    const group = ecommerceMergedItems.filter(item => item.label === label)
+    if (group.length === 0) return
+    setEcommerceGenerating(true)
+    setError(null)
+    try {
+      const submitted = await Promise.all(group.map(item => item.taskId === undefined
+        ? api.taskSubmit({ ...item.source })
+        : api.taskRetry(item.taskId)))
+      for (const task of submitted) submittedTaskIdsRef.current.add(task.id)
+      setTasks(previous => [...submitted, ...previous])
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setEcommerceGenerating(false)
+    }
+  }
+
+  /** Open one persisted product set from history: rebuild the grouped results
+   *  canvas from its entries. Reference images are not persisted, so restored
+   *  edit-mode slots regenerate as text-to-image. */
+  const viewEcommerceProject = async (group: HistoryGroup): Promise<void> => {
+    const entry = group.entries[0]
+    if (entry === undefined || entry.projectId === undefined) return
+    try {
+      // Ecommerce sets are image-only: a product-set group can never contain a
+      // clip, but the store's mode type is a superset, so filter defensively
+      // rather than casting.
+      const imageEntries = group.entries.filter(item => item.mode !== 'video')
+      const items: EcommerceResultItem[] = await Promise.all(imageEntries.map(async item => ({
+        id: item.id,
+        label: item.slotLabel ?? '',
+        slotKey: item.slotKey ?? '',
+        status: 'completed' as const,
+        model: item.model,
+        prompt: item.prompt,
+        images: await historyImagesToGenerated(item.images),
+        source: {
+          mode: item.mode === 'edit' ? 'text' as const : 'text' as const,
+          model: item.model,
+          prompt: item.prompt,
+          size: item.size,
+          quality: item.quality,
+          detail: item.detail,
+          n: 1,
+          ...item.channelId !== undefined ? { channelId: item.channelId } : {},
+          workflow: 'ecommerce' as const,
+          projectId: entry.projectId!,
+          projectName: entry.projectName ?? '',
+          slotKey: item.slotKey ?? '',
+          slotLabel: item.slotLabel ?? '',
+        },
+      })))
+      setWorkspace('ecommerce')
+      setEcommerceRestored({ projectId: entry.projectId, projectName: entry.projectName ?? '', items })
+      setEcommerceProjectId(entry.projectId)
+      setEcommercePreview(false)
+      setError(null)
+      setBoardView({ kind: 'history', id: entry.id })
+    } catch (caught) {
+      setError(errorMessage(caught))
+    }
+  }
+
+  /** Download a JSON manifest describing the whole product set (prompts,
+   *  slots and task outcomes) so results stay reproducible outside the panel. */
+  const exportEcommerceManifest = (): void => {
+    const manifest = {
+      project: {
+        id: ecommerceProjectId,
+        name: ecommerce.projectName || ecommerce.productName,
+        productName: ecommerce.productName,
+        category: ecommerce.category,
+        platform: ecommerce.platform,
+        language: ecommerce.language,
+        size: ecommerce.size,
+        promptInfo: ecommerce.promptInfo,
+      },
+      generatedAt: new Date().toISOString(),
+      images: ecommerceMergedItems.map(item => ({
+        slotKey: item.slotKey,
+        slotLabel: item.label,
+        status: item.status,
+        model: item.model,
+        prompt: item.prompt,
+        error: item.error,
+      })),
+    }
+    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `dsh-product-set-${(ecommerce.projectName || ecommerce.productName || 'set').replace(/[^\w-]+/g, '-')}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const openPreview = (previewImages: GeneratedImage[], index: number, source?: GalleryImageSource): void => {
+    setPreview({ images: previewImages, index, ...(source === undefined ? {} : { source }) })
+    setPreviewScale(1)
+    setPromptCopied(false)
+  }
+
+  /**
+   * Open one favorited clip full-screen.
+   *
+   * The image preview cannot render a clip (it distributes `GeneratedImage`
+   * base64 to an <img>), so a clip gets its own player rather than being forced
+   * through the image path.
+   */
+  const openGalleryClip = useCallback((entry: HistoryEntry): void => {
+    setGalleryClip(entry)
+  }, [])
+
+  const closePreview = (): void => {
+    setPreview(null)
+    setPreviewScale(1)
+    setPromptCopied(false)
+  }
+
+  /** Step the preview by ±1, wrapping around. */
+  const stepPreview = (delta: number): void => {
+    setPreviewScale(1)
+    setPromptCopied(false)
+    setPreview(current => {
+      if (current === null) return null
+      const total = current.images.length
+      return { ...current, index: (current.index + delta + total) % total }
+    })
+  }
+
+  // Keyboard navigation for the preview overlay.
+  useEffect(() => {
+    if (preview === null) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closePreview()
+      else if (event.key === 'ArrowLeft') stepPreview(-1)
+      else if (event.key === 'ArrowRight') stepPreview(1)
+      else if (event.key === '+' || event.key === '=') setPreviewScale(current => clampPreviewScale(current + PREVIEW_SCALE_STEP))
+      else if (event.key === '-') setPreviewScale(current => clampPreviewScale(current - PREVIEW_SCALE_STEP))
+      else if (event.key === '0') setPreviewScale(1)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [preview])
+
+  // Esc dismisses the full-screen comparison board. Registered in the capture
+  // phase so it wins over the canvas's own window-level Escape handler
+  // underneath -- that one clears the node selection, which happened invisibly
+  // behind the still-open board.
+  useEffect(() => {
+    if (!comparisonFullscreen) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setComparisonFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [comparisonFullscreen])
+
+  // The same for the gallery's clip player. The two overlays cannot be open at
+  // once, so each owns its own Escape without a shared overlay stack.
+  useEffect(() => {
+    if (galleryClip === null) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setGalleryClip(null)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [galleryClip])
+
+  // A scaled image owns real scrollable space, rather than being visually
+  // transformed and clipped. Recenter the viewport after every zoom or slide.
+  useEffect(() => {
+    if (preview === null) return
+    const frame = window.requestAnimationFrame(() => {
+      const stage = previewStage.current
+      if (stage === null) return
+      stage.scrollLeft = Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2)
+      stage.scrollTop = Math.max(0, (stage.scrollHeight - stage.clientHeight) / 2)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [preview, previewScale])
+
+  // Wheel over the preview. A plain notch scrolls the stage and nothing else; a
+  // Ctrl/⌘ notch zooms.
+  //
+  // It has to be a NATIVE listener: React 18 attaches `wheel` at the root as a
+  // PASSIVE listener, so the old `onWheel={e => { e.preventDefault(); … }}`
+  // prevented nothing — the deck scrolled AND the handler changed the scale,
+  // which is the "scrolling zooms too" half of issue #22. `{ passive: false }`
+  // is therefore the whole point of this effect, not an optimisation.
+  //
+  // `preview` is the dependency because the stage only exists while the overlay
+  // is open: the ref is assigned during that commit and this effect runs after
+  // it, and closing the preview unmounts the node this listener is bound to.
+  // Both modifiers are checked — the reporter is on Windows (Ctrl), the plugin
+  // ships to macOS (⌘) — so neither platform keeps the double behaviour.
+  useEffect(() => {
+    if (preview === null) return
+    const stage = previewStage.current
+    if (stage === null) return
+    const onWheel = (event: WheelEvent): void => {
+      // Plain wheel: let the browser scroll. Touching the scale here would also
+      // fire the recentering effect above and snap the user back to the middle
+      // of a tall image on every notch.
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      setPreviewScale(current => clampPreviewScale(current + (event.deltaY < 0 ? PREVIEW_SCALE_STEP : -PREVIEW_SCALE_STEP)))
+    }
+    stage.addEventListener('wheel', onWheel, { passive: false })
+    // The stage contains its own scroll chain, but the overlay around it —
+    // toolbar, caption, the margin between the figure and the edge — is a fixed
+    // surface over a scrollable workbench, so a notch landing there would scroll
+    // the page underneath. Issue #22 asked for exactly this ("在预览层内操作时，
+    // 不应同时带动底层工作台滚动"). Bound to the dialog rather than the document:
+    // the overlay is what the user is inside, and a document-level listener
+    // would also swallow wheel events everywhere else while the preview is open
+    // if the host ever renders something above it.
+    const dialog = previewDialogRef.current
+    const containWheel = (event: WheelEvent): void => { event.preventDefault() }
+    dialog?.addEventListener('wheel', containWheel, { passive: false })
+    return () => {
+      stage.removeEventListener('wheel', onWheel)
+      dialog?.removeEventListener('wheel', containWheel)
+    }
+  }, [preview])
+
+  // Drag to pan (issue #31). A scaled image occupies real scrollable space, so
+  // at 200% most of it sits outside the viewport — and until this gesture
+  // existed the ONLY way to reach the rest was the scrollbar in the margin. The
+  // wheel, the ± buttons and the keyboard all keep their behaviour: this adds a
+  // gesture, it does not take one over.
+  //
+  // Native listeners rather than React props for the same reason as the wheel
+  // above: `setPointerCapture` and the click that follows a drag are decided by
+  // event order, and the capture phase is where that order is set. React
+  // retargets through its own root, so the single click this has to swallow is
+  // easier to place here than to fight there.
+  useEffect(() => {
+    if (preview === null) return
+    const stage = previewStage.current
+    const dialog = previewDialogRef.current
+    if (stage === null || dialog === null) return
+    let pointerId: number | null = null
+    let startX = 0
+    let startY = 0
+    let startScrollLeft = 0
+    let startScrollTop = 0
+    let moved = false
+    const onPointerDown = (event: PointerEvent): void => {
+      // A fresh press always starts as a click; only this gesture may mark it
+      // as a drag. Without the reset a drag that ended off-window would leave
+      // the flag set and swallow the next deliberate click.
+      previewDraggedRef.current = false
+      // Touch belongs to the browser: it already pans this container with
+      // momentum and zooms on pinch, and capturing it fights both.
+      if (event.pointerType === 'touch') return
+      if (event.button !== 0) return
+      // Nothing overflows, so there is nothing to pan — leave the press alone.
+      if (stage.scrollWidth <= stage.clientWidth && stage.scrollHeight <= stage.clientHeight) return
+      pointerId = event.pointerId
+      startX = event.clientX
+      startY = event.clientY
+      startScrollLeft = stage.scrollLeft
+      startScrollTop = stage.scrollTop
+      moved = false
+      stage.setPointerCapture(event.pointerId)
+    }
+    const onPointerMove = (event: PointerEvent): void => {
+      if (pointerId === null || event.pointerId !== pointerId) return
+      const dx = event.clientX - startX
+      const dy = event.clientY - startY
+      if (!moved && Math.abs(dx) < PREVIEW_DRAG_THRESHOLD && Math.abs(dy) < PREVIEW_DRAG_THRESHOLD) return
+      moved = true
+      stage.dataset.dragging = ''
+      // Scroll position runs opposite to the pointer: dragging right shows what
+      // was to the LEFT, which is what every image viewer does.
+      stage.scrollLeft = startScrollLeft - dx
+      stage.scrollTop = startScrollTop - dy
+    }
+    const onPointerUp = (event: PointerEvent): void => {
+      if (pointerId === null || event.pointerId !== pointerId) return
+      pointerId = null
+      delete stage.dataset.dragging
+      if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId)
+      previewDraggedRef.current = moved
+    }
+    // Capture phase on the DIALOG, not on the stage: pointer capture retargets
+    // the pointerup, but a click released outside the stage still resolves to
+    // the common ancestor — the overlay, which is where `closePreview` is
+    // bound. Swallowing one click there is the difference between "pan the
+    // photo" and "pan the photo and lose it".
+    const onClickCapture = (event: MouseEvent): void => {
+      if (!previewDraggedRef.current) return
+      previewDraggedRef.current = false
+      event.stopPropagation()
+      event.preventDefault()
+    }
+    stage.addEventListener('pointerdown', onPointerDown)
+    stage.addEventListener('pointermove', onPointerMove)
+    stage.addEventListener('pointerup', onPointerUp)
+    stage.addEventListener('pointercancel', onPointerUp)
+    dialog.addEventListener('click', onClickCapture, true)
+    return () => {
+      stage.removeEventListener('pointerdown', onPointerDown)
+      stage.removeEventListener('pointermove', onPointerMove)
+      stage.removeEventListener('pointerup', onPointerUp)
+      stage.removeEventListener('pointercancel', onPointerUp)
+      dialog.removeEventListener('click', onClickCapture, true)
+      delete stage.dataset.dragging
+    }
+  }, [preview])
+
+  /**
+   * Read one history group's images, keeping whatever arrives.
+   *
+   * The folding itself lives in {@link collectHistoryGroupImages} so the
+   * all-or-nothing regression (#49) can be asserted directly; this only does
+   * the IO.
+   */
+  const loadHistoryGroup = async (group: HistoryGroup): Promise<{ images: GeneratedImage[]; failed: number }> => {
+    const settled = await Promise.allSettled(group.entries.map(entry => historyImagesToGenerated(entry.images)))
+    return collectHistoryGroupImages(settled)
+  }
+
+  /** View every model result from one comparison as one canvas result set. */
+  const viewHistoryGroup = async (group: HistoryGroup): Promise<void> => {
+    const entry = group.entries[0]
+    if (entry === undefined) return
+    // Product sets rebuild their grouped results canvas instead of the
+    // generic image workspace.
+    if (entry.workflow === 'ecommerce' && entry.projectId !== undefined) {
+      await viewEcommerceProject(group)
+      return
+    }
+    // History is also the bridge out of the gallery: show the image workspace
+    // immediately, then hydrate the selected result into its canvas.
+    openTab('text')
+    try {
+      const { images: loaded, failed } = await loadHistoryGroup(group)
+      setImages(loaded)
+      setComparison(null)
+      // A member that could not be read is reported, not hidden: a four-model
+      // comparison that silently draws two pictures reads as a two-model run.
+      setError(failed === 0 ? null : tt('history.groupImagesFailed', { failed, total: group.entries.length }))
+      setBoardView({ kind: 'history', id: entry.id })
+    } catch (caught) {
+      setError(errorMessage(caught))
+    }
+  }
+
+  /** Remove every persisted row belonging to one comparison group. */
+  /**
+   * Open one clip from the unified sidebar.
+   *
+   * A clip cannot render on the image result board, so this switches to the
+   * video tab (where the history list already shows it) and marks the row
+   * active. Selecting a history row has always been "show me that generation",
+   * and for a clip that means the video surface.
+   */
+  const openVideoFromHistory = useCallback((entry: VideoHistoryEntry): void => {
+    // Show the clip on the RESULT BOARD (the same area an image history entry
+    // fills) rather than only flipping tabs: clicking a history row is "show me
+    // that generation", and for a clip that means playing it where the user is
+    // already looking. The video tab stays reachable for new runs.
+    openTab('text')
+    setImages([])
+    setComparison(null)
+    setBoardView({ kind: 'video', id: entry.id })
+    setError(null)
+  }, [])
+
+  /**
+   * Add one clip to the canvas as a referenced video node.
+   *
+   * Deliberately NOT the image import path: that one calls the host to COPY the
+   * asset into the canvas store, which for a clip would duplicate tens of
+   * megabytes. The canvas takes the served URL instead.
+   */
+  const addClipToCanvas = useCallback((url: string, mime = 'video/mp4', duration?: number, title?: string): void => {
+    setCanvasImportRequest({ source: 'video', url, mime, ...duration === undefined ? {} : { duration }, ...title === undefined ? {} : { title } })
+    setWorkspace('canvas')
+  }, [])
+
+  /** Favorite one clip into the gallery (the host copies it; see appendGalleryVideo). */
+  const favoriteVideoEntry = useCallback(async (entry: VideoHistoryEntry): Promise<void> => {
+    try {
+      await api.galleryAppendVideo({ entryId: entry.id })
+      const listed = await api.galleryList()
+      setGallery(listed.entries)
+      setGalleryTrash(listed.trash)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    }
+  }, [api])
+
+  const deleteVideoHistoryEntry = useCallback(async (id: string): Promise<void> => {
+    setVideoHistory(previous => previous.filter(entry => entry.id !== id))
+    if (viewingVideoId === id) setBoardView(null)
+    try {
+      setVideoHistory(await api.videoHistoryRemove(id))
+    } catch {
+      // Keep the optimistic local removal.
+    }
+  }, [api, viewingVideoId])
+
+  const deleteHistoryGroup = async (group: HistoryGroup): Promise<void> => {
+    const ids = new Set(group.entries.map(entry => entry.id))
+    setHistory(previous => previous.filter(entry => !ids.has(entry.id)))
+    if (viewingHistoryId !== null && ids.has(viewingHistoryId)) setBoardView(null)
+    if (ecommerceRestored !== null && group.entries.some(entry => entry.projectId === ecommerceRestored.projectId)) {
+      setEcommerceRestored(null)
+      setEcommerceProjectId(null)
+      setEcommerceAnchor(null)
+    }
+    try {
+      let next = history
+      for (const id of ids) next = await api.historyRemove(id)
+      setHistory(next)
+    } catch {
+      // Keep the optimistic local removal.
+    }
+  }
+
+  /** Reset the workspace for a fresh image-generation run. */
+  const startNewCreation = (): void => {
+    openTab('text')
+    setPrompt('')
+    refs.clear()
+    setImages([])
+    setPreview(null)
+    setPreviewScale(1)
+    setPromptCopied(false)
+    setBoardView(null)
+    setGallerySelecting(false)
+    setSelectedGalleryIds(new Set())
+    setComparison(null)
+    setComparisonFullscreen(false)
+    setEcommerceRestored(null)
+    setError(null)
+    setConversationMessage(null)
+    setGalleryMessage(null)
+  }
+
+  /** Remove all history entries. */
+  const clearHistory = async (): Promise<void> => {
+    if (!window.confirm(tt('history.clearConfirm'))) return
+    setHistory([])
+    setVideoHistory([])
+    setBoardView(null)
+    try {
+      setHistory(await api.historyClear())
+    } catch {
+      // Keep the cleared local state.
+    }
+    // The sidebar is one list, so clearing it must clear both backing stores;
+    // otherwise clips would silently reappear on the next load.
+    try {
+      setVideoHistory(await api.videoHistoryClear())
+    } catch {
+      // Keep the cleared local state.
+    }
+  }
+
+  /** Add one generated image to the gallery (host deduplicates by content).
+   *  `entry` makes the action available from a history/gallery list item (its
+   *  metadata + first image are saved); otherwise the current form state is
+   *  used. */
+  const addToGallery = async (image: GeneratedImage, entry?: GalleryImageSource): Promise<void> => {
+    if (galleryAdding || (workspace === 'normal' && tab === 'gallery')) return
+    const source = entry ?? viewingEntry ?? {
+      mode: tab === 'edit' ? 'edit' as GenerateMode : 'text' as GenerateMode,
+      model,
+      prompt: prompt.trim(),
+      size,
+      quality,
+      detail,
+      ...refs.images.length > 0 ? { refName: refs.images.map(image => image.name).join('、') } : {},
+    }
+    setGalleryAdding(true)
+    try {
+      const result = await api.galleryAppend({
+        id: '', // the host assigns a fresh id
+        createdAt: Date.now(),
+        mode: source.mode,
+        model: source.model,
+        prompt: source.prompt,
+        size: source.size,
+        quality: source.quality,
+        detail: source.detail,
+        n: 1,
+        images: [image],
+        ...source.workflow === undefined ? {} : { workflow: source.workflow },
+        ...source.refName === undefined ? {} : { refName: source.refName },
+      })
+      setGallery(result.entries)
+      setGalleryMessage(result.added ? tt('gallery.added') : tt('gallery.already'))
+      window.setTimeout(() => { setGalleryMessage(null) }, 2200)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setGalleryAdding(false)
+    }
+  }
+
+  /** Save local image files into the asset library so the canvas and studio
+   *  can reuse them later; entries dedupe by content host-side. */
+  const uploadGalleryFiles = async (files: File[]): Promise<void> => {
+    if (files.length === 0 || galleryAdding) return
+    setGalleryAdding(true)
+    try {
+      let entries: HistoryEntry[] | undefined
+      for (const file of files) {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(new Error(tt('canvas.dropSub')))
+          reader.readAsDataURL(file)
+        })
+        const separator = dataUrl.indexOf(',')
+        const result = await api.galleryAppend({
+          id: '',
+          createdAt: Date.now(),
+          mode: 'text',
+          model: tt('gallery.uploadModel'),
+          prompt: file.name.replace(/\.[a-z0-9]+$/i, ''),
+          size: 'auto',
+          quality: 'auto',
+          detail: '',
+          n: 1,
+          images: [{ b64: separator >= 0 ? dataUrl.slice(separator + 1) : dataUrl, mime: file.type || 'image/png' }],
+        })
+        entries = result.entries
+      }
+      if (entries !== undefined) {
+        setGallery(entries)
+        setGalleryMessage(tt('gallery.uploaded'))
+        window.setTimeout(() => { setGalleryMessage(null) }, 2200)
+      }
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setGalleryAdding(false)
+    }
+  }
+
+  /**
+   * Put a generated image into the native conversation composer.
+   *
+   * Delegated to the hook so the "which conversation" question is answered in
+   * one place: it uses the host's current selection, and when that is missing
+   * it asks the user instead of picking a session from the list.
+   */
+  const addImageToConversation = conversationAttachment.add
+
+  /**
+   * Add one clip to the current chat draft.
+   *
+   * Reuses the SAME draft bridge as images: the platform's composer accepts any
+   * file (it drafts non-images as `kind: 'file'` and streams them itself), so a
+   * clip needs no new host route and no base64 conversion. The only image-only
+   * step skipped is the `/edit_image` pending-attachment call, which exists so
+   * `/edit_image` can find the picture again — there is no `/edit_video`.
+   */
+  const addClipToConversation = async (url: string, actionKey: number | string): Promise<void> => {
+        if (addingToConversation !== null) return
+    if (conversation === undefined || sessions === undefined || currentSessionId === undefined) {
+      setError(tt('conversation.noSession'))
+      return
+    }
+    const sessionScope = sessions.scope(currentSessionId)
+    if (sessionScope === undefined) {
+      setError(tt('conversation.unavailable'))
+      return
+    }
+    setAddingToConversation(actionKey)
+    let attachments: readonly ConversationDraftAttachment[] = []
+    let added = false
+    try {
+            const file = await clipUrlToFile(url, clipFileName(url, 'imagegen-video'))
+            const created = createConversationDrafts(conversation, currentSessionId, [file])
+      if (created === undefined) throw new Error(tt('conversation.unavailable'))
+      attachments = created
+      const input = conversationInput(conversation.input.for(sessionScope))
+      const accepted = addConversationAttachments(input, attachments.map(attachment => attachment.id))
+      if (accepted === undefined) throw new Error(tt('conversation.unavailable'))
+      if (!accepted) throw new Error(tt('conversation.busy'))
+      added = true
+      setConversationMessage(tt('conversation.addedVideo'))
+      window.setTimeout(() => { setConversationMessage(null) }, 2200)
+    } catch (caught) {
+      if (!added) releaseConversationDrafts(conversation, attachments)
+      setError(errorMessage(caught))
+    } finally {
+      setAddingToConversation(null)
+    }
+  }
+
+  /** Add one history entry's first image to the gallery (fetches it from the
+   *  history image route, then delegates to addToGallery). */
+  const addHistoryEntryToGallery = async (entry: HistoryEntry): Promise<void> => {
+    if (galleryAdding || entry.images.length === 0) return
+    try {
+      const [image] = await historyImagesToGenerated(entry.images.slice(0, 1))
+      if (image === undefined) return
+      await addToGallery(image, entry)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    }
+  }
+
+  /** Add one history entry's first image to the current chat draft. */
+  const addHistoryEntryToConversation = async (entry: HistoryEntry): Promise<void> => {
+    if (historyConversationAddingId !== null || conversationBusy || entry.images.length === 0) return
+    setHistoryConversationAddingId(entry.id)
+    try {
+      const [image] = await historyImagesToGenerated(entry.images.slice(0, 1))
+      if (image === undefined) return
+      await addImageToConversation(image, 0, `history:${entry.id}`)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setHistoryConversationAddingId(null)
+    }
+  }
+
+  /** Load a persisted gallery image and add it to the current chat draft. */
+  const addGalleryEntryToConversation = async (entry: HistoryEntry): Promise<void> => {
+    if (galleryConversationAddingId !== null || conversationBusy || entry.images.length === 0) return
+    setGalleryConversationAddingId(entry.id)
+    try {
+      const [image] = await historyImagesToGenerated(entry.images.slice(0, 1))
+      if (image === undefined) return
+      await addImageToConversation(image, 0, `gallery:${entry.id}`)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setGalleryConversationAddingId(null)
+    }
+  }
+
+  /** View a gallery image in the canvas. */
+  const viewGalleryEntry = async (entry: HistoryEntry): Promise<void> => {
+    try {
+      const restored = await historyImagesToGenerated(entry.images)
+      setImages(restored)
+      setError(null)
+      setBoardView({ kind: 'gallery', id: entry.id })
+      if (restored.length > 0) openPreview(restored, 0)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    }
+  }
+
+  /** Move one gallery entry to the trash (the host keeps its files). */
+  const deleteGalleryEntry = async (id: string): Promise<void> => {
+    setGallery(gallery.filter(entry => entry.id !== id))
+    if (galleryViewingId === id) setBoardView(null)
+    try {
+      const result = await api.galleryRemove(id)
+      setGallery(result.entries)
+      setGalleryTrash(result.trash)
+      setGalleryMessage(tt('gallery.movedToTrash'))
+      window.setTimeout(() => { setGalleryMessage(null) }, 2600)
+    } catch {
+      // Keep the optimistic local removal.
+    }
+  }
+
+  /** Bring one trashed entry back; tags and timestamps were never touched. */
+  const restoreGalleryEntry = async (id: string): Promise<void> => {
+    try {
+      const result = await api.galleryRestore(id)
+      setGallery(result.entries)
+      setGalleryTrash(result.trash)
+      setGalleryMessage(tt('gallery.restored'))
+      window.setTimeout(() => { setGalleryMessage(null) }, 2200)
+    } catch (caught) { setError(errorMessage(caught)) }
+  }
+
+  /** Empty the trash. The only place that really unlinks files, hence the
+   *  confirmation; the count is the only thing the user can judge by. */
+  const purgeGalleryTrash = async (): Promise<void> => {
+    if (galleryTrash.length === 0) return
+    if (!window.confirm(tt('gallery.purgeConfirm', { count: galleryTrash.length }))) return
+    try {
+      const result = await api.galleryPurge()
+      setGallery(result.entries)
+      setGalleryTrash(result.trash)
+    } catch (caught) { setError(errorMessage(caught)) }
+  }
+
+  /** Move every gallery entry to the trash (recoverable for the retention
+   *  window — the copy says so, since the action used to be irreversible). */
+  const clearGalleryAll = async (): Promise<void> => {
+    if (!window.confirm(tt('gallery.clearConfirm'))) return
+    setGallery([])
+    setBoardView(null)
+    try {
+      const result = await api.galleryClear()
+      setGallery(result.entries)
+      setGalleryTrash(result.trash)
+    } catch {
+      // Keep the cleared local state.
+    }
+  }
+
+  const applyGalleryTags = async (): Promise<void> => {
+    const tags = galleryTagInput.split(',').map(tag => tag.trim()).filter(Boolean)
+    if (tags.length === 0 || selectedGalleryIds.size === 0) return
+    try {
+      let next = gallery
+      for (const id of selectedGalleryIds) {
+        const existing = next.find(entry => entry.id === id)?.tags ?? []
+        next = (await api.gallerySetTags(id, [...existing, ...tags])).entries
+      }
+      setGallery(next)
+      setGalleryTagInput('')
+    } catch (caught) { setError(errorMessage(caught)) }
+  }
+
+  const startEditingGalleryTags = (entry: HistoryEntry): void => {
+    setEditingGalleryTagsId(entry.id)
+    setGalleryTagEditInput((entry.tags ?? []).join(', '))
+  }
+
+  const saveGalleryTags = async (id: string): Promise<void> => {
+    const tags = galleryTagEditInput.split(',').map(tag => tag.trim()).filter(Boolean)
+    try {
+      const result = await api.gallerySetTags(id, tags)
+      setGallery(result.entries)
+      setGalleryTrash(result.trash)
+      setEditingGalleryTagsId(null)
+      setGalleryTagEditInput('')
+    } catch (caught) { setError(errorMessage(caught)) }
+  }
+
+  const toggleGallerySelection = (id: string): void => {
+    setSelectedGalleryIds(previous => {
+      const next = new Set(previous)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const clearGallerySelection = (): void => {
+    setSelectedGalleryIds(new Set())
+    setGallerySelecting(false)
+  }
+
+  const exportGalleryJson = (): void => {
+    const entries = gallery.filter(entry => selectedGalleryIds.has(entry.id))
+    const blob = new Blob([JSON.stringify(entries, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `dsh-imagegen-gallery-${new Date().toISOString().slice(0, 10)}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const downloadGalleryImages = (): void => {
+    gallery.filter(entry => selectedGalleryIds.has(entry.id)).forEach((entry, index) => {
+      // A favorited clip has no image; downloading only images would silently
+      // drop every clip the user selected.
+      const clip = entry.video
+      if (clip !== undefined) {
+        const anchor = document.createElement('a')
+        anchor.href = clip.url
+        anchor.download = clip.url.split('/').pop() ?? `dsh-gallery-${index + 1}.mp4`
+        anchor.click()
+        return
+      }
+      const image = entry.images[0]
+      if (image === undefined) return
+      const anchor = document.createElement('a')
+      anchor.href = image.url
+      anchor.download = `dsh-gallery-${index + 1}.${extensionOf(image.mime)}`
+      anchor.click()
+    })
+  }
+
+  // Prompt hard limit of the model the generate button will actually use
+  // (mirrors handleGenerate's pick). Over the limit the counter turns red and
+  // the button locks — the engine would fast-fail anyway, but the user sees
+  // why before spending a click.
+  const activeModel = modeModels.includes(model) ? model : modeModels[0] ?? ''
+  const promptLimit = promptCharLimit(activeModel)
+  const promptOverLimit = promptLimit !== null && prompt.trim().length >= promptLimit
+
+  const generateDisabled = submitting || modeModels.length === 0 || promptOverLimit
+  const ecommerceSlots = ecommerce.slots.filter(slot => slot.enabled && slot.count > 0)
+  const ecommerceTotal = ecommerceSlots.reduce((total, slot) => total + slot.count, 0)
+  const ecommerceGenerateDisabled = submitting || ecommerceGenerating || ecommerceSlots.length === 0 || ecommerce.productName.trim() === '' || (ecommerce.language === 'custom' && effectiveEcommerceLanguage(ecommerce) === '')
+  const ecommerceFileInput = useRef<HTMLInputElement>(null)
+  /** Which group (主图/风格) the shared file input uploads into. */
+  const ecommerceUploadRoleRef = useRef<'product' | 'style'>('product')
+  // The results canvas merges live tasks of the active project with restored
+  // history entries of the same project; restored slots that were regenerated
+  // this session are covered by their live counterparts (same slotKey).
+  const ecommerceProjectTasks = ecommerceProjectId === null
+    ? []
+    : tasks.filter(task => task.request.workflow === 'ecommerce' && task.request.projectId === ecommerceProjectId)
+  const liveSlotKeys = new Set(ecommerceProjectTasks.map(task => task.request.slotKey ?? task.id))
+  const ecommerceMergedItems: EcommerceResultItem[] = [
+    ...ecommerceProjectTasks.map(task => ({
+      id: task.id,
+      label: task.request.slotLabel ?? '',
+      slotKey: task.request.slotKey ?? '',
+      status: task.status,
+      model: task.request.model,
+      prompt: task.request.prompt,
+      ...task.error !== undefined ? { error: task.error } : {},
+      images: task.result?.images ?? [],
+      taskId: task.id,
+      source: task.request,
+    })),
+    ...(ecommerceRestored !== null && ecommerceRestored.projectId === ecommerceProjectId
+      ? ecommerceRestored.items.filter(item => !liveSlotKeys.has(item.slotKey))
+      : []),
+  ]
+  const ecommerceDoneCount = ecommerceMergedItems.filter(item => item.status === 'completed').length
+  const ecommerceFailedCount = ecommerceMergedItems.filter(item => item.status === 'failed' || item.status === 'cancelled').length
+  const ecommerceResultGroups = [...new Set(ecommerceMergedItems.map(item => item.label))]
+    .filter(label => label !== '')
+    .map(label => ({ label, items: ecommerceMergedItems.filter(item => item.label === label) }))
+  // 套图结果左右布局:主图组独占左侧,其余分组在右侧纵排。live 任务的
+  // slotKey 带序号后缀(main-1),这里按 main 前缀识别主图组。
+  const ecommerceMainGroup = ecommerceResultGroups.find(group => group.items.some(item => item.slotKey === 'main' || item.slotKey.startsWith('main-'))) ?? null
+  const ecommerceSideGroups = ecommerceResultGroups.filter(group => group !== ecommerceMainGroup)
+  const renderEcommerceGroup = (group: { label: string, items: EcommerceResultItem[] }, main = false): React.JSX.Element => (
+    <section key={group.label} className={css.ecommerceGroup} data-ecommerce-group={group.label} data-main={main ? '' : undefined}>
+      <header>
+        <strong>{group.label}</strong>
+        <span>{group.items.filter(item => item.status === 'completed').length}/{group.items.length}</span>
+        <button type="button" className={css.galleryBulkButton} disabled={ecommerceGenerating} onClick={() => { void regenerateEcommerceSlot(group.label) }}>{tt('ecommerce.results.regenerate')}</button>
+      </header>
+      <div className={css.ecommerceGroupGrid}>
+        {group.items.map(item => (
+          <div key={item.id} className={css.ecommerceTaskCard} data-status={item.status}>
+            {item.status === 'completed' && item.images.length > 0 ? item.images.map((image, imageIndex) => (
+              <figure
+                key={imageIndex}
+                className={css.imageCard}
+                role="button"
+                tabIndex={0}
+                title={tt('preview.open')}
+                onClick={() => { openPreview(item.images, imageIndex) }}
+              >
+                <img className={css.image} src={srcOf(image)} alt={`${group.label} ${imageIndex + 1}`} />
+                <span className={css.ecommerceResultBadge}>{group.label}</span>
+                <span className={css.ecommerceTaskActions} onClick={event => event.stopPropagation()}>
+                  <a className={css.ecommerceActionChip} href={srcOf(image)} download={`product-${item.slotKey || item.id}-${imageIndex + 1}.${extensionOf(image.mime)}`}>{tt('download')}</a>
+                  <button type="button" className={css.ecommerceActionChip} disabled={galleryAdding} onClick={() => { void addToGallery(image) }}>{tt('gallery.add')}</button>
+                  <button type="button" className={css.ecommerceActionChip} disabled={conversationBusy} onClick={() => { void addImageToConversation(image, imageIndex, `${item.id}:${imageIndex}`) }}>{conversationAttachment.busyKey === `${item.id}:${imageIndex}` ? tt('conversation.adding') : tt('conversation.add')}</button>
+                </span>
+              </figure>
+            )) : (
+              <span className={css.ecommerceTaskState}>
+                <b>{group.label}</b>
+                {tt(`tasks.${item.status}` as never)}
+                {item.error !== undefined ? <ErrorDetail message={item.error} layout="inline" /> : null}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+  /** Anything already attaching a file blocks every other attach control, so the
+   *  user cannot start a second attachment while the first is mid-flight. */
+  const conversationBusy = addingToConversation !== null
+    || conversationAttachment.busyKey !== null
+    || conversationAttachment.pending !== null
+    || galleryConversationAddingId !== null
+    || historyConversationAddingId !== null
+  const viewingEntry = viewingHistoryId === null ? null : history.find(entry => entry.id === viewingHistoryId) ?? null
+  const viewingGalleryEntry = galleryViewingId === null ? null : gallery.find(entry => entry.id === galleryViewingId) ?? null
+  /** The clip currently shown on the result board (null when none). */
+  const viewingVideoEntry = viewingVideoId === null ? null : videoHistory.find(entry => entry.id === viewingVideoId) ?? null
+  /**
+   * The saved image generation the result board is drawing, if any.
+   *
+   * An image history and a gallery entry are the same shape (a `HistoryEntry`),
+   * so the board reads them through one value: the parameter line below has a
+   * single source, and `boardView` still guarantees at most one of them exists.
+   */
+  const viewingImageEntry = viewingEntry ?? viewingGalleryEntry
+  /**
+   * The one surface the result board may paint.
+   *
+   * Both board branches below read THIS, not `viewingVideoEntry` / `images`
+   * separately: a finished generation fills `images` without touching
+   * `boardView`, so two independent gates could disagree and paint a clip and
+   * a fresh grid at the same time.
+   */
+  const resultSurface = resultSurfaceOf(boardView, viewingVideoEntry)
+  const previewImage = preview === null ? null : preview.images[preview.index] ?? null
+  const previewConversationKey: number | string = preview === null || preview.source === undefined
+    ? preview?.index ?? 0
+    : `replica-preview:${preview.index}`
+  const comparisonTasks = comparison === null ? [] : comparison.taskIds.map(id => tasks.find(task => task.id === id)).filter((task): task is GenerationTask => task !== undefined)
+  const comparisonResults = comparisonTasks.filter(task => task.status === 'completed' && task.result !== undefined)
+  const previewFrameScale = Math.max(1, previewScale)
+  const previewImageScale = previewScale / previewFrameScale
+
+  useDialogFocus(preview !== null && previewImage !== null, previewDialogRef)
+  useDialogFocus(comparisonFullscreen && comparison !== null, comparisonFullscreenRef)
+  useDialogFocus(galleryClip !== null && galleryClip.video !== undefined, galleryClipRef)
+
+  /** Drag the config panel's right edge to resize it (persisted per browser). */
+  const onConfigResizeStart = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    const aside = configAsideRef.current
+    if (aside === null) return
+    const left = aside.getBoundingClientRect().left
+    const onMove = (move: PointerEvent): void => {
+      const width = Math.round(Math.min(CONFIG_WIDTH_MAX, Math.max(CONFIG_WIDTH_MIN, move.clientX - left)))
+      setConfigWidth(width)
+      try { window.localStorage.setItem(CONFIG_WIDTH_STORAGE_KEY, String(width)) } catch { /* optional */ }
+    }
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      document.documentElement.style.removeProperty('cursor')
+      document.documentElement.style.removeProperty('user-select')
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    // A system interruption (touch scroll takeover, an OS dialog, a platform
+    // alt-tab) ends the gesture without ever delivering `pointerup`. Listening
+    // only for `up` left `pointermove` bound to the window and `cursor` /
+    // `user-select` pinned on <html> until the page was reloaded.
+    window.addEventListener('pointercancel', onUp)
+    document.documentElement.style.setProperty('cursor', 'col-resize')
+    document.documentElement.style.setProperty('user-select', 'none')
+  }
+
+  const copyPreviewPrompt = async (text: string): Promise<void> => {
+    try {
+      if (navigator.clipboard?.writeText !== undefined) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = text
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        const copied = document.execCommand('copy')
+        textarea.remove()
+        if (!copied) throw new Error('copy failed')
+      }
+      setPromptCopied(true)
+      window.setTimeout(() => { setPromptCopied(false) }, 1800)
+    } catch {
+      setPromptCopied(false)
+    }
+  }
+
+  const addPreviewToEdit = (): void => {
+    if (previewImage === null || preview === null) return
+    openTab('edit')
+    // Replacing rather than appending: "use this result as the edit source"
+    // must not silently accumulate earlier references behind the user's back.
+    refs.replace({
+      dataUrl: srcOf(previewImage),
+      name: `dsh-image-${preview.index + 1}.${extensionOf(previewImage.mime)}`,
+      bytes: Math.ceil(srcOf(previewImage).length * 3 / 4),
+    })
+    if (prompt.trim() === '' && previewImage.revisedPrompt !== undefined) setPrompt(previewImage.revisedPrompt)
+    setError(null)
+    closePreview()
+  }
+
+  /** Render one persisted gallery entry in either waterfall lane or grid cell. */
+  const renderGalleryCard = (entry: HistoryEntry) => {
+    const image = entry.images[0]
+    const clip = entry.video
+    // A clip entry carries no image and no asset: it names a file in the
+    // gallery's video store. Rendering it is therefore a video element, not an
+    // <img>.
+    if (image === undefined && clip === undefined) return null
+    const isClip = clip !== undefined
+    return (
+      <article key={entry.id} className={css.galleryCard} data-clip={isClip ? '' : undefined} data-selected={selectedGalleryIds.has(entry.id) ? '' : undefined}>
+        <label className={css.gallerySelect} title={tt('gallery.select')}>
+          <input type="checkbox" checked={selectedGalleryIds.has(entry.id)} onChange={() => { setGallerySelecting(true); toggleGallerySelection(entry.id) }} />
+        </label>
+        <button type="button" className={css.galleryImageButton} data-selecting={gallerySelecting ? '' : undefined} onClick={() => { if (gallerySelecting) toggleGallerySelection(entry.id); else if (isClip) openGalleryClip(entry); else void viewGalleryEntry(entry) }} title={gallerySelecting ? tt('gallery.select') : tt('preview.open')}>
+          {isClip
+            ? <video className={css.galleryImage} src={clip.url} muted playsInline preload="metadata" />
+            : <img className={css.galleryImage} src={image!.url} alt={entry.prompt} loading="lazy" decoding="async" />}
+          <span className={css.galleryBadge}>{isClip ? tt('history.video') : entry.mode === 'edit' ? tt('mode.edit') : tt('mode.text')}</span>
+          {isClip ? <span className={css.galleryClipPlay} aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
+          </span> : null}
+        </button>
+        <div className={css.galleryCardActions}>
+          {isClip ? (<>
+            <button
+              type="button"
+              className={css.galleryCardAction}
+              data-gallery-video-conversation=""
+              disabled={addingToConversation !== null}
+              title={tt('conversation.addVideoHint')}
+              onClick={(event) => { event.stopPropagation(); void addClipToConversation(clip.url, `gallery-clip:${entry.id}`) }}
+            >
+              {addingToConversation === `gallery-clip:${entry.id}` ? tt('conversation.adding') : tt('conversation.add')}
+            </button>
+            <button
+              type="button"
+              className={css.galleryCardAction}
+              data-gallery-video-canvas=""
+              title={tt('canvas.addToCanvas')}
+              onClick={(event) => { event.stopPropagation(); addClipToCanvas(clip.url, clip.mime, clip.duration, entry.prompt) }}
+            >
+              {tt('canvas.addToCanvas')}
+            </button>
+            <a
+              className={css.galleryCardAction}
+              data-gallery-video-download=""
+              href={clip.url}
+              download
+              onClick={event => event.stopPropagation()}
+            >
+              {tt('video.download')}
+            </a>
+          </>) : null}
+          {!isClip ? (<>
+          <button
+            type="button"
+            className={css.galleryCardAction}
+            data-gallery-add-conversation=""
+            disabled={conversationBusy}
+            title={tt('conversation.addHint')}
+            onClick={(event) => { event.stopPropagation(); void addGalleryEntryToConversation(entry) }}
+          >
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10v7H3z"/><path d="M5.5 2.5h5M8 6v4M6 8h4"/></svg>
+            {galleryConversationAddingId === entry.id || conversationAttachment.busyKey === `gallery:${entry.id}` ? tt('conversation.adding') : tt('conversation.add')}
+          </button>
+          <button
+            type="button"
+            className={css.galleryCardAction}
+            data-gallery-add-canvas=""
+            title={tt('canvas.addToCanvas')}
+            onClick={(event) => { event.stopPropagation(); addEntryToCanvas('gallery', entry.id, 0) }}
+          >
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" /><path d="M5 8h6M8 5v6" /></svg>
+            {tt('canvas.addToCanvas')}
+          </button>
+          </>) : null}
+        </div>
+        <div className={css.galleryCardFooter}>
+          <span className={css.galleryAvatar}>{entry.model.toLowerCase().startsWith('nanobanana') ? 'N' : entry.model.toLowerCase().startsWith('seedream') ? 'S' : entry.model.startsWith('grok') ? 'G' : 'D'}</span>
+          <span className={css.galleryCardInfo}>
+            <strong>{entry.prompt || tt('gallery.untitled')}</strong>
+            <small>{entry.model} · {normalizeSize(entry.size)} · {formatTime(entry.createdAt)}</small>
+            <span className={css.galleryTags}>
+              {(entry.tags ?? []).map(tag => <button key={tag} type="button" onClick={() => { setGalleryTagFilter(tag) }}>{tag}</button>)}
+              <button type="button" className={css.galleryTagEdit} onClick={() => { startEditingGalleryTags(entry) }} title={tt('gallery.editTags')}>{tt('gallery.tagsEditShort')}</button>
+            </span>
+          </span>
+          <button
+            type="button"
+            className={css.galleryRemove}
+            data-gallery-remove={entry.id}
+            aria-label={tt('gallery.deleteHint')}
+            title={tt('gallery.deleteHint')}
+            onClick={() => { void deleteGalleryEntry(entry.id) }}
+          >{tt('gallery.delete')}</button>
+        </div>
+        {editingGalleryTagsId === entry.id ? (
+          <form className={css.galleryTagEditor} onSubmit={event => { event.preventDefault(); void saveGalleryTags(entry.id) }}>
+            <input value={galleryTagEditInput} onChange={event => { setGalleryTagEditInput(event.target.value) }} placeholder={tt('gallery.tagsPlaceholder')} aria-label={tt('gallery.tagsPlaceholder')} autoFocus />
+            <button type="submit">{tt('gallery.tagsSave')}</button>
+            <button type="button" onClick={() => { setEditingGalleryTagsId(null); setGalleryTagEditInput('') }}>{tt('gallery.tagsCancel')}</button>
+          </form>
+        ) : null}
+      </article>
+    )
+  }
+
+  // Render history into the shell sidebar so it remains a separate navigation
+  // surface from both the image workspace and the native conversation.
+  const historyPanel = (
+    <aside className={css.history} data-dsh-imagegen-history>
+      <header className={css.historyHeader}>
+        <span className={css.historyTitle}>{tt('history.title')}</span>
+        <div className={css.historyHeaderActions}>
+          <button
+            type="button"
+            className={css.historyNew}
+            data-history-new=""
+            aria-label={tt('canvas.new')}
+            title={tt('canvas.newHint')}
+            onClick={startNewCreation}
+          >
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+          </button>
+          <button
+            type="button"
+            className={css.historyNew}
+            data-history-open-folder=""
+            aria-label={tt('gallery.openFolder')}
+            title={tt('gallery.openFolderHint')}
+            onClick={() => { void api.openDataFolder() }}
+          >
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1.5 4.2A1.2 1.2 0 0 1 2.7 3h2.9l1.6 1.9h6.1A1.2 1.2 0 0 1 14.5 6.1v6.2a1.2 1.2 0 0 1-1.2 1.2H2.7a1.2 1.2 0 0 1-1.2-1.2z" /></svg>
+          </button>
+          {unifiedHistory.length > 0 ? (
+            <button type="button" className={css.historyClear} data-history-clear="" onClick={() => { void clearHistory() }}>
+              {tt('history.clear')}
+            </button>
+          ) : null}
+        </div>
+      </header>
+
+      <div className={css.historyFilters}>
+        <input className={css.historySearch} value={historyQuery} onChange={event => { setHistoryQuery(event.target.value) }} placeholder={tt('history.search')} aria-label={tt('history.search')} />
+        <Select value={historyKindFilter} onChange={value => { setHistoryKindFilter(value as 'all' | 'image' | 'video' | 'canvas') }} aria-label={tt('history.kind')}>
+          <option value="all">{tt('history.allKinds')}</option>
+          <option value="image">{tt('history.imagesOnly')}</option>
+          <option value="video">{tt('history.videosOnly')}</option>
+          <option value="canvas">{tt('history.canvasesOnly')}</option>
+        </Select>
+        <Select value={historyModelFilter} onChange={value => { setHistoryModelFilter(value) }} aria-label={tt('history.model')}>
+          <option value="all">{tt('history.allModels')}</option>
+          {historyModelOptions.map(option => <option key={option} value={option}>{option}</option>)}
+        </Select>
+        <Select value={historyRatioFilter} onChange={value => { setHistoryRatioFilter(value) }} aria-label={tt('history.ratio')}>
+          <option value="all">{tt('history.allRatios')}</option>
+          {historyRatioOptions.map(option => <option key={option} value={option}>{option}</option>)}
+        </Select>
+      </div>
+
+      {unifiedHistory.length === 0 && historyLoadError !== null ? (
+        <div className={css.historyEmpty} data-history-load-error="">
+          <span>{tt('history.loadFailed', { error: historyLoadError })}</span>
+          <button type="button" className={css.galleryBulkButton} data-history-reload="" style={{ marginLeft: 8 }} onClick={retryInitialData}>{tt('canvas.retry')}</button>
+        </div>
+      ) : unifiedHistory.length === 0 ? (
+        <div className={css.historyEmpty}>{tt('history.empty')}</div>
+      ) : (
+        <div className={css.historyList}>
+          {unifiedHistory.map(row => {
+            const isVideoRow = row.kind === 'video'
+            const isCanvasRow = row.kind === 'canvas'
+            // A canvas row is active when it is the document the workspace has
+            // open. `undefined` never equals an id, so this stays false while
+            // the canvas workspace is closed.
+            const isActive = isCanvasRow
+              ? openCanvasId === row.canvas!.id
+              : isVideoRow
+                ? viewingVideoId === row.entry!.id
+                : row.group!.entries.some(item => item.id === viewingHistoryId)
+            return (
+              <div
+                key={row.key}
+                className={css.historyItem}
+                data-active={isActive ? '' : undefined}
+                data-kind={row.kind}
+                data-video-row={isVideoRow ? '' : undefined}
+                data-canvas-row={isCanvasRow ? '' : undefined}
+                data-comparison={row.group !== undefined && row.group.models.length > 1 ? '' : undefined}
+              >
+                <button
+                  type="button"
+                  className={css.historyMain}
+                  data-dsh-imagegen-history-main=""
+                  onClick={() => {
+                    if (isCanvasRow) {
+                      // Opening a canvas is not "viewing a result": it switches
+                      // the panel to the canvas workspace and asks it for THIS
+                      // document, so one click lands on the canvas, not on
+                      // whichever one happened to be open last.
+                      setOpenCanvasId(row.canvas!.id)
+                      setWorkspace('canvas')
+                      return
+                    }
+                    if (isVideoRow) {
+                      // A clip opens on the RESULT BOARD (see openVideoFromHistory),
+                      // the same area an image row fills: the click means "show me
+                      // that generation", and a clip has to play somewhere the user
+                      // is already looking. The video tab stays for starting runs.
+                      openVideoFromHistory(row.entry!)
+                    } else {
+                      void viewHistoryGroup(row.group!)
+                    }
+                  }}
+                >
+                  {/* Order matters: a still (a generated image, or a clip's
+                      poster frame) is checked first because both kinds of row
+                      can now carry one. `data-video-thumb` stays on the glyph
+                      fallback alone — it is what tints the icon for a clip, so
+                      putting it on an <img> would recolour the picture. */}
+                  {row.thumbUrl !== undefined
+                    ? <img className={css.historyThumb} src={row.thumbUrl} alt="" loading="lazy" decoding="async" />
+                    : isCanvasRow
+                      // A canvas with no image nodes yet still deserves a glyph
+                      // that says what it is; the bare square read as a broken
+                      // thumbnail.
+                      ? <span className={css.historyThumbPlaceholder} data-canvas-thumb="" title={tt('history.canvasKind')} aria-label={tt('history.canvasKind')}>
+                          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <rect x="1.9" y="3.2" width="5" height="4" rx="1" />
+                            <rect x="9.1" y="3.2" width="5" height="4" rx="1" />
+                            <rect x="1.9" y="9" width="5" height="4" rx="1" />
+                            <path d="M9.1 11h5" />
+                          </svg>
+                        </span>
+                      : isVideoRow
+                        ? <span className={css.historyThumbPlaceholder} data-video-thumb="" title={tt('history.video')} aria-label={tt('history.video')}>
+                            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" aria-hidden="true">
+                              <rect x="1.8" y="3.6" width="9.4" height="8.8" rx="1.4" />
+                              <path d="M11.2 8.2l3.2-2.1v3.8l-3.2-1.7z" fill="currentColor" stroke="none" />
+                            </svg>
+                          </span>
+                        : <span className={css.historyThumbPlaceholder} />}
+                  <span className={css.historyInfo}>
+                    <span className={css.historyPrompt}>{row.prompt}</span>
+                    <span className={css.historyMeta}>
+                      {row.meta}
+                      {/* A canvas row has no model, and joining an empty list
+                          would leave a stray " · " between the kind and the
+                          time. */}
+                      {row.models.length === 0 ? null : <>{' · '}{row.models.join(' · ')}</>}
+                      {' · '}{formatTime(row.createdAt)}
+                    </span>
+                  </span>
+                </button>
+                <span className={css.historyActions}>
+                  {isVideoRow ? (
+                    <button
+                      type="button"
+                      className={css.historyIconAction}
+                      disabled={addingToConversation !== null}
+                      title={`${tt('conversation.addVideo')}：${tt('conversation.addVideoHint')}`}
+                      aria-label={tt('conversation.addVideo')}
+                      data-history-video-conversation=""
+                      onClick={() => { void addClipToConversation(row.entry!.videos[0]!.url, `history-clip:${row.entry!.id}`) }}
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 2.5h8A1.5 1.5 0 0 1 13.5 4v5a1.5 1.5 0 0 1-1.5 1.5H8.5L5.5 13v-2.5H4A1.5 1.5 0 0 1 2.5 9V4A1.5 1.5 0 0 1 4 2.5z" /></svg>
+                    </button>
+                  ) : null}
+                  {isVideoRow ? (
+                    <button
+                      type="button"
+                      className={css.historyIconAction}
+                      title={tt('canvas.addToCanvas')}
+                      aria-label={tt('canvas.addToCanvas')}
+                      data-history-video-canvas=""
+                      onClick={() => { addClipToCanvas(row.entry!.videos[0]!.url, row.entry!.videos[0]!.mime, row.entry!.videos[0]!.duration, row.entry!.prompt) }}
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" /><path d="M5 8h6M8 5v6" /></svg>
+                    </button>
+                  ) : null}
+                  {isVideoRow ? (
+                    <button
+                      type="button"
+                      className={css.historyIconAction}
+                      title={tt('canvas.videoFavorite')}
+                      aria-label={tt('canvas.videoFavorite')}
+                      data-history-video-gallery=""
+                      onClick={() => { void favoriteVideoEntry(row.entry!) }}
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><circle cx="5.9" cy="6.1" r="1" /><path d="M13.5 10.2l-3.1-3.1L4.6 13" /></svg>
+                    </button>
+                  ) : null}
+                  {isVideoRow ? (
+                    <a
+                      className={css.historyIconAction}
+                      title={tt('video.download')}
+                      aria-label={tt('video.download')}
+                      data-history-video-download=""
+                      href={row.entry!.videos[0]?.url}
+                      download
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 2.5v8" /><path d="M4.8 7.4L8 10.6l3.2-3.2" /><path d="M2.8 13.2h10.4" /></svg>
+                    </a>
+                  ) : null}
+                  {row.kind === 'image' && row.group!.entries[0]!.images.length > 0 ? (
+                    <button
+                      type="button"
+                      className={css.historyIconAction}
+                      disabled={conversationBusy}
+                      title={`${tt('conversation.add')}：${tt('conversation.addHint')}`}
+                      aria-label={tt('conversation.add')}
+                      data-history-add-conversation=""
+                      onClick={() => { void addHistoryEntryToConversation(row.group!.entries[0]!) }}
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 2.5h8A1.5 1.5 0 0 1 13.5 4v5a1.5 1.5 0 0 1-1.5 1.5H8.5L5.5 13v-2.5H4A1.5 1.5 0 0 1 2.5 9V4A1.5 1.5 0 0 1 4 2.5z" /></svg>
+                    </button>
+                  ) : null}
+                  {row.kind === 'image' && row.group!.entries[0]!.images.length > 0 ? (
+                    <button
+                      type="button"
+                      className={css.historyIconAction}
+                      disabled={galleryAdding}
+                      title={tt('gallery.add')}
+                      aria-label={tt('gallery.add')}
+                      data-history-add-gallery=""
+                      onClick={() => { void addHistoryEntryToGallery(row.group!.entries[0]!) }}
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><circle cx="5.9" cy="6.1" r="1" /><path d="M13.5 10.2l-3.1-3.1L4.6 13" /></svg>
+                    </button>
+                  ) : null}
+                  {row.kind === 'image' && row.group!.entries[0]!.images.length > 0 ? (
+                    <button
+                      type="button"
+                      className={css.historyIconAction}
+                      title={tt('canvas.addToCanvas')}
+                      aria-label={tt('canvas.addToCanvas')}
+                      data-history-add-canvas=""
+                      onClick={() => { addEntryToCanvas('history', row.group!.entries[0]!.id, 0) }}
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" /><path d="M5 8h6M8 5v6" /></svg>
+                    </button>
+                  ) : null}
+                  {/* 画布行不给删除：`row.group!` 对画布是 undefined，这里按下
+                      去就是一次崩溃；而且删画布有它自己的入口（顶栏项目下拉），
+                      那条路会连资产一起收拾，比在历史里删一条记录干净。 */}
+                  {isCanvasRow ? null : (
+                  <button
+                    type="button"
+                    className={css.historyIconAction}
+                    data-danger
+                    title={tt('history.delete')}
+                    aria-label={tt('history.delete')}
+                    onClick={() => {
+                      if (isVideoRow) void deleteVideoHistoryEntry(row.entry!.id)
+                      else void deleteHistoryGroup(row.group!)
+                    }}
+                  >
+                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2.5 4.5h11" /><path d="M6 4.5V3.2a.7.7 0 0 1 .7-.7h2.6a.7.7 0 0 1 .7.7v1.3" /><path d="M4.3 4.5l.6 8.1a1 1 0 0 0 1 .9h4.2a1 1 0 0 0 1-.9l.6-8.1" /><path d="M6.7 7v4M9.3 7v4" /></svg>
+                  </button>
+                  )}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </aside>
+  )
+
+  const isGallery = workspace === 'normal' && tab === 'gallery'
+  // Image generation only: the video tab shares the canvas section but not the
+  // image composer, model picker, compare controls or results board.
+  const isGeneration = workspace === 'normal' && tab !== 'gallery' && tab !== 'video'
+  const isVideo = workspace === 'normal' && tab === 'video'
+
+  return (
+    <div className={css.panel}>
+      <header className={css.panelHeader}>
+        {/* Wrapped so the mobile layout can promote the nav onto its own full-width
+            row with `order`/`flex-basis`; on desktop the wrapper is display:contents
+            and does not generate a box. */}
+        <div className={css.panelNav}>
+        <ModuleTabs
+          ariaLabel={tt('workspace.label')}
+          activeIndex={workspace === 'normal' ? (tab === 'gallery' ? 1 : 0) : workspace === 'canvas' ? 2 : workspace === 'ecommerce' ? 3 : workspace === 'ppt' ? 4 : workspace === 'replica' ? 5 : workspace === 'outfit' ? 6 : workspace === 'promo' ? 7 : 8}
+          onSelect={index => {
+            if (index === 0) openTab('text')
+            else if (index === 1) openTab('gallery')
+            else if (index === 2) setWorkspace('canvas')
+            else if (index === 3) setWorkspace('ecommerce')
+            else if (index === 4) setWorkspace('ppt')
+            else if (index === 5) setWorkspace('replica')
+            else if (index === 6) setWorkspace('outfit')
+            else if (index === 7) setWorkspace('promo')
+            else setWorkspace('aplus')
+          }}
+          items={[
+            { key: 'normal', label: tt('workspace.normal') },
+            { key: 'gallery', label: tt('gallery.title') },
+            { key: 'canvas', label: tt('workspace.canvas') },
+            { key: 'ecommerce', label: <>{tt('workspace.ecommerce')}<span className={css.previewBadge}>{tt('ecommerce.badge')}</span></> },
+            { key: 'ppt', label: tt('workspace.ppt') },
+            { key: 'replica', label: tt('workspace.replica') },
+            { key: 'outfit', label: tt('outfit.title') },
+            { key: 'promo', label: tt('promo.title') },
+            { key: 'aplus', label: tt('aplus.title') },
+          ]}
+        />
+        </div>
+        <span className={css.panelHeaderActions}>
+          <Button
+            variant={chatOpen ? 'outline' : 'ghost'}
+            size="sm"
+            className={css.chatToggle}
+            data-open={chatOpen ? 'true' : 'false'}
+            aria-pressed={chatOpen}
+            title={chatOpen ? tt('chat.collapse') : tt('chat.expand')}
+            onClick={() => { setChatOpen(open => !open) }}
+          >
+            {tt('chat.toggle')}
+          </Button>
+        </span>
+      </header>
+
+      {/* `data-studio-workspace` lets the stylesheet key the ≤760px
+       * non-scrolling split on the canvas/ppt workspaces without a `:has()`
+       * that infers it from this subtree (docs/native-ui-contract.md §4.3 —
+       * jsdom cannot parse such a rule, so it would sit outside every test).
+       * Deliberately not `data-workspace`: outfit-workspace.module.css evicts
+       * every sibling of `[data-workspace='outfit']`, which would hide the
+       * generation column below it. Only the two values it needs are emitted,
+       * so the other workspaces keep the attribute off entirely. */}
+      <div className={css.studio} data-studio-workspace={workspace === 'canvas' || workspace === 'ppt' ? workspace : undefined}>
+        {/* ------------------------------- left history + generation workspace */}
+        <div className={css.generation} data-workspace={workspace} data-empty-result-host={isVideo ? 'true' : undefined}>
+          {/* ------------------------------------------------ config sidebar */}
+          <aside
+            ref={configAsideRef}
+            className={css.config}
+            style={{ '--dsh-imagegen-config-width': `${configWidth}px` } as CSSProperties}
+            data-collapsed={configCollapsed ? 'true' : 'false'}
+            data-gallery={workspace === 'normal' && tab === 'gallery' ? 'true' : undefined}
+            data-video={isVideo ? 'true' : undefined}
+          >
+            <div className={css.configResizer} title={tt('config.resizeHint')} onPointerDown={onConfigResizeStart} />
+          <div className={css.configHeader}>
+            <button
+              type="button"
+              className={css.configToggle}
+              aria-expanded={!configCollapsed}
+              aria-label={tt(configCollapsed ? 'panel.expandConfig' : 'panel.collapseConfig')}
+              title={tt(configCollapsed ? 'panel.expandConfig' : 'panel.collapseConfig')}
+              onClick={() => { setConfigCollapsed(previous => !previous) }}
+            >
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d={configCollapsed ? 'M6 3l5 5-5 5' : 'M10 3L5 8l5 5'} />
+              </svg>
+            </button>
+          </div>
+          {isGallery ? (
+            <div className={css.galleryFilters}>
+              <div className={css.galleryFilterHeading}>{tt('gallery.categories')}</div>
+              {[
+                ['all', tt('gallery.all')],
+                ['text', tt('mode.text')],
+                ['edit', tt('mode.edit')],
+                // Clips are a category of their own, not an image mode.
+                ...gallery.some(entry => entry.video !== undefined) ? [['video', tt('history.video')] as const] : [],
+                ...galleryModels.map(value => [value, value] as const),
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={css.galleryFilter}
+                  data-active={galleryFilter === value ? '' : undefined}
+                  aria-pressed={galleryFilter === value}
+                  onClick={() => { setGalleryFilter(value) }}
+                >
+                  <span>{label}</span>
+                  <span className={css.galleryFilterCount}>{gallery.filter(entry => {
+                    // Must mirror the filteredGallery rule, or a chip's badge
+                    // would disagree with the list it produces.
+                    if (value === 'all') return true
+                    if (value === 'video') return entry.video !== undefined
+                    if (value === 'text') return entry.video === undefined && entry.mode === 'text'
+                    if (value === 'edit') return entry.video === undefined && entry.mode === 'edit'
+                    return entry.model === value
+                  }).length}</span>
+                </button>
+              ))}
+              <div className={css.galleryFilterDivider} />
+              <div className={css.galleryFilterHeading}>{tt('gallery.ratio')}</div>
+              <div className={css.galleryRatioList}>
+                {(['all', '1:1', '3:4', '4:3', '16:9'] as const).map(ratio => (
+                  <button key={ratio} type="button" className={css.galleryRatio} data-active={galleryRatio === ratio ? '' : undefined} aria-pressed={galleryRatio === ratio} onClick={() => { setGalleryRatio(ratio) }}>
+                    {ratio === 'all' ? tt('gallery.all') : ratio}
+                  </button>
+                ))}
+              </div>
+              {galleryTagOptions.length > 0 ? (
+                <>
+                  <div className={css.galleryFilterDivider} />
+                  <div className={css.galleryFilterHeading}>{tt('gallery.tags')}</div>
+                  <div className={css.galleryTagFilterList}>
+                    {galleryTagOptions.map(tag => (
+                      <button key={tag} type="button" className={css.galleryTagFilter} data-active={galleryTagFilter === tag ? '' : undefined} aria-pressed={galleryTagFilter === tag} onClick={() => { setGalleryTagFilter(previous => previous === tag ? null : tag) }}>
+                        <span>{tag}</span>
+                        <span>{gallery.filter(entry => (entry.tags ?? []).includes(tag)).length}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              <div className={css.galleryFilterNote}>{tt('gallery.filterHint')}</div>
+            </div>
+          ) : null}
+          <div className={css.configScroll}>
+            {/* generation sub-modes live inside the normal workspace */}
+            {workspace === 'normal' && tab !== 'gallery' ? (
+              <section className={css.card}>
+                <SegmentedControl
+                  id="dsh-imagegen-mode"
+                  value={tab as (typeof MODE_TABS)[number]}
+                  label={tt('panel.title')}
+                  className={css.modeTabs}
+                  options={MODE_TABS.map(item => ({
+                    value: item,
+                    label: tt(item === 'text' ? 'mode.text' : item === 'edit' ? 'mode.edit' : 'mode.video'),
+                    disabled: specialFormat && item !== 'text',
+                    title: specialFormat && item !== 'text' ? tt('params.gifLocksMode') : undefined,
+                  }))}
+                  onChange={next => { setTab(next) }}
+                />
+              </section>
+            ) : null}
+
+            {workspace === 'ecommerce' ? (
+              <section className={css.ecommerceWorkspace} data-ecommerce-workspace="">
+                <div className={css.ecommerceSection}>
+                  <header className={css.ecommerceCardHead}>
+                    <h3><span className={css.ecommerceSectionTitle}>{tt('ecommerce.productRefTitle')}</span><small className={css.ecommerceSectionHint}>{tt('ecommerce.productRefHint')}</small></h3>
+                    <span className={css.ecommerceCardCount}>{ecommerceAssets.filter(asset => asset.role !== 'style').length}/{MAX_ECOMMERCE_ASSETS}</span>
+                  </header>
+                  {uploadNotice !== null ? (
+                    <p className={css.ecommerceCardNotice} role="status" data-upload-notice="">{uploadNotice}</p>
+                  ) : null}
+                  {ecommerceLimitNotice !== null ? (
+                    <p className={css.ecommerceCardNotice} role="status" data-ecommerce-ref-limit="">{ecommerceLimitNotice}</p>
+                  ) : null}
+                  {ecommerceAssets.some(asset => asset.role !== 'style') ? (
+                    <div className={css.ecommerceAssets}>
+                      {ecommerceAssets.filter(asset => asset.role !== 'style').map(asset => (
+                        <div key={asset.id} className={css.ecommerceAsset} data-ecommerce-asset="">
+                          <img src={asset.dataUrl} alt={asset.name} />
+                          <Select
+                            value={asset.role}
+                            data-ecommerce-asset-role=""
+                            aria-label={tt('ecommerce.refSelect')}
+                            onChange={value => setEcommerceAssets(previous => previous.map(item => item.id === asset.id ? { ...item, role: value as EcommerceAssetRole } : item))}
+                          >
+                            {ECOMMERCE_ASSET_ROLES.filter(role => role !== 'style').map(role => (
+                              <option key={role} value={role}>{tt(`ecommerce.role.${role}` as never)}</option>
+                            ))}
+                          </Select>
+                          <button type="button" aria-label={tt('edit.remove')} onClick={() => { setEcommerceAssets(previous => previous.filter(item => item.id !== asset.id)) }}>×</button>
+                        </div>
+                      ))}
+                      {ecommerceAssets.filter(asset => asset.role !== 'style').length < MAX_ECOMMERCE_ASSETS ? (
+                        <button
+                          type="button"
+                          className={css.ecommerceAssetAdd}
+                          data-ecommerce-upload=""
+                          title={tt('ecommerce.uploadRef')}
+                          onClick={() => { ecommerceUploadRoleRef.current = 'product'; ecommerceFileInput.current?.click() }}
+                          onDragOver={(event) => { event.preventDefault() }}
+                          onDrop={(event) => {
+                            event.preventDefault()
+                            acceptEcommerceFiles(event.dataTransfer.files ?? undefined, 'product')
+                          }}
+                        >
+                          <span aria-hidden="true">＋</span>
+                          <small>{tt('ecommerce.uploadShort')}</small>
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className={css.ecommerceUploadHero}
+                      data-ecommerce-upload=""
+                      onClick={() => { ecommerceUploadRoleRef.current = 'product'; ecommerceFileInput.current?.click() }}
+                      onDragOver={(event) => { event.preventDefault() }}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        acceptEcommerceFiles(event.dataTransfer.files ?? undefined, 'product')
+                      }}
+                    >
+                      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 10V3.5"/><path d="M5.5 5.5L8 3l2.5 2.5"/><path d="M3 9.5V12a1.5 1.5 0 001.5 1.5h7A1.5 1.5 0 0013 12V9.5"/></svg>
+                      <span>{tt('ecommerce.uploadRef')}</span>
+                      <small>{tt('edit.uploadHint')}</small>
+                    </button>
+                  )}
+                </div>
+                <div className={css.ecommerceSection}>
+                  <header className={css.ecommerceCardHead}>
+                    <h3><span className={css.ecommerceSectionTitle}>{tt('ecommerce.styleRefTitle')}</span><small className={css.ecommerceSectionHint}>({tt('ecommerce.styleRefBadge')})</small></h3>
+                    <span className={css.ecommerceCardCount}>{ecommerceAssets.some(asset => asset.role === 'style') ? 1 : 0}/1</span>
+                  </header>
+                  <p className={css.ecommerceCardHint}>{tt('ecommerce.styleRefHint')}</p>
+                  {ecommerceAssets.some(asset => asset.role === 'style') ? (
+                    <div className={css.ecommerceAssets}>
+                      {ecommerceAssets.filter(asset => asset.role === 'style').map(asset => (
+                        <div key={asset.id} className={css.ecommerceAsset} data-ecommerce-asset="">
+                          <img src={asset.dataUrl} alt={asset.name} />
+                          <button type="button" aria-label={tt('edit.remove')} onClick={() => { setEcommerceAssets(previous => previous.filter(item => item.id !== asset.id)) }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className={css.ecommerceAssetAdd}
+                      data-ecommerce-upload=""
+                      title={tt('ecommerce.styleRefUpload')}
+                      onClick={() => { ecommerceUploadRoleRef.current = 'style'; ecommerceFileInput.current?.click() }}
+                      onDragOver={(event) => { event.preventDefault() }}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        acceptEcommerceFiles(event.dataTransfer.files ?? undefined, 'style')
+                      }}
+                    >
+                      <span aria-hidden="true">＋</span>
+                      <small>{tt('ecommerce.styleRefUpload')}</small>
+                    </button>
+                  )}
+                </div>
+                <div className={css.ecommerceSection}>
+                  <label className={css.ecommerceField}>
+                    <span className={css.ecommerceFieldLabel}>{tt('ecommerce.productName')}</span>
+                    <input value={ecommerce.productName} placeholder={tt('ecommerce.productName')} aria-label={tt('ecommerce.productName')} onChange={event => setEcommerce(previous => ({ ...previous, productName: event.target.value }))} />
+                  </label>
+                </div>
+                <div className={css.ecommerceSection}>
+                  <header className={css.ecommerceCardHead}>
+                    <h3><span className={css.ecommerceSectionTitle}>{tt('ecommerce.refInfoTitle')}</span><small className={css.ecommerceSectionHint}>({tt('ecommerce.optional')})</small></h3>
+                    <button
+                      type="button"
+                      className={css.ecommerceAiButton}
+                      disabled={ecommerceEnhancing || ecommerce.productName.trim() === ''}
+                      title={ecommerce.productName.trim() === '' ? tt('ecommerce.aiWriteNeedsName') : tt('ecommerce.aiWriteHint')}
+                      onClick={() => { void ecommerceEnhanceInfo() }}
+                    >
+                      <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M8 1.5l1.4 3.6L13 6.5l-3.6 1.4L8 11.5 6.6 7.9 3 6.5l3.6-1.4z"/></svg>
+                      {ecommerceEnhancing ? tt('ecommerce.aiWriting') : tt('ecommerce.aiWrite')}
+                    </button>
+                  </header>
+                  <textarea value={ecommerce.promptInfo} placeholder={tt('ecommerce.promptInfoPlaceholder')} onChange={event => setEcommerce(previous => ({ ...previous, promptInfo: event.target.value }))} />
+                </div>
+                <ListingCopyCard api={api} draft={{ productName: ecommerce.productName, category: ecommerce.category, platform: ecommerce.platform, language: effectiveEcommerceLanguage(ecommerce) || '中文', promptInfo: ecommerce.promptInfo }} />
+                <div className={css.ecommerceSection}>
+                  <h3>{tt('ecommerce.params')}</h3>
+                  <div className={css.ecommerceParamGrid}>
+                    <label className={css.ecommerceField}>
+                      <span className={css.ecommerceFieldLabel}>{tt('ecommerce.platformLabel')}</span>
+                      <Select aria-label={tt('ecommerce.platformLabel')} value={ecommerce.platform} onChange={value => setEcommerce(previous => ({ ...previous, platform: value }))}><option>通用</option><option>淘宝 / 京东</option><option>亚马逊</option></Select>
+                    </label>
+                    <label className={css.ecommerceField}>
+                      <span className={css.ecommerceFieldLabel}>{tt('ecommerce.languageLabel')}</span>
+                      <Select aria-label={tt('ecommerce.languageLabel')} value={ecommerce.language} onChange={value => setEcommerce(previous => ({ ...previous, language: value }))}>
+                        {ECOMMERCE_COPY_LANGUAGES.map(([value, label]) => <option key={value} value={value}>{value === 'custom' ? tt('ecommerce.customLanguageOption') : label}</option>)}
+                      </Select>
+                      {ecommerce.language === 'custom' ? (
+                        <input
+                          value={ecommerce.customLanguage ?? ''}
+                          maxLength={40}
+                          placeholder={tt('ecommerce.customLanguagePlaceholder')}
+                          aria-label={tt('ecommerce.customLanguageLabel')}
+                          onChange={event => setEcommerce(previous => ({ ...previous, customLanguage: event.target.value }))}
+                        />
+                      ) : null}
+                    </label>
+                    <label className={css.ecommerceField}>
+                      <span className={css.ecommerceFieldLabel}>{tt('ecommerce.categoryLabel')}</span>
+                      <Select value={ecommerce.category} onChange={value => setEcommerce(previous => ({ ...previous, category: value }))}><option>通用商品</option><option>食品饮料</option><option>美妆个护</option><option>服装配饰</option><option>家居用品</option><option>3C 数码</option></Select>
+                    </label>
+                    <label className={css.ecommerceField}>
+                      <span className={css.ecommerceFieldLabel}>{tt('ecommerce.ratioLabel')}</span>
+                      <Select value={catalogAspects.includes(ecommerce.size) ? ecommerce.size : (catalogAspects[0] ?? ecommerce.size)} onChange={value => setEcommerce(previous => ({ ...previous, size: value }))}>{(catalogAspects.length > 0 ? catalogAspects : ['1:1']).map(option => <option key={option}>{option}</option>)}</Select>
+                      {/* Says the quiet part out loud: with compliance on, the
+                          ratio above is what the OTHER images get, and the
+                          main image is a square whatever the user picks. */}
+                      {ecommerce.whiteBackground === true ? <span className={css.ecommerceFieldNote}>{tt('ecommerce.whiteRatioLocked')}</span> : null}
+                    </label>
+                    <label className={css.ecommerceField}>
+                      <span className={css.ecommerceFieldLabel}>{tt('ecommerce.whiteLabel')}</span>
+                      <input
+                        type="checkbox"
+                        checked={ecommerce.whiteBackground === true}
+                        data-ecommerce-white=""
+                        onChange={event => setEcommerce(previous => ({ ...previous, whiteBackground: event.target.checked }))}
+                      />
+                      <span className={css.ecommerceFieldNote}>{tt('ecommerce.whiteHint')}</span>
+                    </label>
+                  </div>
+                </div>
+                <div className={css.ecommerceSection}>
+                  <h3><span className={css.ecommerceSectionTitle}>{tt('ecommerce.setStructure')}</span><small className={css.ecommerceSectionHint}>{tt('ecommerce.multiSelect')}</small></h3>
+                  <div className={css.ecommerceStructureGrid}>
+                    {ecommerce.slots.map(slot => (
+                      <button
+                        key={slot.key}
+                        type="button"
+                        className={css.ecommerceSlotCard}
+                        data-active={slot.enabled ? '' : undefined}
+                        aria-pressed={slot.enabled}
+                        title={`${slot.label}：${slot.description}`}
+                        onClick={() => setEcommerce(previous => ({ ...previous, slots: previous.slots.map(item => item.key === slot.key ? { ...item, enabled: !item.enabled } : item) }))}
+                      >
+                        {slot.label}
+                        {slot.enabled ? (
+                          <span
+                            className={css.ecommerceSlotCount}
+                            title={tt('ecommerce.countHint')}
+                            onClick={event => {
+                              event.stopPropagation()
+                              setEcommerce(previous => ({ ...previous, slots: previous.slots.map(item => item.key === slot.key ? { ...item, count: item.count >= 4 ? 1 : item.count + 1 } : item) }))
+                            }}
+                          >
+                            {slot.count}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                  {ecommerceSlots.length > 0 ? (
+                    <>
+                      <button type="button" className={css.ecommerceAdvancedToggle} aria-expanded={ecommerceRefOpen} aria-controls="dsh-ecommerce-reference-settings" onClick={() => { setEcommerceRefOpen(open => !open) }}>
+                        <span>{tt('ecommerce.refSettings')}</span>
+                        <span className={css.ecommerceAdvancedChevron} aria-hidden="true">{ecommerceRefOpen ? '⌃' : '⌄'}</span>
+                      </button>
+                      {ecommerceRefOpen ? (
+                        <div id="dsh-ecommerce-reference-settings" className={css.ecommerceAdvancedBody}>
+                          {ecommerceSlots.map(slot => (
+                            <label key={slot.key} className={css.ecommerceRefRow}>
+                              <span>{slot.label}</span>
+                              <Select value={slot.refRole ?? 'product'} data-ecommerce-ref-select="" aria-label={`${tt('ecommerce.refSelect')} · ${slot.label}`} onChange={value => setEcommerce(previous => ({ ...previous, slots: previous.slots.map(item => item.key === slot.key ? { ...item, refRole: value as EcommerceRefRole } : item) }))}>
+                                <option value="none">{tt('ecommerce.refNone')}</option>
+                                {ECOMMERCE_ASSET_ROLES.map(role => <option key={role} value={role}>{tt(`ecommerce.role.${role}` as never)}</option>)}
+                              </Select>
+                            </label>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+                <div className={css.ecommerceSection}>
+                  <h3>{tt('ecommerce.generation')}</h3>
+                  <ModelPicker
+                    groups={modeGroups}
+                    value={{ channelId: modelChannelId, model }}
+                    channelLabel={tt('model.channel')}
+                    modelLabel={tt('model.label')}
+                    channelPlaceholder={tt('model.channelPlaceholder')}
+                    emptyLabel={tt('model.noEditModels')}
+                    ariaLabel={tt('model.label')}
+                    disabled={submitting}
+                    onChange={choice => { setModelChannelId(choice.channelId); setModel(choice.model) }}
+                  />
+                  {catalogQualities.length > 0 ? (
+                    <div className={css.paramStrip}>
+                      <Select
+                        variant="composer"
+                        aria-label={tt('params.quality')}
+                        value={quality}
+                        disabled={submitting}
+                        options={catalogQualities.map(option => ({ value: option, label: qualityLabel(option) }))}
+                        onChange={setQuality}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+                <input
+                  ref={ecommerceFileInput}
+                  type="file"
+                  multiple
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className={css.hiddenFile}
+                  onChange={(event) => {
+                    acceptEcommerceFiles(event.target.files ?? undefined, ecommerceUploadRoleRef.current)
+                    event.target.value = ''
+                  }}
+                />
+              </section>
+            ) : null}
+
+            {isGeneration && tab === 'edit' ? (
+              <section className={css.card}>
+                <ReferenceImages
+                  images={refs.images}
+                  reading={refs.reading}
+                  onAdd={files => { refs.add(files) }}
+                  onRemove={refs.remove}
+                  onClear={refs.clear}
+                  notice={editLimitNotice}
+                  limit={editReferenceCapacity}
+                />
+              </section>
+            ) : null}
+
+                {/* prompt (normal workspace only — ecommerce has its own form) */}
+                {isGeneration ? (<>
+                <section className={css.card}>
+              <textarea
+                className={css.prompt}
+                value={prompt}
+                placeholder={tt('prompt.placeholder')}
+                onChange={(event) => { setPrompt(event.target.value); autoGrowPrompt(event.currentTarget) }}
+                ref={node => { if (node !== null) autoGrowPrompt(node) }}
+              />
+              <div className={css.promptFooter}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={css.templatesButton}
+                  title={tt('templates.title')}
+                  icon={<IconListPenOutlineRegular size={14} />}
+                  onClick={() => { setLibraryOpen(true) }}
+                >
+                  {tt('templates.open')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={css.enhanceButton}
+                  disabled={prompt.trim() === '' || enhancing}
+                  title={tt('prompt.enhanceHint')}
+                  onClick={() => { void enhanceCurrentPrompt() }}
+                >
+                  {enhancing ? tt('prompt.enhancing') : tt('prompt.enhance')}
+                </Button>
+                <span
+                  className={css.promptCount}
+                  data-over={promptOverLimit ? '' : undefined}
+                  title={promptOverLimit ? tt('prompt.overLimit', { limit: promptLimit ?? 0 }) : undefined}
+                >
+                  {promptLimit === null
+                    ? tt('prompt.count', { count: prompt.length })
+                    : tt('prompt.countLimit', { count: prompt.length, limit: promptLimit })}
+                </span>
+              </div>
+            </section>
+            </>) : null}
+          </div>
+
+          {/* footer: model + generate — a fixed sibling of the scroll area, so
+              it never overlaps the cards scrolling above it. */}
+            <section className={css.footer} data-video={isVideo ? 'true' : undefined}>
+            {workspace === 'ecommerce' ? (
+              <div className={css.ecommerceFooterBody}>
+                {ecommercePreview ? (
+                  <>
+                    <div className={css.ecommercePlanMini}>
+                      <strong>{tt('ecommerce.planTitle', { count: ecommerceTotal })}</strong>
+                      <div className={css.ecommercePlanList}>
+                        {ecommerceSlots.map(slot => <div key={slot.key}><span>{slot.label}</span><span>×{slot.count}</span></div>)}
+                      </div>
+                      <div className={css.ecommercePlanNote}>{tt('ecommerce.anchorNote')}</div>
+                      {ecommerceAssets.length === 0 ? <div className={css.ecommercePlanWarn}>{tt('ecommerce.noAssetWarn')}</div> : null}
+                    </div>
+                    <Button variant="primary" size="md" className={css.ecommercePrimaryAction} disabled={ecommerceGenerateDisabled} onClick={() => { void handleEcommerceGenerate() }}>{ecommerceGenerating ? tt('generating') : tt('ecommerce.confirm')}</Button>
+                    <button type="button" className={css.ecommercePlanBack} onClick={() => { setEcommercePreview(false) }}>{tt('gallery.tagsCancel')}</button>
+                  </>
+                ) : (
+                  <>
+                    <span className={css.ecommerceFooterHint}>{ecommerceTotal > 0 ? tt('ecommerce.footerReady', { count: ecommerceTotal }) : tt('ecommerce.footerEmpty')}</span>
+                    <Button variant="primary" size="md" className={css.ecommercePrimaryAction} disabled={ecommerce.productName.trim() === '' || ecommerceTotal === 0} onClick={() => setEcommercePreview(true)}>{tt('ecommerce.preview')}</Button>
+                  </>
+                )}
+              </div>
+            ) : null}
+            {isGeneration ? <div className={css.modelWrap}>
+              <span className={css.modelLabel}>{tt('model.channel')} / {tt('model.label')}</span>
+              <ModelPicker
+                groups={modeGroups}
+                value={{ channelId: modelChannelId, model }}
+                channelLabel={tt('model.channel')}
+                modelLabel={tt('model.label')}
+                channelPlaceholder={tt('model.channelPlaceholder')}
+                emptyLabel={tt('model.noEditModels')}
+                ariaLabel={tt('model.label')}
+                disabled={submitting}
+                onChange={choice => { setModelChannelId(choice.channelId); setModel(choice.model) }}
+              />
+              {/* Size, quality, count and the binary pills sit with the model:
+                  they describe the same request, and the footer stays put while
+                  the prompt scrolls. GIF still forces one image upstream. */}
+              <div className={css.paramStrip}>
+                {catalogAspects.length > 0 ? (
+                  <Select
+                    variant="composer"
+                    aria-label={tt('params.size')}
+                    value={size}
+                    label={sizeTriggerLabel(size)}
+                    options={catalogAspects.map(option => ({ value: option, label: sizeMenuLabel(option) }))}
+                    onChange={setSize}
+                  />
+                ) : null}
+                {catalogQualities.length > 0 ? (
+                  <Select
+                    variant="composer"
+                    aria-label={tt('params.quality')}
+                    value={quality}
+                    options={catalogQualities.map(option => ({ value: option, label: qualityLabel(option) }))}
+                    onChange={setQuality}
+                  />
+                ) : null}
+                {catalogRenders.length > 0 ? (
+                  <Select
+                    variant="composer"
+                    aria-label={tt('params.renderQuality')}
+                    value={renderQuality}
+                    options={catalogRenders.map(option => ({ value: option, label: qualityLabel(option) }))}
+                    onChange={setRenderQuality}
+                  />
+                ) : null}
+                <Select
+                  variant="composer"
+                  aria-label={tt('params.count')}
+                  value={String(outputFormat === 'gif' ? 1 : count)}
+                  disabled={outputFormat === 'gif'}
+                  title={outputFormat === 'gif' ? tt('params.gifSingleCount') : undefined}
+                  options={[1, 2, 3, 4].map(option => ({ value: String(option), label: countLabel(option) }))}
+                  onChange={value => {
+                    const next = Number(value)
+                    if (next === 1 || next === 2 || next === 3 || next === 4) setCount(next)
+                  }}
+                />
+                {catalogEntry === undefined ? (
+                  <Select
+                    variant="composer"
+                    aria-label={tt('params.detail')}
+                    value={detail}
+                    options={DETAILS.map(option => ({ value: option, label: detailLabel(option) }))}
+                    onChange={value => {
+                      const next = DETAILS.find(option => option === value)
+                      if (next !== undefined) setDetail(next)
+                    }}
+                  />
+                ) : null}
+                {(catalogEntry?.background_options ?? []).includes('transparent') ? (
+                  <div className={css.optionRow} role="group" aria-label={tt('params.background')}>
+                    <Pill active={!transparentBackground} onClick={() => { setTransparentBackground(false) }} className={css.optionPill}>{tt('params.backgroundDefault')}</Pill>
+                    <Pill active={transparentBackground} onClick={() => { setTransparentBackground(true) }} className={css.optionPill}>{tt('params.backgroundTransparent')}</Pill>
+                  </div>
+                ) : null}
+                {catalogFormats.length > 1 ? (
+                  <div className={css.optionRow} role="group" aria-label={tt('params.output')}>
+                    {catalogFormats.map(option => (
+                      <Pill
+                        key={option}
+                        active={outputFormat === option}
+                        onClick={() => { setOutputFormat(option) }}
+                        className={css.optionPill}
+                      >
+                        {outputFormatLabel(option)}
+                      </Pill>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              {specialFormat ? <span className={css.paramHint}>{tt('params.gifLocksMode')}</span> : null}
+              {catalogEntry === undefined ? <span className={css.paramHint}>{tt('detail.hint')}</span> : null}
+            </div> : null}
+            {/* Upstream retired or deprecated the selected id. A notice, never
+                a block: the request still goes out unchanged, because a
+                gateway may well still serve a model the first party dropped.
+                Absent for every ordinary model, so the row costs nothing. */}
+            {isGeneration && modelLifecycleNotice !== null ? (
+              <p
+                className={css.modelLifecycleNotice}
+                role="status"
+                data-model-lifecycle={describeModel(model).lifecycle}
+              >
+                {modelLifecycleNotice}
+              </p>
+            ) : null}
+            {isGeneration ? <div className={css.compareControl}>
+              <label className={css.compareToggle}>
+                <input
+                  type="checkbox"
+                  checked={compareEnabled}
+                  disabled={specialFormat}
+                  title={specialFormat ? tt('params.gifLocksMode') : undefined}
+                  onChange={event => { setCompareEnabled(event.target.checked) }}
+                />
+                <span>{tt('compare.enable')}</span>
+              </label>
+              {compareEnabled ? (
+                <div className={css.compareModelChoices} role="group" aria-label={tt('compare.models')}>
+                  {modeGroups.map(group => <div key={group.id || '__default__'} className={css.compareChannelGroup}>
+                    <span className={css.compareChannelName}>{group.name || tt('model.channelPlaceholder')}</span>
+                    {group.models.map(option => {
+                      const key = modelChoiceKey({ channelId: group.id, model: option })
+                      return <label key={key} title={option}>
+                        <input type="checkbox" checked={compareModels.includes(key)} onChange={() => { setCompareModels(previous => previous.includes(key) ? previous.filter(value => value !== key) : [...previous, key]) }} />
+                        <span>{option}</span>
+                      </label>
+                    })}
+                  </div>)}
+                </div>
+              ) : null}
+            </div> : null}
+            {isGeneration ? <Button
+              variant="primary"
+              size="md"
+              className={css.generateButton}
+              disabled={generateDisabled}
+              onClick={() => { void handleGenerate() }}
+            >
+              {generating ? (
+                <span className={css.generateInner}>
+                  <span className={css.spinner} />
+                  {tt('generating')}
+                </span>
+              ) : tt('generate')}
+              </Button> : null}
+            </section>
+          </aside>
+
+          {workspace === 'canvas' ? (
+            <CanvasWorkspace
+              api={api}
+              active={active && workspace === 'canvas'}
+              workspaceRoot={currentWorkspace}
+              {...pickDirectory === undefined ? {} : { pickDirectory }}
+              modelGroups={modelGroups}
+              defaultChannelId={defaultChannelId}
+              connected={connected}
+              connectedChannelIds={connectedChannelIds}
+              promptReady={promptReady}
+              history={history}
+              gallery={gallery}
+              tasks={tasks}
+              videoGroups={videoOptions.groups}
+              videoTasks={videoTasks}
+              videoHistory={videoHistory}
+              importRequest={canvasImportRequest}
+              onImportRequestHandled={() => { setCanvasImportRequest(undefined) }}
+              openCanvasId={openCanvasId}
+              onOpenCanvasHandled={() => { setOpenCanvasId(undefined) }}
+              onClipStored={() => {
+                // A stitch run lands its clip through the skill-run path, not a
+                // video task, so the task poller above never sees it. Refetch
+                // directly, or the new row stays invisible until the whole page
+                // is reloaded -- videoHistory is otherwise loaded exactly once.
+                void api.videoHistoryList()
+                  .then(entries => setVideoHistory(entries))
+                  .catch(() => { /* the next stitch tries again */ })
+              }}
+              onOpenSettings={(kind = 'generation') => { openSettingsGuide(kind) }}
+            />
+          ) : null}
+
+          {/* ----------------------------------------------- ppt conversion */}
+          {workspace === 'outfit' ? <OutfitWorkspace api={api} config={config} scope={scope} /> : null}
+
+          {workspace === 'ppt' ? (
+            <PptWorkspace api={api} active={active && workspace === 'ppt'} onImported={() => { /* no queued import to clear */ }} />
+          ) : null}
+
+          {workspace === 'replica' ? (
+            <ReplicaWorkspace
+              api={api}
+              active={active && workspace === 'replica'}
+              modelGroups={modelGroups}
+              defaultChannelId={defaultChannelId}
+              channels={config?.channels ?? []}
+              connected={connected}
+              galleryBusy={galleryAdding}
+              conversationBusy={conversationBusy}
+              conversationBusyKey={conversationAttachment.busyKey}
+              onPreview={(previewImages, index, source: ReplicaOutputSource) => { openPreview(previewImages, index, source) }}
+              onAddToGallery={(image, source) => { void addToGallery(image, source) }}
+              onAddToConversation={(image, index, actionKey, sourcePrompt) => { addImageToConversation(image, index, actionKey, sourcePrompt) }}
+              onCompleted={refreshHistoryAfterReplica}
+            />
+          ) : null}
+
+          {/* --------------------------------------- promo image + copy */}
+          {workspace === 'promo' ? (
+            <PromoWorkspace api={api} config={config} />
+          ) : null}
+
+          {/* ---------------------------------------------- A+ detail page */}
+          {workspace === 'aplus' ? (
+            <AplusWorkspace api={api} active={active && workspace === 'aplus'} modelGroups={modelGroups} defaultChannelId={defaultChannelId} channels={config?.channels ?? []} connected={connected} />
+          ) : null}
+
+          {/* -------------------------------------------------- video studio */}
+          {isVideo ? (
+            <section className={css.canvas} data-video="true">
+              <VideoPanel
+                api={api}
+                scope={scope}
+                config={config}
+                active={active && tab === 'video'}
+                tasks={videoTasks}
+                onRefreshTasks={refreshVideoTasks}
+                onAddToConversation={addClipToConversation}
+                onAddToCanvas={addClipToCanvas}
+                conversationBusyKey={addingToConversation === null ? null : String(addingToConversation)}
+                onExit={() => { openTab('text') }}
+              />
+            </section>
+          ) : null}
+
+          {/* ------------------------------------------------------- canvas */}
+          <section className={css.canvas} data-gallery={isGallery ? 'true' : undefined} data-video={isVideo ? 'true' : undefined} data-empty-result={isVideo ? 'true' : undefined}>
+          {isGallery ? (
+            <div className={css.galleryWorkspace}>
+              <header className={css.galleryToolbar}>
+                <div>
+                  <h3 className={css.galleryHeading}>{tt('gallery.all')}</h3>
+                  <span className={css.galleryCount}>{tt('gallery.count', { count: filteredGallery.length })}</span>
+                </div>
+                <div className={css.galleryToolbarActions}>
+                  <input className={css.gallerySearch} value={galleryQuery} onChange={event => { setGalleryQuery(event.target.value) }} placeholder={tt('gallery.search')} aria-label={tt('gallery.search')} />
+                  <button type="button" className={css.gallerySelectMode} disabled={galleryAdding} title={tt('gallery.uploadHint')} onClick={() => galleryUploadRef.current?.click()}>{galleryAdding ? '…' : tt('gallery.upload')}</button>
+                  <input
+                    ref={galleryUploadRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    multiple
+                    hidden
+                    onChange={event => {
+                      const files = [...(event.target.files ?? [])]
+                      event.target.value = ''
+                      if (files.length > 0) void uploadGalleryFiles(files)
+                    }}
+                  />
+                  <button type="button" className={css.gallerySelectMode} data-active={gallerySelecting ? '' : undefined} aria-pressed={gallerySelecting} onClick={() => { setGallerySelecting(previous => !previous) }}>
+                    {gallerySelecting ? tt('gallery.selectionDone') : tt('gallery.select')}
+                  </button>
+                  <div className={css.galleryViewToggle} role="group" aria-label={tt('gallery.viewMode')}>
+                    <button type="button" data-active={galleryView === 'masonry' ? '' : undefined} aria-pressed={galleryView === 'masonry'} onClick={() => { setGalleryView('masonry') }} title={tt('gallery.masonry')}>
+                      <span aria-hidden="true">▦</span> {tt('gallery.masonry')}
+                    </button>
+                    <button type="button" data-active={galleryView === 'grid' ? '' : undefined} aria-pressed={galleryView === 'grid'} onClick={() => { setGalleryView('grid') }} title={tt('gallery.grid')}>
+                      <span aria-hidden="true">▤</span> {tt('gallery.grid')}
+                    </button>
+                  </div>
+                  <Select className={css.gallerySort} value={gallerySort} onChange={value => { setGallerySort(value as 'newest' | 'oldest') }} aria-label={tt('gallery.sort')}>
+                    <option value="newest">{tt('gallery.newest')}</option>
+                    <option value="oldest">{tt('gallery.oldest')}</option>
+                  </Select>
+                  <button type="button" className={css.galleryClear} data-gallery-open-folder="" title={tt('gallery.openFolderHint')} onClick={() => { void api.openDataFolder() }}>{tt('gallery.openFolder')}</button>
+                  {galleryTrash.length > 0 ? (
+                    <button
+                      type="button"
+                      className={css.galleryClear}
+                      data-gallery-trash-toggle=""
+                      data-active={galleryTrashOpen ? '' : undefined}
+                      aria-expanded={galleryTrashOpen}
+                      title={tt('gallery.trashHint')}
+                      onClick={() => { setGalleryTrashOpen(open => !open) }}
+                    >
+                      {tt('gallery.trashCount', { count: galleryTrash.length })}
+                    </button>
+                  ) : null}
+                  {gallery.length > 0 ? <button type="button" className={css.galleryClear} data-gallery-clear="" onClick={() => { void clearGalleryAll() }}>{tt('gallery.clear')}</button> : null}
+                </div>
+              </header>
+              {selectedGalleryIds.size > 0 ? (
+                <section className={css.gallerySelectionBar} aria-label={tt('gallery.selected', { count: selectedGalleryIds.size })}>
+                  <strong>{tt('gallery.selected', { count: selectedGalleryIds.size })}</strong>
+                  <input className={css.galleryTagInput} value={galleryTagInput} onChange={event => { setGalleryTagInput(event.target.value) }} placeholder={tt('gallery.tagsPlaceholder')} aria-label={tt('gallery.tagsPlaceholder')} />
+                  <button type="button" className={css.galleryBulkButton} disabled={galleryTagInput.trim() === ''} onClick={() => { void applyGalleryTags() }}>{tt('gallery.tagsApply')}</button>
+                  <button type="button" className={css.galleryBulkButton} onClick={downloadGalleryImages}>{tt('gallery.downloadSelected')}</button>
+                  <button type="button" className={css.galleryBulkButton} onClick={exportGalleryJson}>{tt('gallery.exportJson')}</button>
+                  <button type="button" className={css.gallerySelectionClear} onClick={clearGallerySelection}>{tt('gallery.selectionClear')}</button>
+                </section>
+              ) : null}
+              {galleryTrashOpen && galleryTrash.length > 0 ? (
+                // The trash is a plain section of rows, not a card grid: a
+                // trashed entry is something to restore or drop, never to
+                // preview, add to the canvas or tag.
+                <section className={css.gallerySelectionBar} data-gallery-trash="" aria-label={tt('gallery.trash')}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 auto', minWidth: 0, maxHeight: 180, overflowY: 'auto' }}>
+                    {galleryTrash.map(entry => (
+                      <div key={entry.id} data-gallery-trash-row={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={entry.prompt}>
+                          {entry.prompt || tt('gallery.untitled')}
+                        </span>
+                        <small style={{ flex: 'none', color: 'var(--dsw-alias-label-tertiary)' }}>
+                          {tt('gallery.deletedAt', { time: formatTime(entry.deletedAt ?? entry.createdAt) })}
+                        </small>
+                        <button
+                          type="button"
+                          className={css.galleryBulkButton}
+                          data-gallery-restore={entry.id}
+                          onClick={() => { void restoreGalleryEntry(entry.id) }}
+                        >
+                          {tt('gallery.restore')}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" className={css.galleryBulkButton} data-gallery-purge="" onClick={() => { void purgeGalleryTrash() }}>{tt('gallery.purge')}</button>
+                </section>
+              ) : null}
+              {filteredGallery.length === 0 && galleryLoadError !== null ? (
+                <div className={css.historyEmpty} data-gallery-load-error="">
+                  <span>{tt('gallery.loadFailed', { error: galleryLoadError })}</span>
+                  <button type="button" className={css.galleryBulkButton} data-gallery-reload="" style={{ marginLeft: 8 }} onClick={retryInitialData}>{tt('canvas.retry')}</button>
+                </div>
+              ) : filteredGallery.length === 0 ? (
+                // Two different situations used to share 「素材库还是空的」: an empty
+                // library, and a search that matched nothing in a full one. Saying
+                // "the library is empty" while 200 assets sit behind a filter sends
+                // the user looking for a bug instead of clearing the filter.
+                gallery.length === 0 ? (
+                  <div className={css.historyEmpty}>{tt('gallery.empty')}</div>
+                ) : (
+                  <div className={css.historyEmpty} data-gallery-no-match="">
+                    <span>{tt('gallery.noMatch')}</span>
+                    <button
+                      type="button"
+                      className={css.galleryBulkButton}
+                      data-gallery-clear-filters=""
+                      style={{ marginLeft: 8 }}
+                      onClick={() => { setGalleryQuery(''); setGalleryFilter('all'); setGalleryRatio('all'); setGalleryTagFilter(null) }}
+                    >{tt('gallery.clearFilters')}</button>
+                  </div>
+                )
+              ) : (
+                <div ref={galleryLayoutRef} className={css.galleryMasonry} data-view={galleryView}>
+                  {galleryView === 'masonry'
+                    ? Array.from({ length: galleryColumnCount }, (_, column) => (
+                      <div key={column} className={css.galleryColumn} data-gallery-column={column}>
+                        {filteredGallery
+                          .filter((_, index) => index % galleryColumnCount === column)
+                          .map(renderGalleryCard)}
+                      </div>
+                    ))
+                    : filteredGallery.map(renderGalleryCard)}
+                </div>
+              )}
+            </div>
+          ) : null}
+          {workspace === 'ecommerce' && ecommercePreview ? (
+            <div className={css.ecommercePromptPreview} data-ecommerce-preview="">
+              <header className={css.ecommerceResultsHeader}>
+                <div>
+                  <h3>{tt('ecommerce.previewBoardTitle')}</h3>
+                  <span>{tt('ecommerce.previewBoardHint')}</span>
+                </div>
+                <div className={css.ecommerceResultsActions}>
+                  <button type="button" className={css.galleryBulkButton} onClick={() => { setEcommercePreview(false) }}>{tt('gallery.tagsCancel')}</button>
+                </div>
+              </header>
+              <div className={css.ecommercePromptList}>
+                {ecommerceSlots.filter(slot => slot.enabled).flatMap(slot => Array.from({ length: slot.count }, (_, index) => {
+                  const key = `${slot.key}-${index + 1}`
+                  const override = ecommerce.promptOverrides?.[key] ?? ''
+                  const edited = override.trim() !== ''
+                  return (
+                    <div key={key} className={css.ecommercePromptCard}>
+                      <header>
+                        <span className={css.ecommercePromptBadge}>{slot.label}{slot.count > 1 ? ` · 第 ${index + 1} 张` : ''}</span>
+                        <div className={css.ecommercePromptActions}>
+                          {edited ? (
+                            <button
+                              type="button"
+                              className={css.galleryBulkButton}
+                              onClick={() => setEcommerce(previous => {
+                                const overrides = { ...previous.promptOverrides }
+                                delete overrides[key]
+                                return { ...previous, promptOverrides: overrides }
+                              })}
+                            >
+                              {tt('ecommerce.promptReset')}
+                            </button>
+                          ) : (
+                            <span className={css.ecommercePromptAuto}>{tt('ecommerce.promptAutoHint')}</span>
+                          )}
+                          <button
+                            type="button"
+                            className={css.ecommercePromptPolish}
+                            disabled={ecommercePolishingKey !== null}
+                            onClick={() => { void polishEcommercePrompt(slot, index, key) }}
+                          >
+                            {ecommercePolishingKey === key ? tt('ecommerce.promptPolishing') : tt('ecommerce.promptPolish')}
+                          </button>
+                        </div>
+                      </header>
+                      <textarea
+                        value={edited ? override : ecommerceSlotPrompt(ecommerce, slot, index, ecommerceAssets.filter(item => item.role === (slot.refRole ?? 'product')))}
+                        onChange={event => setEcommerce(previous => ({ ...previous, promptOverrides: { ...previous.promptOverrides, [key]: event.target.value } }))}
+                        rows={5}
+                      />
+                    </div>
+                  )
+                }))}
+              </div>
+            </div>
+          ) : workspace === 'ecommerce' ? (
+            <div className={css.ecommerceResults} data-ecommerce-results="">
+              <header className={css.ecommerceResultsHeader}>
+                <div>
+                  <h3>{tt('ecommerce.results.title')}</h3>
+                  {ecommerceRestored !== null && ecommerceRestored.projectId === ecommerceProjectId && ecommerceRestored.projectName !== '' ? (
+                    <span>{ecommerceRestored.projectName}</span>
+                  ) : null}
+                  {ecommerceMergedItems.length > 0 ? (
+                    <span>
+                      {tt('ecommerce.results.progress', { done: ecommerceDoneCount, total: ecommerceMergedItems.length })}
+                      {ecommerceFailedCount > 0 ? ` · ${tt('ecommerce.results.failed', { count: ecommerceFailedCount })}` : ''}
+                    </span>
+                  ) : null}
+                  {ecommerceAnchor !== null ? <span data-ecommerce-anchor="">{tt('ecommerce.anchorPending')}</span> : null}
+                </div>
+                <div className={css.ecommerceResultsActions}>
+                  {ecommerceMergedItems.length > 0 ? <button type="button" className={css.galleryBulkButton} data-ecommerce-export="" onClick={exportEcommerceManifest}>{tt('ecommerce.results.export')}</button> : null}
+                  <button type="button" className={css.galleryBulkButton} data-ecommerce-new="" onClick={newEcommerceProduct}>{tt('ecommerce.results.newProduct')}</button>
+                </div>
+              </header>
+              {ecommerceMergedItems.length === 0 ? (
+                <div className={css.ecommerceResultsEmpty}>{tt('ecommerce.results.empty')}</div>
+              ) : (
+                <div className={css.ecommerceGroups} data-split={ecommerceMainGroup !== null ? 'true' : undefined}>
+                  {ecommerceMainGroup !== null ? renderEcommerceGroup(ecommerceMainGroup, true) : null}
+                  <div className={css.ecommerceGroupsSide}>
+                    {ecommerceSideGroups.map(group => renderEcommerceGroup(group))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
+          {!isGallery && panelTasks.length > 0 ? (
+            <section className={css.taskTray} data-open={taskTrayOpen ? 'true' : 'false'} aria-label={tt('tasks.title')}>
+              <header className={css.taskTrayHeader}>
+                <button type="button" className={css.taskTrayToggle} aria-expanded={taskTrayOpen} onClick={() => { setTaskTrayOpen(open => !open) }}>
+                  <span>{tt('tasks.title')}</span>
+                  <span className={css.taskTrayCount}>{activeTasks.length}</span>
+                  <span className={css.taskTrayChevron} aria-hidden="true">{taskTrayOpen ? '⌃' : '⌄'}</span>
+                </button>
+                {taskTrayOpen ? <button type="button" className={css.taskTrayClose} aria-label={tt('preview.close')} onClick={() => { setTaskTrayOpen(false) }}>×</button> : null}
+                {/* #38: "the request never arrived and there is nowhere to look".
+                    This is that place: every attempt, with its address and status. */}
+                <DiagnosticsButton open={diagnosticsOpen} onToggle={() => { setDiagnosticsOpen(open => !open) }} />
+                <SignalsButton open={signalsOpen} onToggle={() => { setSignalsOpen(open => !open) }} />
+              </header>
+              <div className={css.taskRows}>
+                {panelTasks.slice(0, 5).map(task => (
+                  <div key={task.id} className={css.taskRow} data-status={task.status}>
+                    <span className={css.taskStatus}>{tt(`tasks.${task.status}` as never)}</span>
+                    <span className={css.taskPrompt}>{task.request.prompt}</span>
+                    {(task.status === 'queued' || task.status === 'running') ? <button type="button" onClick={() => { void api.taskCancel(task.id) }}>{tt('tasks.cancel')}</button> : null}
+                    {task.status === 'failed' || task.status === 'cancelled' ? <button type="button" onClick={() => { void api.taskRetry(task.id) }}>{tt('tasks.retry')}</button> : null}
+                    {/* #38: a bare "失败" told the reporter nothing. Show WHY inline. */}
+                    {task.error !== undefined && task.error !== '' ? (
+                      <ErrorDetail message={task.error} />
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+          {workspace === 'normal' && tab !== 'gallery' && comparison !== null ? (
+            <section className={css.comparisonBoard} aria-label={tt('compare.title')}>
+              <header><div><strong>{tt('compare.title')}</strong><span>{comparisonResults.length} / {comparisonTasks.length}{generating ? ` · ${tt('canvas.elapsed', { seconds: elapsed })}` : ''}</span></div><button type="button" disabled={comparisonResults.length === 0} onClick={() => { setComparisonFullscreen(true) }}>{tt('compare.fullscreen')}</button></header>
+              <div className={css.comparisonGrid}>
+                {comparisonTasks.map(task => {
+                  const taskImages = task.result?.images ?? []
+                  const image = taskImages[0]
+                  return (
+                    <article key={task.id} data-comparison-task={task.id} data-task-status={task.status}>
+                      <strong>{task.request.model}</strong>
+                      {image !== undefined ? (
+                        <button
+                          type="button"
+                          className={css.comparisonImageButton}
+                          title={tt('preview.open')}
+                          onClick={() => { openPreview(taskImages, 0) }}
+                        >
+                          <img src={srcOf(image)} alt={task.request.model} />
+                        </button>
+                      ) : task.status === 'queued' || task.status === 'running' ? (
+                        // Each model waits on its own task, so the elapsed time is
+                        // that task's real start, never the board's shared timer.
+                        <GenerationLoading
+                          compact
+                          title={task.status === 'queued' ? tt('canvas.queued') : tt('canvas.generating')}
+                          hint={tt('canvas.elapsed', { seconds: taskElapsedSeconds(task) })}
+                        />
+                      ) : <span>{tt(`tasks.${task.status}` as never)}</span>}
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          ) : null}
+          {generating && comparison === null && isGeneration ? (
+            <div className={css.canvasState} data-generation-state={activeTask?.status ?? 'submitting'} role="status">
+              <GenerationLoading
+                title={submitting && activeTask === undefined
+                  ? tt('canvas.submitting')
+                  : activeTask?.status === 'queued'
+                    ? tt('canvas.queued')
+                    : tt('canvas.generating')}
+                hint={activeTask?.status === 'queued'
+                  ? tt('canvas.queueHint', { count: activeTasks.length })
+                  : tt('canvas.elapsed', { seconds: elapsed })}
+              />
+            </div>
+          ) : null}
+
+          {!generating && error !== null ? (
+            <div className={css.canvasError} data-canvas-error-banner=""><ErrorDetail message={error} /></div>
+          ) : null}
+
+          {!generating && error === null && uploadNotice !== null ? (
+            <div className={css.canvasError} role="status" data-upload-notice="">{uploadNotice}</div>
+          ) : null}
+
+          {/* The empty state is "nothing to show yet". Opening a clip from the
+              unified sidebar returns to this tab with `images` emptied, which is
+              exactly the state the inspiration wall renders in — so both drew
+              at once, the prompt suggestions sitting over the playing clip. */}
+          {isGeneration && !generating && !error && images.length === 0 && viewingVideoEntry === null ? (
+            <InspirationGallery
+              api={api}
+              onUse={(text) => {
+                setPrompt(text)
+                setError(null)
+              }}
+            />
+          ) : null}
+
+          {isGeneration && resultSurface.kind === 'video' ? (
+            <div className={css.canvasBody} data-video-board="">
+              <div className={css.canvasMeta}>
+                <span>{tt('history.video')}</span>
+                <span className={css.canvasHistoryTag}>{tt('history.viewing', { time: formatTime(resultSurface.clip.createdAt) })}</span>
+                <div className={css.canvasPromptLine}>
+                  <span className={css.canvasPromptText}>{resultSurface.clip.prompt}</span>
+                  {resultSurface.clip.resolution ? (
+                    <span className={css.canvasHistoryTag}>{tt('video.resolution')} {resultSurface.clip.resolution}</span>
+                  ) : null}
+                </div>
+              </div>
+              {resultSurface.clip.videos.map(clip => (
+                <figure key={clip.url} className={css.imageCard} data-clip-figure="">
+                  <video className={css.videoBoardPlayer} src={clip.url} controls autoPlay preload="metadata" />
+                  <button
+                    type="button"
+                    className={css.galleryAdd}
+                    data-video-board-canvas=""
+                    title={tt('canvas.addToCanvas')}
+                    onClick={() => { addClipToCanvas(clip.url, clip.mime, clip.duration, resultSurface.clip.prompt) }}
+                  >
+                    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 8h6M8 5v6"/></svg>
+                    {tt('canvas.addToCanvas')}
+                  </button>
+                  <button
+                    type="button"
+                    className={css.conversationAdd}
+                    data-video-board-conversation=""
+                    disabled={addingToConversation !== null}
+                    title={tt('conversation.addVideoHint')}
+                    onClick={() => { void addClipToConversation(clip.url, `board:${resultSurface.clip.id}`) }}
+                  >
+                    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10v7H3z"/><path d="M5.5 2.5h5M8 6v4M6 8h4"/></svg>
+                    {addingToConversation === `board:${resultSurface.clip.id}` ? tt('conversation.adding') : tt('conversation.add')}
+                  </button>
+                  <a className={css.download} href={clip.url} download onClick={event => event.stopPropagation()}>{tt('download')}</a>
+                  <figcaption className={css.imageCaption}>
+                    {resultSurface.clip.model} · {resultSurface.clip.aspectRatio} · {resultSurface.clip.seconds}s
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          ) : null}
+
+          {isGeneration && !generating && images.length > 0 && resultSurface.kind === 'images' ? (
+            <div className={css.canvasBody}>
+              <div className={css.canvasMeta}>
+                <span>{tt('canvas.images', { count: images.length })}</span>
+                {viewingEntry !== null || viewingGalleryEntry !== null ? (
+                  <span className={css.canvasHistoryTag}>
+                    {viewingEntry !== null
+                      ? tt('history.viewing', { time: formatTime(viewingEntry.createdAt) })
+                      : tt('gallery.viewing', { time: formatTime(viewingGalleryEntry!.createdAt) })}
+                  </span>
+                ) : null}
+                {viewingImageEntry !== null ? (
+                  <div className={css.canvasPromptLine}>
+                    <span className={css.canvasPromptText}>{viewingImageEntry.prompt}</span>
+                    <span className={css.canvasHistoryTag}>{tt('params.size')} {viewingImageEntry.size}</span>
+                    <span className={css.canvasHistoryTag}>{tt('params.quality')} {viewingImageEntry.quality}</span>
+                    {viewingImageEntry.detail ? (
+                      <span className={css.canvasHistoryTag}>{tt('params.detail')} {viewingImageEntry.detail}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+              <div className={css.grid} data-count={images.length}>
+                {images.map((image, index) => (
+                  <figure
+                    key={index}
+                    className={css.imageCard}
+                    role="button"
+                    tabIndex={0}
+                    title={tt('preview.open')}
+                    onClick={() => { openPreview(images, index) }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        openPreview(images, index)
+                      }
+                    }}
+                  >
+                    <img
+                      className={css.image}
+                      src={srcOf(image)}
+                      alt={image.revisedPrompt ?? `${tt('panel.title')} ${index + 1}`}
+                    />
+                    {image.revisedPrompt !== undefined ? (
+                      <figcaption className={css.imageCaption} title={image.revisedPrompt}>
+                        {tt('revisedPrompt', { prompt: image.revisedPrompt })}
+                      </figcaption>
+                    ) : null}
+                    <span className={css.zoomHint}>
+                      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4"/><path d="M13 13l-3.2-3.2"/><path d="M7 5.4v3.2M5.4 7h3.2"/></svg>
+                      {tt('preview.open')}
+                    </span>
+                      <button
+                        type="button"
+                        className={css.galleryAdd}
+                        title={tt('gallery.add')}
+                        disabled={galleryAdding}
+                        onClick={(event) => { event.stopPropagation(); void addToGallery(image) }}
+                      >
+                        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M8 5.8v4.4M5.8 8h4.4"/></svg>
+                        {tt('gallery.add')}
+                      </button>
+                      <button
+                        type="button"
+                        className={css.conversationAdd}
+                        title={tt('conversation.add')}
+                        disabled={conversationBusy}
+                        onClick={(event) => { event.stopPropagation(); void addImageToConversation(image, index) }}
+                      >
+                        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10v7H3z"/><path d="M5.5 2.5h5M8 6v4M6 8h4"/></svg>
+                        {conversationAttachment.busyKey === index ? tt('conversation.adding') : tt('conversation.add')}
+                      </button>
+                      <a
+                      className={css.download}
+                      href={srcOf(image)}
+                      download={`dsh-image-${index + 1}.${extensionOf(image.mime)}`}
+                      onClick={(event) => { event.stopPropagation() }}
+                    >
+                      {tt('download')}
+                    </a>
+                  </figure>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          </section>
+        </div>
+
+      </div>
+
+      {sidebarHistoryHost !== null && historyPanel !== null
+        ? createPortal(historyPanel, sidebarHistoryHost)
+        : null}
+
+      {/* ------------------------------------------------ template library */}
+      {libraryOpen ? (
+        <TemplateLibrary
+          api={api}
+          currentPrompt={prompt}
+          hasExistingPrompt={prompt.trim() !== ''}
+          onClose={() => { setLibraryOpen(false) }}
+          onUse={(text) => {
+            openTab('text')
+            setPrompt(text)
+            setError(null)
+            setLibraryOpen(false)
+          }}
+        />
+      ) : null}
+
+      {configGuide !== null ? (
+        <div className={css.configGuide} role="dialog" aria-modal="true" aria-label={tt(`config.${configGuide}Title` as never)}>
+          <div className={css.configGuideBody}>
+            <strong>{tt(`config.${configGuide}Title` as never)}</strong>
+            <span>{tt(`config.${configGuide}Hint` as never)}</span>
+            <button type="button" onClick={() => { setConfigGuide(null) }}>{tt('preview.close')}</button>
+          </div>
+        </div>
+      ) : null}
+
+      {comparisonFullscreen && comparison !== null ? createPortal(
+        <div ref={comparisonFullscreenRef} tabIndex={-1} className={css.comparisonFullscreen} role="dialog" aria-modal="true" aria-label={tt('compare.title')} onClick={() => { setComparisonFullscreen(false) }}>
+          <button type="button" className={css.lightboxClose} aria-label={tt('preview.close')} onClick={() => { setComparisonFullscreen(false) }}>×</button>
+          <div className={css.comparisonFullscreenGrid} onClick={event => { event.stopPropagation() }}>
+            {comparisonResults.map(task => (
+              <figure key={task.id}><figcaption>{task.request.model}</figcaption>{task.result!.images.map((image, index) => <img key={index} src={srcOf(image)} alt={task.request.model} />)}</figure>
+            ))}
+          </div>
+        </div>, document.body) : null}
+
+      {/* -------------------------------------------------- preview overlay */}
+      {galleryClip !== null && galleryClip.video !== undefined
+        ? createPortal(
+          <div
+            ref={galleryClipRef}
+            tabIndex={-1}
+            className={css.lightbox}
+            role="dialog"
+            aria-modal="true"
+            data-gallery-clip-viewer=""
+            aria-label={tt('history.video')}
+            onClick={() => { setGalleryClip(null) }}
+          >
+            <video
+              className={css.galleryClipPlayer}
+              src={galleryClip.video.url}
+              controls
+              autoPlay
+              onClick={event => event.stopPropagation()}
+            />
+            <button
+              type="button"
+              className={css.lightboxClose}
+              aria-label={tt('canvas.videoPreviewClose')}
+              title={tt('canvas.videoPreviewClose')}
+              onClick={() => { setGalleryClip(null) }}
+            >×</button>
+          </div>,
+          document.body,
+        )
+        : null}
+      {preview !== null && previewImage !== null
+        ? createPortal(
+          <div
+            ref={previewDialogRef}
+            tabIndex={-1}
+            className={css.lightbox}
+            data-preview-overlay=""
+            role="dialog"
+            aria-modal="true"
+            aria-label={tt('preview.title')}
+            onClick={closePreview}
+          >
+            <button type="button" className={css.lightboxClose} aria-label={tt('preview.close')} title={tt('preview.close')} onClick={closePreview}>
+              <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+            </button>
+            {preview.images.length > 1 ? (
+              <>
+                <button type="button" className={css.lightboxNav} data-dir="prev" aria-label={tt('preview.prev')} onClick={(event) => { event.stopPropagation(); stepPreview(-1) }}>
+                  <svg viewBox="0 0 16 16" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 3l-5 5 5 5"/></svg>
+                </button>
+                <button type="button" className={css.lightboxNav} data-dir="next" aria-label={tt('preview.next')} onClick={(event) => { event.stopPropagation(); stepPreview(1) }}>
+                  <svg viewBox="0 0 16 16" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>
+                </button>
+              </>
+            ) : null}
+            <figure className={css.lightboxFigure} onClick={(event) => { event.stopPropagation() }}>
+              <div
+                ref={previewStage}
+                className={css.lightboxStage}
+                data-preview-stage=""
+              >
+                <div
+                  className={css.lightboxScaleFrame}
+                  style={{ width: `${previewFrameScale * 100}%`, height: `${previewFrameScale * 100}%` }}
+                >
+                  <img
+                    className={css.lightboxImage}
+                    style={{ width: `${previewImageScale * 100}%`, height: `${previewImageScale * 100}%` }}
+                    src={srcOf(previewImage)}
+                    alt={previewImage.revisedPrompt ?? tt('preview.title')}
+                    /* Drag-to-pan is a pointer gesture; the browser's own
+                       image drag would start on the same press and cancel it. */
+                    draggable={false}
+                    onDragStart={event => event.preventDefault()}
+                  />
+                </div>
+              </div>
+              <div className={css.lightboxTools} role="group" aria-label={tt('preview.zoomControls')}>
+                <button type="button" className={css.lightboxTool} aria-label={tt('preview.zoomOut')} title={tt('preview.zoomOut')} onClick={() => { setPreviewScale(current => clampPreviewScale(current - PREVIEW_SCALE_STEP)) }}>
+                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="M4.8 7h4.4M13 13l-2.8-2.8"/></svg>
+                </button>
+                <button type="button" className={css.lightboxZoomLevel} aria-label={tt('preview.zoomReset')} title={tt('preview.zoomReset')} onClick={() => { setPreviewScale(1) }}>
+                  {tt('preview.zoomLevel', { percent: Math.round(previewScale * 100) })}
+                </button>
+                <button type="button" className={css.lightboxTool} aria-label={tt('preview.zoomIn')} title={tt('preview.zoomIn')} onClick={() => { setPreviewScale(current => clampPreviewScale(current + PREVIEW_SCALE_STEP)) }}>
+                  <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="M7 4.8v4.4M4.8 7h4.4M13 13l-2.8-2.8"/></svg>
+                </button>
+                <span className={css.lightboxZoomHint} data-preview-zoom-hint="">{tt('preview.wheelHint')}</span>
+              </div>
+              {previewImage.revisedPrompt !== undefined ? (
+                <div className={css.lightboxCaptionRow}>
+                  <figcaption className={css.lightboxCaption} title={previewImage.revisedPrompt}>
+                    {tt('revisedPrompt', { prompt: previewImage.revisedPrompt })}
+                  </figcaption>
+                  <button type="button" className={css.lightboxCopy} aria-label={tt(promptCopied ? 'preview.copied' : 'preview.copyPrompt')} title={tt(promptCopied ? 'preview.copied' : 'preview.copyPrompt')} onClick={() => { void copyPreviewPrompt(previewImage.revisedPrompt!) }}>
+                    {promptCopied ? (
+                      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8l3 3 7-7"/></svg>
+                    ) : (
+                      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="5" width="7" height="8" rx="1"/><path d="M3 10V3.8c0-.44.36-.8.8-.8H9"/></svg>
+                    )}
+                    <span>{tt(promptCopied ? 'preview.copied' : 'preview.copyPrompt')}</span>
+                  </button>
+                </div>
+              ) : null}
+              <div className={css.lightboxMeta}>
+                <span className={css.lightboxIndex}>{tt('preview.index', { index: preview.index + 1, total: preview.images.length })}</span>
+                <span className={css.lightboxActions}>
+                  <button type="button" className={css.lightboxEdit} disabled={conversationBusy} title={tt('conversation.addHint')} onClick={() => { addImageToConversation(previewImage, preview.index, previewConversationKey, preview.source?.prompt) }}>
+                    {conversationAttachment.busyKey === previewConversationKey ? tt('conversation.adding') : tt('conversation.add')}
+                  </button>
+                  <button type="button" className={css.lightboxEdit} disabled={galleryAdding} onClick={() => { void addToGallery(previewImage, preview.source) }}>
+                    {tt('gallery.add')}
+                  </button>
+                  <button type="button" className={css.lightboxEdit} onClick={addPreviewToEdit}>
+                    {tt('preview.addToEdit')}
+                  </button>
+                  <a
+                    className={css.lightboxDownload}
+                    href={srcOf(previewImage)}
+                    download={`dsh-image-${preview.index + 1}.${extensionOf(previewImage.mime)}`}
+                  >
+                    {tt('download')}
+                  </a>
+                </span>
+              </div>
+            </figure>
+          </div>,
+          document.body,
+        )
+        : null}
+
+      {/* ------------------------------------------------- gallery toast */}
+      {galleryMessage !== null ? (
+        <div className={css.galleryToast} role="status">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M8 5.8v4.4M5.8 8h4.4"/></svg>
+          {galleryMessage}
+        </div>
+      ) : null}
+      {conversationMessage !== null ? (
+        <div className={css.conversationToast} role="status">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10v7H3z"/><path d="M5.5 2.5h5M8 6v4M6 8h4"/></svg>
+          {conversationMessage}
+        </div>
+      ) : null}
+      {/* ------------------------------------------------- session picker */}
+      {conversationAttachment.pending !== null
+        ? createPortal(
+          <ConversationSessionPicker
+            options={conversationAttachment.targets}
+            labels={{
+              title: tt('conversation.chooseSession'),
+              hint: tt('conversation.chooseSessionHint'),
+              target: tt('conversation.targetSession'),
+              placeholder: tt('conversation.selectSession'),
+              confirm: tt('conversation.confirmAdd'),
+              cancel: tt('conversation.cancel'),
+            }}
+            onSelect={conversationAttachment.selectTarget}
+            onCancel={conversationAttachment.cancelPicker}
+          />,
+          document.body,
+        )
+        : null}
+      <DiagnosticsPanel api={api} open={diagnosticsOpen} onClose={() => { setDiagnosticsOpen(false) }} />
+      <SignalsPanel api={api} open={signalsOpen} onClose={() => { setSignalsOpen(false) }} />
+    </div>
+  )
+}
+
+/** File extension for a MIME type (download filenames). */
+function extensionOf(mime: string): string {
+  switch (mime.split(';')[0]!.trim()) {
+    case 'image/jpeg': return 'jpg'
+    case 'image/webp': return 'webp'
+    case 'image/gif': return 'gif'
+    case 'image/svg+xml': return 'svg'
+    default: return 'png'
+  }
+}
+

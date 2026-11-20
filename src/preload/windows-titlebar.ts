@@ -1,6 +1,7 @@
 import type { IpcRenderer } from 'electron'
 import { WINDOWS_TITLEBAR_HEIGHT } from '../shared/desktop-menu'
 import { mountWindowsMenuBar } from './windows-menu-bar'
+import { mountWindowControls, type CaptionIpc } from './window-controls'
 
 /** Pages that may paint the native caption. Embedded account pages must not. */
 export function isDesktopCaptionDocument(location: Pick<Location, 'protocol' | 'href'>): boolean {
@@ -16,11 +17,11 @@ const MODAL_OPEN_ATTRIBUTE = 'data-dsh-modal-open'
 
 interface TitlebarLayoutMountOptions {
   document: Document
-  ipcRenderer: Pick<IpcRenderer, 'invoke'>
+  ipcRenderer: CaptionIpc
 }
 
 /** Harness reads this marker while creating its first layout frame.
- * Its Windows-named seam is also used for the Linux overlay; data-platform stays Linux.
+ * Its Windows-named seam is also used for the Linux caption; data-platform stays Linux.
  */
 export function markWindowsTitlebar(document: Document): void {
   const apply = (root: HTMLElement): void => {
@@ -46,8 +47,9 @@ export function markWindowsTitlebar(document: Document): void {
 /**
  * Windows/Linux caption layout. Harness 0.1.7 owns the caption row on its pages
  * (AppFrame reserves it, paints it and makes it draggable) once the marker is
- * set; Desktop adds the caption menubar in the upstream seat, a drag strip for
- * its own local pages, and releases the drag area while a dialog is open.
+ * set; Desktop adds the caption menubar in the upstream seat, the window
+ * buttons, a drag strip for its own local pages, and releases the drag area
+ * while a dialog is open.
  */
 export function mountWindowsTitlebarLayout(options: TitlebarLayoutMountOptions): void {
   const { document, ipcRenderer } = options
@@ -60,6 +62,7 @@ export function mountWindowsTitlebarLayout(options: TitlebarLayoutMountOptions):
   if (document.location.protocol === 'file:') installDragRegion(document)
   trackModals(document)
   mountWindowsMenuBar({ document, ipcRenderer })
+  mountWindowControls({ document, ipcRenderer })
 
   syncTheme(document, ipcRenderer)
   const themeObserver = new MutationObserver(() => syncTheme(document, ipcRenderer))
@@ -86,7 +89,7 @@ function installLayout(document: Document): void {
       padding-top: 0 !important;
     }
     /* Local recovery pages do not have Harness AppFrame to reserve a caption
-       row. Keep their logo/actions below both the menu and native controls. */
+       row. Keep their logo/actions below both the menu and window controls. */
     body.dsh-desktop-windows-titlebar-layout[data-dsh-standalone-titlebar] {
       padding-top: ${WINDOWS_TITLEBAR_HEIGHT}px !important;
     }
@@ -104,6 +107,9 @@ function installLayout(document: Document): void {
       -webkit-app-region: no-drag !important;
     }
     html[${MODAL_OPEN_ATTRIBUTE}] #${DRAG_REGION_ID} { display: none !important; }
+    /* The caption menu is painted above dialogs. Drop it while one is open
+       so the dialog's top edge receives the click. */
+    html[${MODAL_OPEN_ATTRIBUTE}] [data-dsh-windows-menu] { z-index: 0 !important; }
     body.dsh-desktop-windows-titlebar-layout button,
     body.dsh-desktop-windows-titlebar-layout a,
     body.dsh-desktop-windows-titlebar-layout input,
@@ -120,7 +126,7 @@ function installLayout(document: Document): void {
       z-index: 10;
       top: 0;
       left: 0;
-      right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 140px)));
+      right: 0;
       height: ${WINDOWS_TITLEBAR_HEIGHT}px;
       background: transparent;
       pointer-events: none;

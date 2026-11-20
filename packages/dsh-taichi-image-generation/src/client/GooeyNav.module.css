@@ -1,0 +1,286 @@
+/* reactbits.dev "GooeyNav" port, theme-following. The gooey merge uses an SVG
+ * alpha-contrast filter (blur + feColorMatrix) instead of the CSS
+ * blur+contrast trick, so colored particles survive on any surface: the pill
+ * and ink follow the host theme via [data-theme]. */
+
+.container {
+  --gooey-time: 1500ms;
+  /* A flex child refuses to shrink below its content unless min-width is 0, so
+     `overflow-x: auto` never kicked in: the nav kept its full width and slid
+     under the chat toggle instead. */
+  min-width: 0;
+  flex: 1 1 auto;
+  /* The row outgrows this column at ORDINARY window widths, not just on a
+     phone: the tab count follows the product (five at 1.16.1, more as
+     workspaces ship) while `li button` is `white-space: nowrap`, so the labels
+     never shrink. Without a clip here the surplus <li>s painted straight over
+     `.panelHeaderActions`: the chat toggle LOOKED fine and could not be
+     clicked, because `elementFromPoint` at its centre returned a nav button.
+     That was a real, shipped defect from 820px to 1200px.
+     Scrolling HERE keeps the overflow inside this box, so every tab stays
+     reachable (wheel, trackpad, and the arrow keys once focus is in the nav)
+     and the header buttons keep their own space. It used to live in a
+     `@media (max-width: 760px)` block, which is exactly why everything just
+     above 760px was broken. */
+  overflow-x: auto;
+  /* No visible scrollbar: it would steal 15px from a row that is already tight,
+     and the row stays scrollable without one. All three declarations exist
+     because the engines disagree: `scrollbar-width` is the standard property
+     (Chromium 121+, Firefox), `-ms-overflow-style` covers legacy Edge, and the
+     `::-webkit-scrollbar` rule below is what older Blink builds honor. Any one
+     of them alone leaves a classic 15px trough on some host, which would
+     re-create the very overflow this is meant to absorb. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scrollbar-color: transparent transparent;
+  /* The particle burst is the one decorative flourish in this plugin, so its
+     four hues stay an accent rather than the host's brand color -- but they are
+     derived from the brand token mixed with DSH's own static swatches instead of
+     four unrelated literals, so they move with the theme.
+     Brand here is NEUTRAL (near-black on light, near-white on dark), so each
+     mix keeps the particle legible on both surfaces: warm, white and cool. */
+  --gooey-color-1: var(--dsw-alias-brand-primary, #5227ff);
+  --gooey-color-2: color-mix(in srgb, var(--dsw-alias-brand-primary, #5227ff) 45%, var(--dsw-static-red-400, #f25a5a));
+  --gooey-color-3: color-mix(in srgb, var(--dsw-alias-brand-primary, #5227ff) 55%, var(--dsw-static-neutral-00, #ffffff));
+  --gooey-color-4: color-mix(in srgb, var(--dsw-alias-brand-primary, #5227ff) 40%, var(--dsw-static-blue-400, #60a5fa));
+  position: relative;
+  max-width: 100%;
+  font-size: 13px;
+}
+
+/* The third, oldest way to hide that trough. Grouped with the two properties
+   above on purpose: they all answer one question ("is there a visible scroll
+   bar?"), so a later reader finds the whole answer in one place instead of
+   wondering which rule won. */
+.container::-webkit-scrollbar { display: none; }
+
+/* The pill and its label are the two colors that carry meaning, so they come
+   from the theme rather than from a literal. The per-surface branches exist for
+   the case where the host tokens are NOT defined (a bare shell, or the jsdom
+   harness): `var()` then falls back to the literal that is readable against
+   that surface. With the tokens present both branches resolve to the same theme
+   values, which are already inverses of each other, so the pill reads as a
+   solid chip under either theme without a hardcoded palette.
+   `data-theme` is set from a LIVE surface reading (see the component), so it is
+   still correct after the host switches theme. */
+.container[data-theme='light'] {
+  --gooey-pill: var(--dsw-alias-label-primary, #17171c);
+  --gooey-pill-ink: var(--dsw-alias-bg-layer-1, #ffffff);
+  --gooey-ink: var(--dsw-alias-label-secondary, #5b5e6b);
+}
+
+.container[data-theme='dark'] {
+  --gooey-pill: var(--dsw-alias-label-primary, #ffffff);
+  --gooey-pill-ink: var(--dsw-alias-bg-layer-1, #17171c);
+  --gooey-ink: var(--dsw-alias-label-secondary, #ffffff);
+}
+
+.gooSvg {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.container nav {
+  display: flex;
+  position: relative;
+  transform: translate3d(0, 0, 0.01px);
+}
+
+.container nav ul {
+  display: flex;
+  gap: 6px;
+  list-style: none;
+  padding: 0 4px;
+  margin: 0;
+  position: relative;
+  z-index: 3;
+}
+
+.container nav li {
+  border-radius: 100vw;
+  position: relative;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    box-shadow 0.3s ease;
+  color: var(--gooey-ink);
+}
+
+.container nav li button {
+  display: inline-block;
+  padding: 5px 13px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.container nav li.active {
+  color: var(--gooey-pill-ink);
+}
+
+.container nav li::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* The pill itself is capsular: `li` above and `.effectFilter::after` below both
+     use the cap-shape value, so this inner copy uses the tokenised cap form of
+     the same shape instead of a 10px corner that would cut the ends flat. */
+  border-radius: 999px;
+  background: var(--gooey-pill);
+  opacity: 0;
+  transform: scale(0);
+  transition: all 0.3s ease;
+  z-index: -1;
+}
+
+.container nav li.active::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.effect {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  opacity: 1;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  z-index: 1;
+}
+
+.effectText {
+  color: var(--gooey-ink);
+  transition: color 0.3s ease;
+  font-size: 13px;
+}
+
+.effectText.active {
+  color: var(--gooey-pill-ink);
+}
+
+.effectFilter {
+  filter: url(#dsh-gooey-nav-goo);
+}
+
+.effectFilter::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--gooey-pill);
+  transform: scale(0);
+  opacity: 0;
+  z-index: -1;
+  border-radius: 100vw;
+}
+
+.effectFilter.active::after {
+  animation: gooeyPill 0.3s ease both;
+}
+
+@keyframes gooeyPill {
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.particle,
+.point {
+  display: block;
+  opacity: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 100%;
+  transform-origin: center;
+}
+
+.particle {
+  --time: 1500ms;
+  position: absolute;
+  top: calc(50% - 7px);
+  left: calc(50% - 7px);
+  animation: gooeyParticle calc(var(--time)) ease 1 -350ms;
+}
+
+.point {
+  background: var(--color);
+  opacity: 1;
+  animation: gooeyPoint calc(var(--time)) ease 1 -350ms;
+}
+
+@keyframes gooeyParticle {
+  0% {
+    transform: rotate(0deg) translate(calc(var(--start-x)), calc(var(--start-y)));
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+
+  70% {
+    transform: rotate(calc(var(--rotate) * 0.5)) translate(calc(var(--end-x) * 1.2), calc(var(--end-y) * 1.2));
+    opacity: 1;
+    animation-timing-function: ease;
+  }
+
+  85% {
+    transform: rotate(calc(var(--rotate) * 0.66)) translate(calc(var(--end-x)), calc(var(--end-y)));
+    opacity: 1;
+  }
+
+  100% {
+    transform: rotate(calc(var(--rotate) * 1.2)) translate(calc(var(--end-x) * 0.5), calc(var(--end-y) * 0.5));
+    opacity: 1;
+  }
+}
+
+@keyframes gooeyPoint {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+
+  25% {
+    transform: scale(calc(var(--scale) * 0.25));
+  }
+
+  38% {
+    opacity: 1;
+  }
+
+  65% {
+    transform: scale(var(--scale));
+    opacity: 1;
+    animation-timing-function: ease;
+  }
+
+  85% {
+    transform: scale(var(--scale));
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(0);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .particle,
+  .point {
+    animation: none;
+  }
+}
+
+/* `width: max-content` at EVERY width, not only below some breakpoint: it is
+   what stops a squeezed label from wrapping onto two lines once the nav is a
+   scroll container (the labels are `nowrap`, so shrinking the `nav` box only
+   makes them taller). The scroll container above absorbs the surplus instead of
+   the labels. */
+.container nav { width: max-content; }

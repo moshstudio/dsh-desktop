@@ -17,7 +17,7 @@ function hasEnterprisePlugin(): boolean {
  * Desktop profile overlay. Analytics and the official account page stay off.
  * The official sidebar brand is replaced by the product client UI.
  * The normal profile also mounts workbenches, the plugin market installer,
- * Office, PPT, and Taichi image generation. Safe Mode keeps the account and brand overlay only.
+ * Office, PPT, and the vendored image/video studio. Safe Mode keeps the account and brand overlay only.
  */
 const DESKTOP_PRODUCT_PATCH_BASE = `- id: desktop-product-telemetry
   disabled: true
@@ -65,8 +65,35 @@ const DESKTOP_PPT_ROW = `    - id: dsh-ppt-composer
         root: !!js dshHomePath('kimi-ppt')
 `
 
-const DESKTOP_IMAGE_ROW = `    - id: dsh-taichi-image-generation
+// Keep these ids off the upstream `imagegen` / `imagegen-*` rows. A market
+// switch selects every loader row whose id appears in the disabled package's
+// patch, which otherwise turns this in-box studio off with the market copy.
+const DESKTOP_IMAGE_ROW = `    - id: taichi-imagegen
       name: dsh-taichi-image-generation
+    - id: taichi-imagegen-image
+      name: dsh-taichi-image-generation/image
+    - id: taichi-imagegen-video
+      name: dsh-taichi-image-generation/video
+    - id: taichi-imagegen-canvas
+      name: dsh-taichi-image-generation/canvas
+    - id: taichi-imagegen-gallery
+      name: dsh-taichi-image-generation/gallery
+    - id: taichi-imagegen-templates
+      name: dsh-taichi-image-generation/templates
+    - id: taichi-imagegen-skills
+      name: dsh-taichi-image-generation/skills
+    - id: taichi-imagegen-ppt
+      name: dsh-taichi-image-generation/ppt
+    - id: taichi-imagegen-ecommerce
+      name: dsh-taichi-image-generation/ecommerce
+    - id: taichi-imagegen-outfit
+      name: dsh-taichi-image-generation/outfit
+    - id: taichi-imagegen-prompt
+      name: dsh-taichi-image-generation/prompt
+    - id: taichi-imagegen-storage
+      name: dsh-taichi-image-generation/storage
+    - id: taichi-imagegen-diagnostics
+      name: dsh-taichi-image-generation/diagnostics
 `
 
 export const DESKTOP_SAFE_PRODUCT_PATCH = DESKTOP_PRODUCT_PATCH_BASE

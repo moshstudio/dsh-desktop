@@ -8,6 +8,24 @@ import { readDisabledHostPlugins } from './host-plugin-state'
 
 const PACKAGE_SPECIFIER = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9._-]+)*$/i
 
+/** A subpath export belongs to the package before the first slash.
+ *  Scoped names keep `@scope/name` and drop anything after that.
+ */
+export function hostPluginPackageName(specifier: string): string {
+  const parts = specifier.split('/')
+  if (specifier.startsWith('@')) {
+    const scope = parts[0]
+    const name = parts[1]
+    if (!scope || !name) return specifier
+    return `${scope}/${name}`
+  }
+  return parts[0] ?? specifier
+}
+
+function isOmittedHostPlugin(name: string, omitted: ReadonlySet<string>): boolean {
+  return omitted.has(name) || omitted.has(hostPluginPackageName(name))
+}
+
 interface HostPluginName {
   name: string
   start: number
@@ -40,7 +58,7 @@ function hostPluginNames(source: string): HostPluginName[] {
 
 export function hostInsertedPluginNames(source: string, disabled: readonly string[] = []): string[] {
   const omitted = new Set(disabled)
-  return hostPluginNames(source).map(({ name }) => name).filter((name) => !omitted.has(name))
+  return hostPluginNames(source).map(({ name }) => name).filter((name) => !isOmittedHostPlugin(name, omitted))
 }
 
 function withoutDisabledInsertions(source: string, disabled: readonly string[]): string {
@@ -57,7 +75,7 @@ function withoutDisabledInsertions(source: string, disabled: readonly string[]):
     const kept = inserted.items.filter((entry) => {
       if (!isMap(entry)) return true
       const name = entry.get('name')
-      return typeof name !== 'string' || !omitted.has(name)
+      return typeof name !== 'string' || !isOmittedHostPlugin(name, omitted)
     })
     if (kept.length === inserted.items.length) return true
     changed = true

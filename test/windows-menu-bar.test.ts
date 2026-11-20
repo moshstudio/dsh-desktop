@@ -112,7 +112,7 @@ it('leaves the Harness caption seat owned by AppFrame in normal and safe repair 
   const { mountWindowsTitlebarLayout } = await import('../src/preload/windows-titlebar')
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: vi.fn() }))
   document.body.innerHTML = '<div id="root"><div data-shell-overlay></div></div>'
-  mountWindowsTitlebarLayout({ document, ipcRenderer: { invoke: vi.fn(async () => undefined) } })
+  mountWindowsTitlebarLayout({ document, ipcRenderer: { invoke: vi.fn(async () => undefined), on: vi.fn() } })
   expect(document.body.hasAttribute('data-dsh-standalone-titlebar')).toBe(false)
   expect(getComputedStyle(document.body).paddingTop).toBe('0px')
   expect(host()).not.toBeNull()

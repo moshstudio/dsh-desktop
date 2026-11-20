@@ -1,0 +1,311 @@
+/**
+ * Host-persisted generation history: images are stored as individual files
+ * under ~/.dsh/dsh-imagegen/images/ and an index.json keeps the metadata +
+ * file names. This makes the history survive across browsers/devices that
+ * connect to the same DSH host, and keeps list responses small (the browser
+ * loads image bytes lazily through the history image route).
+ *
+ * Framework-free (node:fs only) so the route layer can drive it directly.
+ */
+
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import { HISTORY_MAX, type HistoryEntry, type HistoryEntryInput, type StoredEntryMode } from './protocol.ts'
+import { notifyImageSaved } from './storage-sync.ts'
+import { imageDataRoot } from './image-storage-path.ts'
+
+function historyDir(): string { return imageDataRoot() }
+function indexPath(): string { return path.join(historyDir(), 'index.json') }
+function imagesDir(): string { return path.join(historyDir(), 'images') }
+
+// History mutations read and replace one shared index. Serialize them so
+// overlapping requests cannot each read an old index and lose the other's row.
+let pendingMutation: Promise<void> = Promise.resolve()
+
+function mutateHistory<T>(operation: () => Promise<T>): Promise<T> {
+  const next = pendingMutation.then(operation, operation)
+  pendingMutation = next.then(() => undefined, () => undefined)
+  return next
+}
+
+/** One image's on-disk record (file name + mime, never base64). */
+interface StoredImage {
+  file: string
+  mime: string
+  revisedPrompt?: string
+}
+
+/** One entry's on-disk record. */
+interface StoredEntry {
+  id: string
+  /** Tool name marker for Agent-submitted generations (absent for panel generations). */
+  agentTool?: string
+  createdAt: number
+  mode: StoredEntryMode
+  model: string
+  prompt: string
+  size: string
+  quality: string
+  detail: string
+  n: number
+  /** `gif` when this entry holds an animated GIF; absent for still images. */
+  outputFormat?: 'png' | 'gif' | 'svg'
+  /** GIF frame count as requested (absent for still images). */
+  frameCount?: number
+  /** GIF per-frame delay in milliseconds (absent for still images). */
+  frameDurationMs?: number
+  images: StoredImage[]
+  refName?: string
+  channelId?: string
+  channel?: string
+  comparisonId?: string
+  comparisonModels?: string[]
+  workflow?: 'ecommerce' | 'replica'
+  projectId?: string
+  projectName?: string
+  slotKey?: string
+  slotLabel?: string
+  /** `code` when a chat model wrote the drawing code (absent = model). */
+  renderer?: 'model' | 'code'
+  canvas?: HistoryEntryInput['canvas']
+}
+
+/** The index.json shape. */
+interface IndexFile {
+  entries: StoredEntry[]
+}
+
+/** File extension for a MIME type (image file names). */
+function extensionOf(mime: string): string {
+  switch (mime.split(';')[0]!.trim()) {
+    case 'image/jpeg': return 'jpg'
+    case 'image/webp': return 'webp'
+    case 'image/gif': return 'gif'
+    case 'image/svg+xml': return 'svg'
+    default: return 'png'
+  }
+}
+
+/** MIME type for a stored image file name (image route responses). */
+function mimeOfFile(file: string): string {
+  const ext = path.extname(file).toLowerCase()
+  switch (ext) {
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg'
+    case '.webp': return 'image/webp'
+    case '.gif': return 'image/gif'
+    case '.svg': return 'image/svg+xml'
+    default: return 'image/png'
+  }
+}
+
+/** Sanitize an entry id for use as a file-name prefix. */
+function safeId(id: string): string {
+  const cleaned = id.replace(/[^a-zA-Z0-9-]/g, '-')
+  return cleaned === '' ? 'entry' : cleaned
+}
+
+/** Ensure the storage directories exist. */
+async function ensureDirs(): Promise<void> {
+  await fs.mkdir(imagesDir(), { recursive: true })
+}
+
+/** Read the index, tolerating a missing/corrupt file. */
+async function readIndex(): Promise<StoredEntry[]> {
+  try {
+    const raw = await fs.readFile(indexPath(), 'utf8')
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed === null || typeof parsed !== 'object') return []
+    const entries = (parsed as { entries?: unknown }).entries
+    if (!Array.isArray(entries)) return []
+    return entries.filter(isStoredEntry)
+  } catch {
+    return []
+  }
+}
+
+/** Persist the index. */
+async function writeIndex(entries: StoredEntry[]): Promise<void> {
+  await ensureDirs()
+  const payload: IndexFile = { entries }
+  const tmp = `${indexPath()}.tmp-${process.pid}`
+  await fs.writeFile(tmp, JSON.stringify(payload), 'utf8')
+  await fs.rename(tmp, indexPath())
+}
+
+/** Structural guard for a stored entry. */
+function isStoredEntry(value: unknown): value is StoredEntry {
+  if (value === null || typeof value !== 'object') return false
+  const entry = value as Record<string, unknown>
+  return typeof entry.id === 'string'
+    && typeof entry.createdAt === 'number'
+    && (entry.mode === 'text' || entry.mode === 'edit')
+    && (entry.workflow === undefined || entry.workflow === 'ecommerce' || entry.workflow === 'replica')
+    && (entry.projectId === undefined || typeof entry.projectId === 'string')
+    && (entry.projectName === undefined || typeof entry.projectName === 'string')
+    && (entry.slotKey === undefined || typeof entry.slotKey === 'string')
+    && (entry.slotLabel === undefined || typeof entry.slotLabel === 'string')
+    && typeof entry.prompt === 'string'
+    && Array.isArray(entry.images)
+    && entry.images.every(image => {
+      if (image === null || typeof image !== 'object') return false
+      const record = image as Record<string, unknown>
+      return typeof record.file === 'string' && typeof record.mime === 'string'
+    })
+}
+
+/** Remove one entry's image files (best effort). */
+async function removeEntryFiles(entry: StoredEntry): Promise<void> {
+  for (const image of entry.images) {
+    try { await fs.rm(path.join(imagesDir(), image.file), { force: true }) } catch { /* ignore */ }
+  }
+}
+
+/** Project a stored entry onto the wire shape (image URLs). */
+function toWire(entry: StoredEntry): HistoryEntry {
+  return {
+    id: entry.id,
+    createdAt: entry.createdAt,
+    mode: entry.mode,
+    model: entry.model,
+    prompt: entry.prompt,
+    size: entry.size,
+    quality: entry.quality,
+    detail: entry.detail,
+    n: entry.n,
+    ...entry.outputFormat === undefined ? {} : { outputFormat: entry.outputFormat },
+    ...entry.frameCount === undefined ? {} : { frameCount: entry.frameCount },
+    ...entry.frameDurationMs === undefined ? {} : { frameDurationMs: entry.frameDurationMs },
+    images: entry.images.map(image => ({
+      url: `/api/dsh-imagegen/history/image/${image.file}`,
+      mime: image.mime,
+      ...image.revisedPrompt === undefined ? {} : { revisedPrompt: image.revisedPrompt },
+    })),
+    ...entry.refName === undefined ? {} : { refName: entry.refName },
+    ...entry.channel === undefined ? {} : { channel: entry.channel },
+    ...entry.channelId === undefined ? {} : { channelId: entry.channelId },
+    ...entry.comparisonId === undefined ? {} : { comparisonId: entry.comparisonId },
+    ...entry.comparisonModels === undefined ? {} : { comparisonModels: entry.comparisonModels },
+    ...entry.workflow === undefined ? {} : { workflow: entry.workflow },
+    ...entry.projectId === undefined ? {} : { projectId: entry.projectId },
+    ...entry.projectName === undefined ? {} : { projectName: entry.projectName },
+    ...entry.slotKey === undefined ? {} : { slotKey: entry.slotKey },
+    ...entry.slotLabel === undefined ? {} : { slotLabel: entry.slotLabel },
+    ...entry.canvas === undefined ? {} : { canvas: entry.canvas },
+    ...entry.agentTool === undefined ? {} : { agentTool: entry.agentTool },
+    ...entry.renderer === undefined ? {} : { renderer: entry.renderer },
+  }
+}
+
+/** List the persisted history, newest first, as wire entries. */
+export async function listHistory(): Promise<HistoryEntry[]> {
+  const entries = await readIndex()
+  return entries.map(toWire)
+}
+
+/** Append one generation, evicting the oldest beyond HISTORY_MAX. */
+export async function appendHistory(input: HistoryEntryInput): Promise<HistoryEntry[]> {
+  return mutateHistory(async () => {
+    await ensureDirs()
+    const prefix = safeId(input.id)
+    const storedImages: StoredImage[] = []
+    try {
+      for (let index = 0; index < input.images.length; index++) {
+        const image = input.images[index]!
+        const file = `${prefix}-${index}.${extensionOf(image.mime)}`
+        await fs.writeFile(path.join(imagesDir(), file), Buffer.from(image.b64, 'base64'))
+        notifyImageSaved('history', path.join(imagesDir(), file))
+        storedImages.push({
+          file,
+          mime: image.mime,
+          ...image.revisedPrompt === undefined ? {} : { revisedPrompt: image.revisedPrompt },
+        })
+      }
+    } catch (error) {
+      await removeEntryFiles({ images: storedImages } as StoredEntry)
+      throw error
+    }
+    const entry: StoredEntry = {
+      id: input.id,
+      createdAt: input.createdAt,
+      mode: input.mode,
+      model: input.model,
+      prompt: input.prompt,
+      size: input.size,
+      quality: input.quality,
+      detail: input.detail,
+      n: input.n,
+      ...input.outputFormat === undefined ? {} : { outputFormat: input.outputFormat },
+      ...input.frameCount === undefined ? {} : { frameCount: input.frameCount },
+      ...input.frameDurationMs === undefined ? {} : { frameDurationMs: input.frameDurationMs },
+      images: storedImages,
+      ...input.refName === undefined ? {} : { refName: input.refName },
+      ...input.channelId === undefined ? {} : { channelId: input.channelId },
+      ...input.channel === undefined ? {} : { channel: input.channel },
+      ...input.comparisonId === undefined ? {} : { comparisonId: input.comparisonId },
+      ...input.comparisonModels === undefined ? {} : { comparisonModels: input.comparisonModels },
+      ...input.workflow === undefined ? {} : { workflow: input.workflow },
+      ...input.projectId === undefined ? {} : { projectId: input.projectId },
+      ...input.projectName === undefined ? {} : { projectName: input.projectName },
+      ...input.slotKey === undefined ? {} : { slotKey: input.slotKey },
+      ...input.slotLabel === undefined ? {} : { slotLabel: input.slotLabel },
+      ...input.canvas === undefined ? {} : { canvas: input.canvas },
+      ...input.agentTool === undefined ? {} : { agentTool: input.agentTool },
+      ...input.renderer === undefined ? {} : { renderer: input.renderer },
+    }
+    // 同 id 覆盖，不是追加——理由与 `appendVideoHistory` 同一处：id 是调用方
+    // 给的稳定标识，重写一次指的是「同一条结果被重新保存」。无条件追加会让同
+    // 一个 id 堆出多条，前端 `group.key` 撞车、删除时又一次性抹掉全部。
+    const previous = await readIndex()
+    const superseded = previous.filter(item => item.id === entry.id)
+    for (const old of superseded) await removeEntryFiles(old)
+    const merged = [entry, ...previous.filter(item => item.id !== entry.id)]
+    const kept = merged.slice(0, HISTORY_MAX)
+    for (const dropped of merged.slice(HISTORY_MAX)) await removeEntryFiles(dropped)
+    await writeIndex(kept)
+    return kept.map(toWire)
+  })
+}
+
+/** Remove one entry (and its image files). */
+export async function removeHistory(id: string): Promise<HistoryEntry[]> {
+  return mutateHistory(async () => {
+    const previous = await readIndex()
+    // Every entry carrying this id, not just the first: an index written before
+    // the append side deduped can hold several, and deleting only the first one's
+    // files while dropping all of them from the index orphans the rest on disk.
+    const targets = previous.filter(entry => entry.id === id)
+    for (const target of targets) await removeEntryFiles(target)
+    const kept = previous.filter(entry => entry.id !== id)
+    await writeIndex(kept)
+    return kept.map(toWire)
+  })
+}
+
+/** Remove every entry (and all image files). */
+export async function clearHistory(): Promise<HistoryEntry[]> {
+  return mutateHistory(async () => {
+    const previous = await readIndex()
+    for (const entry of previous) await removeEntryFiles(entry)
+    await writeIndex([])
+    return []
+  })
+}
+
+/** Read one stored image file by its (validated) file name. */
+/** Absolute on-disk path of one stored history image (for Agent result reporting). */
+export function historyImageAbsolutePath(file: string): string {
+  return path.join(imagesDir(), file)
+}
+
+export async function readHistoryImage(file: string): Promise<{ data: Buffer; mime: string } | undefined> {
+  // Only accept <id>-<index>.<png|jpg|jpeg|webp|gif> — the exact names this
+  // store writes — so the route can never escape the images directory.
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*-[0-9]+\.(png|jpg|jpeg|webp|gif)$/.test(file)) return undefined
+  try {
+    const data = await fs.readFile(path.join(imagesDir(), file))
+    return { data, mime: mimeOfFile(file) }
+  } catch {
+    return undefined
+  }
+}

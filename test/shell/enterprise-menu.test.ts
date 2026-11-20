@@ -115,23 +115,30 @@ describe('application menu', () => {
       restartSafeMode: () => { calls.push('safe') },
       showHarnessLog: () => { calls.push('log') },
       checkForUpdates: () => { calls.push('update') },
-      quit: () => { calls.push('quit') }
+      quit: () => { calls.push('quit') },
+      toggleFullScreen: () => { calls.push('fullscreen') }
     })
     const labels = menu.flatMap(item => [item.label, ...(item.submenu ?? []).map(child => child.label)])
     expect(labels).toEqual(expect.arrayContaining(['应用', '连接手机…', '重启', '显示 Harness 日志', '编辑', '视图', '窗口']))
     const accelerators = menu.flatMap(item => (item.submenu ?? []).map(child => child.accelerator))
     expect(accelerators).toEqual(expect.arrayContaining(['CmdOrCtrl+Shift+M', 'CmdOrCtrl+Shift+R', 'CmdOrCtrl+U']))
     const roles = menu.flatMap(item => (item.submenu ?? []).map(child => child.role))
-    expect(roles).toEqual(expect.arrayContaining(['undo', 'copy', 'reload', 'zoomIn', 'togglefullscreen', 'quit']))
+    expect(roles).toEqual(expect.arrayContaining(['undo', 'copy', 'reload', 'zoomIn', 'quit']))
     menu[0]?.submenu?.[0]?.click?.()
     expect(calls).toEqual(['phone'])
+    const view = menu.find(item => item.label === '视图')?.submenu ?? []
+    const fullscreen = view.find(item => item.accelerator === 'F11')
+    expect(fullscreen?.label).toBe('切换全屏')
+    fullscreen?.click?.()
+    expect(calls).toEqual(['phone', 'fullscreen'])
     const withoutSafeMode = buildWindowsApplicationMenu({
       locale: 'en',
       connectPhone: () => {},
       restart: () => {},
       showHarnessLog: () => {},
       checkForUpdates: () => {},
-      quit: () => {}
+      quit: () => {},
+      toggleFullScreen: () => {}
     })
     expect((withoutSafeMode[0]?.submenu ?? []).some(item => item.label === safeModeMenuLabel('en'))).toBe(false)
     expect(withoutSafeMode[0]?.label).toBe('Application')

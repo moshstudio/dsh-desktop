@@ -1,0 +1,804 @@
+/*
+ * Outfit (服饰穿戴) and Promo (带货图文) workspaces — own stylesheet.
+ *
+ * WHY this file exists at all, and why the two host rules below are GLOBAL
+ * ATTRIBUTE selectors rather than `.generation[data-workspace='outfit']`:
+ *
+ *   `.generation` is a CSS-module class, so the panel's copy of it is hashed at
+ *   build time (`WKhQka_generation`) while anything this file wrote as
+ *   `.generation` would hash to a different name and match nothing. Without a
+ *   host rule the classic config sidebar (300px) and the classic result host
+ *   stay laid out beside this surface, so `.root` is squeezed into a ~2px
+ *   column, its controls wrap into a single left-edge stack, and any grid
+ *   inside computes height 0. That is the "no UI" screenshot, and it is a
+ *   layout defect, not a rendering glitch — nothing logs.
+ *
+ *   `data-workspace` is emitted by `ImageGenPanel.tsx:3229` on exactly that one
+ *   host element, so the attribute alone identifies it without guessing at a
+ *   hashed class name. `data-outfit` / `data-promo` are already on each
+ *   workspace's own root (`OutfitWorkspace.tsx:28` / `PromoWorkspace.tsx:13`),
+ *   so those are the sibling markers used here — no second attribute scheme.
+ *
+ * This file deliberately does NOT re-declare anything `panel.module.css` owns:
+ * that stylesheet is being edited by someone else this round, so the two host
+ * rules live here instead. The same reasoning is what `replica-workspace.module.css`
+ * and `aplus-workspace.module.css` already do.
+ */
+:global([data-workspace='outfit']),
+:global([data-workspace='promo']) {
+  display: flex;
+  height: 100%;
+  flex-wrap: nowrap;
+}
+
+/* The config sidebar, classic result host and footer stay mounted for instant
+   tab switching; while this workspace is active they are its siblings and must
+   give up the box. `:not()` keeps the one child that belongs to this surface. */
+:global([data-workspace='outfit']) > :not([data-outfit]),
+:global([data-workspace='promo']) > :not([data-promo]) {
+  display: none !important;
+}
+
+.root {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  gap: 16px;
+  padding: 20px 24px 24px;
+  overflow: hidden;
+  /* Keyed off the width THIS surface actually got, not the viewport: the panel
+     lives in the shell's centre column, so a `@media` query would collapse the
+     columns on a 900px window while the panel still had 1100px. */
+  container-type: inline-size;
+  container-name: outfit;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+}
+
+/* ------------------------------------------------------------------- header */
+
+.intro {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.intro h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 26px;
+}
+
+.intro p {
+  margin: 0;
+  max-width: 62em;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* The right-hand slot of the header. It carries a state readout or a count, so
+   it must not shrink below the width of its own text and wrap into the title. */
+.aside {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  padding: 3px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------- body */
+
+.body {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+}
+
+/* --------------------------------------------------------------------- form */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-settings-card-fill);
+}
+
+.formFields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.formFields:disabled { opacity: 0.72; }
+
+/* ------------------------------------------------------------------- fields */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.paramStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.fieldHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fieldLabel {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.fieldNote {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* Two controls that belong on one line (link + fetch, name + a trailing
+   action). The input side must be the one that shrinks. */
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inline > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 10px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 88px;
+  max-height: 190px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 9px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.select {
+  width: 100%;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 10px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* A pill is a radio expressed as a chip, so it carries `role="radio"` and
+   `aria-checked` (see ReplicaWorkspace.tsx:382-393). The selected state is a
+   border + tint rather than a fill change: the same control keeps its size and
+   its text position whether or not it is on, so switching never reflows the
+   row. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--dsw-font-family);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.pill:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.pill[aria-checked='true'] {
+  border-color: var(--dsw-alias-button-ghost-active-border);
+  background: var(--dsw-alias-button-ghost-active-fill);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ buttons */
+
+.button {
+  height: 36px;
+  padding: 0 14px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* The one primary action per surface. `background` comes from the same token
+   the pill's selected state uses, so the two never disagree about what the
+   brand colour is. */
+.primary {
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* ------------------------------------------------------------------ thumbs */
+
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.thumb {
+  position: relative;
+  flex: none;
+  width: 74px;
+  height: 74px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  overflow: hidden;
+}
+
+.thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbIndex {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  padding: 0 4px;
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.thumbRemove {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--dsw-font-family);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.thumbRemove:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* -------------------------------------------------------------------- drop */
+
+.drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: none;
+  min-height: 96px;
+  padding: 12px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--dsw-font-family);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.drop:hover:not(:disabled) {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary);
+}
+
+.drop:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* --------------------------------------------------------------- model grid */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--dsw-font-family);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card:hover {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: var(--dsw-radius-xs);
+}
+
+.card span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The selected model is the one the request sends as `image`. Border weight is
+   the signal (not a fill), so the row keeps its height when the choice moves. */
+.card[aria-pressed='true'] {
+  border-color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+  color: var(--dsw-alias-label-primary);
+}
+
+.selection {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 12px;
+}
+
+.selection img {
+  width: 52px;
+  height: 68px;
+  flex: none;
+  object-fit: cover;
+  border-radius: var(--dsw-radius-xs);
+}
+
+.selection span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: none;
+}
+
+.preview h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.preview p { margin: 0; }
+
+.previewImages {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.previewImages figure {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  overflow: hidden;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.previewImages img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+
+.previewImages figcaption {
+  padding: 5px 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+.promptPreview {
+  margin: 8px 0 0;
+  padding: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ results */
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-settings-card-fill);
+}
+
+.empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.outputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.output {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+/* ------------------------------------------------------- generation tasks */
+
+.taskList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+}
+
+.taskList h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.taskCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.taskCard .outputs {
+  flex: 1;
+}
+
+.taskMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.taskMain strong {
+  font-size: 12px;
+}
+
+.taskMain p,
+.taskCard p {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------- history */
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid var(--dsw-alias-border-l2);
+  border-top-color: var(--dsw-alias-brand-primary);
+  border-radius: 50%;
+  animation: outfit-spin 0.8s linear infinite;
+}
+
+@keyframes outfit-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --------------------------------------------------------------- submit bar */
+
+.submitBar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: none;
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.submitRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------------- status */
+
+.error {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.muted {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* ------------------------------------------------------------- promo layout */
+
+/* The promo result column is image LEFT, copy RIGHT. The copy card is a form,
+   not a readout: the title and body stay editable so the generated text can be
+   corrected before it is copied. */
+.promoOutputs {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 4fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.copyCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.copyTitle {
+  width: 100%;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 10px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.copyBody {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 96px;
+  resize: vertical;
+  padding: 9px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag {
+  padding: 2px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* On a narrow panel the copy card stacks under the image instead of beside it:
+   two columns at 240px would leave neither readable. */
+@container outfit (max-width: 760px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, auto) minmax(240px, 1fr);
+    overflow: auto;
+  }
+
+  .form {
+    overflow: visible;
+  }
+
+  .promoOutputs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Mobile: the stacked container-query layout clamped the form row to its
+ * min-content height (~330px) while the form content is ~900px tall and
+ * paints with `overflow: visible` — the results card (later grid item) drew
+ * over the middle of the form. Size the row to its content so the whole form
+ * flows above the results card and the body scrolls as one column. */
+@media (max-width: 760px) {
+  .body { grid-template-rows: max-content minmax(240px, 1fr); }
+}
+
+/* dsh-imagegen-mobile-7 (phone intro): the model-limit hint wraps to four
+ * lines on a ~400px viewport and eats ~80px of the content area. Clamp it to
+ * two lines on a phone — the load-bearing numbers (人物 1 张 / 服装最多 4 张 /
+ * 姿势 1 张 / 共 6 张) all sit in the first half of the sentence, so what gets
+ * cut is the behavioural tail. Desktop keeps the full text unclamped. */
+@media (max-width: 760px) {
+  .intro p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+}

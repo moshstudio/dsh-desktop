@@ -1,0 +1,130 @@
+name: CI
+
+# Every gate this repository has used so far ran only when a human typed the
+# command. That is how a release shipped with the version constant left at the
+# previous number, how the docs drifted from the code, and how a published
+# archive went out with no build of the commit it claimed to be. This workflow
+# is the minimum that makes those failures visible without a person remembering.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same ref makes the older run's result irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12.11.2
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # 24 for the same reason release.yml uses it: the OIDC-capable npm CLI
+          # that trusted publishing needs requires node ^24.15.0, and CI has to
+          # exercise the toolchain the release will run. A green CI on a
+          # different major version is a green light for a different program.
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      # The suites load the BUILT lib/, so the build has to happen first —
+      # `pnpm test` does it itself, but running it separately makes a build
+      # failure distinguishable from a test failure in the log.
+      - name: Build
+        run: pnpm run build
+
+      # ffmpeg is what the compose path (clip stitching) actually shells out to.
+      # Without it the one check that exercises the real encoder skips, and a
+      # skip is not a verification — so the CI image provides the tool and the
+      # summary line says whether it ran.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      # Four guards (ui-contracts, video-layout, canvas-layout, frame-grab) need
+      # a headless browser. Until this step existed they found none on the
+      # runner, printed "SKIP: ... did NOT run", and exited 0 -- so CI judged
+      # them green while the whole UI contract layer went unchecked. Measured in
+      # run 43166516751: `UI CONTRACTS VERIFIED` does not appear in the log.
+      #
+      # chrome-headless-shell rather than the image's Chrome: it is the build
+      # these guards were written against (no --headless flag needed), it is a
+      # smaller download, and pinning it means the check does not change
+      # behaviour when a runner image updates its browser. The version tracks
+      # the npm package `@puppeteer/browsers` that installs it.
+      - name: Install chrome-headless-shell
+        run: |
+          set -euo pipefail
+          npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+            --path "$HOME/.cache/chrome-headless"
+          SHELL_BIN=$(find "$HOME/.cache/chrome-headless" -name 'chrome-headless-shell' -type f | head -1)
+          test -n "$SHELL_BIN"
+          echo "CHROME_HEADLESS_SHELL=$SHELL_BIN" >> "$GITHUB_ENV"
+          "$SHELL_BIN" --version
+
+      - name: Test suites
+        run: pnpm test
+
+      # Guards that are correct but were in no gate: each one was written for a
+      # specific defect, passed when run by hand, and ran nowhere. They live
+      # here rather than in `pnpm test` because that script is a literal command
+      # chain in package.json, and editing package.json on a branch push fires
+      # release.yml, which would replace the assets of an already-published
+      # version. CI is not in release.yml's `paths`, so these run on every push
+      # without touching what v1.27.0 means.
+      #
+      # `scripts/verify-script-entries.mjs` is the guard for this class of
+      # defect: it fails when a script is in no gate and not declared manual, so
+      # the next orphan is caught instead of discovered. It goes last so its
+      # own finding is not buried, and it is written to pass only when every
+      # file above is genuinely reachable.
+      - name: Guards that were not in the test chain
+        run: |
+          set -euo pipefail
+          # Reads src/client/canvas/geometry.ts directly, no build needed.
+          node scripts/smoke-canvas-geometry.mjs
+          # Source-text guard for the outfit task-queue contract.
+          node scripts/verify-outfit-task-gate.mjs
+          # Every reverse-verification case must still be ABLE to run: its `from`
+          # quote has to exist in the tree. Without this, a drifted anchor (a line
+          # inserted between two a case quoted together, a helper moved to another
+          # module) is `HARNESS BROKEN` only when that one group is scheduled --
+          # and the reverse verification is not in `pnpm test`, so three pack cases
+          # sat broken with nothing red. Static and copy-free: seconds, not suites.
+          node scripts/verify-negative-anchors.mjs
+          # Pins the verdict rules of the shared check executor.
+          node scripts/verify-check-harness.mjs
+          # These three load the BUILT lib/ (built in the step above).
+          node scripts/smoke-canvas-bundle.mjs
+          node scripts/smoke-canvas-agent.mjs
+          node scripts/smoke-listing-copy.mjs
+          # node:test file, so it needs --test; a bare `node` run would import
+          # the module and assert nothing.
+          node --test scripts/conversation-sync.test.mjs
+          # Last: every script must be reachable or declared manual.
+          node scripts/verify-script-entries.mjs
+
+      # The built output is what ships (`files` includes lib/, and main/exports
+      # point into it), so the tarball is assembled and inspected here. This is
+      # the check that would have caught the demo videos riding along in docs/,
+      # and the README screenshots after them.
+      #
+      # The assertions live in scripts/verify-pack.mjs, not inline: the negative
+      # verification re-runs them against a mutated copy, and an assertion kept
+      # in two places drifts.
+      - name: Pack and inspect the published archive
+        run: node scripts/verify-pack.mjs

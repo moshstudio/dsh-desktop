@@ -1,3 +1,30 @@
+# Shared settings and workspace browser entry, followed by independent host components.
+# Row ids are desktop-specific. The upstream packages use `imagegen` and
+# `imagegen-*`, and a market switch matches rows by those ids.
 - insert:
-    - id: dsh-taichi-image-generation
-      name: dsh-taichi-image-generation
+    - id: taichi-imagegen
+      name: 'dsh-taichi-image-generation'
+    - id: taichi-imagegen-image
+      name: 'dsh-taichi-image-generation/image'
+    - id: taichi-imagegen-video
+      name: 'dsh-taichi-image-generation/video'
+    - id: taichi-imagegen-canvas
+      name: 'dsh-taichi-image-generation/canvas'
+    - id: taichi-imagegen-gallery
+      name: 'dsh-taichi-image-generation/gallery'
+    - id: taichi-imagegen-templates
+      name: 'dsh-taichi-image-generation/templates'
+    - id: taichi-imagegen-skills
+      name: 'dsh-taichi-image-generation/skills'
+    - id: taichi-imagegen-ppt
+      name: 'dsh-taichi-image-generation/ppt'
+    - id: taichi-imagegen-ecommerce
+      name: 'dsh-taichi-image-generation/ecommerce'
+    - id: taichi-imagegen-outfit
+      name: 'dsh-taichi-image-generation/outfit'
+    - id: taichi-imagegen-prompt
+      name: 'dsh-taichi-image-generation/prompt'
+    - id: taichi-imagegen-storage
+      name: 'dsh-taichi-image-generation/storage'
+    - id: taichi-imagegen-diagnostics
+      name: 'dsh-taichi-image-generation/diagnostics'

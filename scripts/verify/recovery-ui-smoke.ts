@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { SAFE_MODE_FRAME_CHANNEL, SAFE_MODE_FRAME_UPDATE_CHANNEL, SafeModeFrame } from '../../src/main/safe-mode-frame'
 import { buildSafeModeViewModel } from '../../src/main/safe-mode'
 import { buildPluginRecoveryViewModel } from '../../src/main/plugin-recovery-view'
-import { WINDOWS_TITLEBAR_HEIGHT } from '../../src/shared/desktop-menu'
 import { secureWindow } from '../../src/main/security'
 
 const scale = process.env.RECOVERY_UI_SCALE || '1'
@@ -24,6 +23,8 @@ ipcMain.handle('updates:status', () => ({ phase: 'idle', currentVersion: '0.0.0'
 ipcMain.handle('mobile:status', () => ({ connected: false }))
 ipcMain.handle('desktop-titlebar:popup-menu', () => {})
 ipcMain.handle('desktop-titlebar:set-theme', () => {})
+ipcMain.handle('desktop-titlebar:window-state', () => ({ maximized: false, fullScreen: false }))
+ipcMain.handle('desktop-titlebar:window-control', () => ({ maximized: false, fullScreen: false }))
 
 async function capture(contents: Electron.WebContents, path: string): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -44,7 +45,6 @@ async function main(): Promise<void> {
     show: true, frame: process.platform !== 'darwin',
     ...(process.platform === 'win32' ? {
       titleBarStyle: 'hidden' as const,
-      titleBarOverlay: { color: '#00000000', symbolColor: '#fafafa', height: WINDOWS_TITLEBAR_HEIGHT },
       autoHideMenuBar: true
     } : {}),
     backgroundColor: '#18181b',
@@ -65,9 +65,6 @@ async function main(): Promise<void> {
     contents.on('console-message', event => { if (event.level === 'error') rendererErrors.push(event.message) })
     for (const locale of ['zh', 'en'] as const) for (const theme of ['light', 'dark']) for (const [width, height] of [[1280,800], [900,640]]) {
       parent.setSize(width!, height!)
-      if (process.platform === 'win32') {
-        parent.setTitleBarOverlay({ color: '#00000000', symbolColor: theme === 'dark' ? '#fafafa' : '#18181b', height: WINDOWS_TITLEBAR_HEIGHT })
-      }
       const model = page === 'safe-mode' ? buildSafeModeViewModel({ locale, plugins: names }) : buildPluginRecoveryViewModel({
         locale, rollbackVersion: '0.12.0',
         plugins: scenario === 'unidentified-plugin' ? [] : (scenario === 'multiple-plugins' || scenario === 'market-offline') ? names.slice(0, 3) : [names[0]!], removedPlugins: [],

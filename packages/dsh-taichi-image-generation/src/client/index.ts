@@ -1,0 +1,224 @@
+/**
+ * Browser-half entry for the dsh-imagegen plugin — runs inside the dsh web
+ * GUI.
+ *
+ * Registers the dsh-imagegen locale dictionaries, binds the plugin's own
+ * settings scope (its bridge routes serve the namespace the official rc.6
+ * allowlist would refuse), registers the configuration page in the Settings
+ * dialog's left navigation, and mounts the two DOM surfaces: the studio entry
+ * row and the generation studio in the center column. Failure policy: DOM mounting problems are
+ * logged, never thrown — the web shell fails the whole boot when a plugin
+ * apply throws, and an external plugin must not take the GUI down.
+ */
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+// Type-only: pulls the settings slot contract (settings.section).
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: pulls the LocaleNamespaceMap merge table.
+import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import { ImageGenApi } from './api.ts'
+import { ImageGenController } from './controller.ts'
+import { tt, applyHostLocale } from './helpers.ts'
+import { en, ru, zh, type ImageGenKey } from './locales.ts'
+import { mountPanel } from './mount.tsx'
+import { mountSidebarEntry } from './sidebar-entry.ts'
+import { bindImageGenScope, type ImageGenScope } from './settings-scope.ts'
+import { hostDirectoryPicker } from './host-directory.ts'
+import { registerImageToolviews, type ImageToolViewOwnerProps } from './image-toolview.tsx'
+import type { ConversationService } from './conversation-sync.ts'
+
+/** Locale namespace this plugin owns. */
+const NS = 'dsh-imagegen'
+/** One live client UI tree per document, even if the host re-applies this module.
+ *  Without the lease a second apply leaves the first tree's portal mounted, and
+ *  the sidebar host ends up with two history panels. */
+const UI_MOUNT_LEASE_KEY = Symbol.for('dsh-imagegen.client-ui-lease')
+
+interface UiMountLease {
+  release(): void
+}
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** dsh-imagegen surface copy. */
+    'dsh-imagegen': ImageGenKey
+  }
+
+  interface SlotMap {
+    /** Image-generation results render their durable image blocks inline. */
+    'tool.call.toolview': { kind: 'keyed'; scope: 'session'; owner: ImageToolViewOwnerProps }
+  }
+}
+
+/** Required services (fiber inject waiting — the runtime must be up first). */
+export const inject = ['slots', 'locale', 'connection', 'sessions', 'conversation']
+
+// Internals re-exported for the standalone smoke test (the browser bundle is
+// the only place these are reachable from Node); not part of the contract.
+export { autoRemoveBackground, compositeAnnotatedResult, containRect, cropRaster, drawAnnotation, rectBetween, rectToPixels, removeBackground, transparencyRatio } from './image-ops.ts'
+export { addConversationAttachments, conversationInput, createConversationDrafts, releaseConversationDrafts, removeConversationAttachment } from './conversation-sync.ts'
+export { sidebarEntryTestHooks } from './sidebar-entry.ts'
+// #49 regression: the all-or-nothing history-group fold is invisible from the
+// outside (a rejected batch and an empty group both leave the board blank), so
+// the smoke test drives this function directly.
+export { collectHistoryGroupImages } from './ImageGenPanel.tsx'
+export { isPosterDocument, wrapPosterText } from '../poster.ts'
+export { paintPoster } from './poster-render.ts'
+
+/**
+ * Mount the studio, its sidebar entry, and the configuration page.
+ * @param ctx - client root context (services: slots, locale, connection).
+ */
+export function apply(ctx: ClientContext): void {
+  // The host locale service only knows zh/en dictionaries (its type is
+  // fixed); ru rides the untyped single-locale registration instead.
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-imagegen: dictionaries')
+  // Russian ships as a language pack: the dictionary lands in this plugin's
+  // namespace, and Russian joins the shared DSH language catalog (Settings →
+  // General → Language) with per-key fallback to English for host copy.
+  // Registration order/aggregation between register(NS, 'ru', …) and
+  // addLanguage differs across host builds and a duplicate throws — these
+  // surfaces must degrade silently, never fail the GUI boot.
+  ctx.effect(() => {
+    try {
+      return ctx.locale.register(NS, 'ru', ru)
+    } catch (error) {
+      console.warn('[dsh-imagegen] ru dictionary not registered:', error)
+      return () => {}
+    }
+  }, 'dsh-imagegen: ru dictionary')
+  ctx.effect(() => {
+    try {
+      if (ctx.locale.getLocale().locales.some(locale => locale.id === 'ru')) return () => {}
+      return ctx.locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' })
+    } catch (error) {
+      console.warn('[dsh-imagegen] ru language not added to the catalog:', error)
+      return () => {}
+    }
+  }, 'dsh-imagegen: ru language pack')
+  // Every plugin surface renders through tt(); bridge DSH locale switches
+  // into it so the whole plugin follows the interface language.
+  ctx.effect(() => {
+    const applyLocale = (): void => { applyHostLocale(ctx.locale.getLocale().active) }
+    applyLocale()
+    return ctx.locale.subscribe(applyLocale)
+  }, 'dsh-imagegen: follow host locale')
+  registerImageToolviews(ctx)
+
+  // The host route, not the page origin, decides whether the settings bridge
+  // is reachable. A deployment commonly puts DSH behind a loopback reverse
+  // proxy (the LAN/public page authority is not a loopback hostname) while the
+  // host still receives the request from 127.0.0.1; the old page-origin gate
+  // refused those pages before they even asked. Probe the bridge and let the
+  // host's loopback fence answer: a disallowed page still lands in the
+  // unavailable state from the 403 response.
+  const scope: ImageGenScope = bindImageGenScope()
+
+  // Re-read the scope whenever the connection resets (same invalidation the
+  // official settings binder wires).
+  ctx.effect(() => {
+    const disposers = [
+      ctx.on('connection/reset', () => { void scope.load() }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'dsh-imagegen: settings scope invalidation')
+
+  // This deployment has no self-provided channel, so it does not register a
+  // Settings page. The studio reads the Taichi channel from the settings bridge.
+
+  // The sidebar entry and studio mount once the settings scope settles; while
+  // the scope is still loading, the composition default is unknown, so nothing
+  // mounts yet. Only an unavailable scope falls back to the default (enabled).
+  let uiDisposer: (() => void) | undefined
+  let scopeDisposer: (() => void) | undefined
+  let uiLeaseReleased = false
+  let uiLease: UiMountLease
+  uiLease = {
+    release: () => {
+      if (uiLeaseReleased) return
+      uiLeaseReleased = true
+      scopeDisposer?.()
+      scopeDisposer = undefined
+      uiDisposer?.()
+      uiDisposer = undefined
+      if (Reflect.get(document, UI_MOUNT_LEASE_KEY) === uiLease) {
+        Reflect.deleteProperty(document, UI_MOUNT_LEASE_KEY)
+      }
+    },
+  }
+  const mountUi = (): void => {
+    if (uiLeaseReleased) return
+    if (uiDisposer !== undefined) return
+    const controller = new ImageGenController()
+    const api = new ImageGenApi()
+    const sessions = ctx.get('sessions') as ISessions | undefined
+    const conversation = ctx.get('conversation') as ConversationService | undefined
+    // 「从短剧文档铺板」要用户指定一次目录：**宿主没有「当前会话」**
+    // （`SessionListState` 只有 ids / byId / phase / projectionsBySession），
+    // 所以拿不到「当前会话的 cwd」。有 workspace UI 就用它的系统目录框，
+    // 没有（headless / 精简外壳）就让用户手输路径。
+    const { pickDirectory } = hostDirectoryPicker(ctx)
+    const disposers: Array<() => void> = []
+    try {
+      disposers.push(mountSidebarEntry(
+        controller,
+        tt('entry.session'),
+        tt('entry.sessionTooltip'),
+        tt('entry.image'),
+        tt('entry.tooltip'),
+      ))
+      disposers.push(mountPanel(controller, api, scope, { sessions, conversation, pickDirectory }))
+      // The imperative sidebar tabs render their labels once; relabel them on
+      // every DSH language switch so the entry follows the interface too.
+      disposers.push(ctx.locale.subscribe(() => {
+        const root = document.querySelector('[data-dsh-imagegen-sidebar-root]')
+        if (root === null) return
+        const labels: Array<[string, string, string]> = [
+          ['session', tt('entry.session'), tt('entry.sessionTooltip')],
+          ['image', tt('entry.image'), tt('entry.tooltip')],
+        ]
+        for (const [tab, label, tooltip] of labels) {
+          const button = root.querySelector<HTMLButtonElement>(`[data-dsh-imagegen-tab="${tab}"]`)
+          if (button === null) continue
+          button.setAttribute('aria-label', label)
+          button.setAttribute('title', tooltip)
+          const labelSpan = button.querySelector('span:nth-child(2)')
+          if (labelSpan !== null) labelSpan.textContent = label
+        }
+        const tablist = root.querySelector<HTMLDivElement>('[role="tablist"][data-dsh-imagegen-session-tabs]')
+        tablist?.setAttribute('aria-label', `${tt('entry.session')} / ${tt('entry.image')}`)
+      }))
+    } catch (error) {
+      // DOM failures degrade the studio, never the GUI.
+      console.warn('[dsh-imagegen] mount failed:', error)
+    }
+    uiDisposer = () => {
+      for (const dispose of disposers.splice(0)) dispose()
+      uiDisposer = undefined
+    }
+  }
+  const syncEnabled = (): void => {
+    if (uiLeaseReleased) return
+    const snapshot = scope.getSnapshot()
+    // While the scope is still loading the composition default is unknown, so
+    // mounting now could flash a studio the user has switched off.
+    if (snapshot.status === 'loading') return
+    const activeLease = Reflect.get(document, UI_MOUNT_LEASE_KEY) as UiMountLease | undefined
+    if (activeLease !== uiLease) {
+      activeLease?.release()
+      Reflect.set(document, UI_MOUNT_LEASE_KEY, uiLease)
+    }
+    const enabled = snapshot.status === 'ready'
+      ? snapshot.value?.enabled ?? true
+      : snapshot.status === 'unavailable'
+    if (enabled) mountUi()
+    else uiDisposer?.()
+  }
+  scopeDisposer = scope.subscribe(syncEnabled)
+  syncEnabled()
+  ctx.effect(() => () => { uiLease.release() }, 'dsh-imagegen: client UI mount')
+}
+export { imageRefsOf } from './image-toolview.tsx'

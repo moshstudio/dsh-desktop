@@ -81,7 +81,7 @@ it('maintained Desktop clients inject only slots declared by the installed Harne
     }
   })
   const declarations = new Set(clients.flatMap(source => [...source.matchAll(/["']([^"']+)["']\s*:\s*\{\s*kind:\s*["'](?:list|single|keyed|chain)["']/g)].map(match => match[1])))
-  for (const file of ['packages/dsh-desktop-client-ui/client.js', 'packages/dsh-taichi-image-generation/client.js', 'packages/dsh-taichi-image-generation/client.panel.js', 'packages/dsh-desktop-market-installer/client.js', 'packages/ppt-runtime/adapter/lib/client.js']) {
+  for (const file of ['packages/dsh-desktop-client-ui/client.js', 'packages/dsh-desktop-market-installer/client.js', 'packages/ppt-runtime/adapter/lib/client.js']) {
     for (const match of readFileSync(file, 'utf8').matchAll(/slots\.inject\(["']([^"']+)["']/g)) {
       expect(declarations.has(match[1]), `${file}: undeclared slot ${match[1]}`).toBe(true)
     }

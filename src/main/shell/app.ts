@@ -38,9 +38,15 @@ import { desktopDailyText } from '../../shared/desktop-daily-messages'
 import { applyProductDisplayName, productDisplayName } from '../../shared/product-name'
 import { desktopMenuMessages } from './menu-messages'
 import { usesDesktopCaption, type DesktopMenuCommand } from '../../shared/desktop-menu'
+import {
+  DESKTOP_WINDOW_CONTROL_CHANNEL,
+  DESKTOP_WINDOW_STATE_CHANNEL,
+  isDesktopWindowControlAction
+} from '../../shared/desktop-window-controls'
 import { parseWindowsMenuRequest, windowsMenuTemplate } from '../windows-menu'
 import { isDesktopTitlebarDocument } from './titlebar-document'
-import { desktopWindowChrome, windowsChromeBackground, windowsTitleBarOverlay } from './window-chrome'
+import { applyDesktopWindowControl, readDesktopWindowCaptionState } from './window-controls'
+import { desktopWindowChrome, windowsChromeBackground } from './window-chrome'
 import { buildWebImportViewModel } from '../web-import-view'
 import { DesktopBackendController } from './backend/backend-controller'
 import { DesktopBootSession, retainDesktopBoot } from './backend/boot-session'
@@ -586,6 +592,7 @@ async function main(): Promise<void> {
   let restartDesktop = async (): Promise<boolean> => false
   registerUpdateHandlers({ locale: () => menuLocale })
   let shortcuts: DesktopShortcutController | undefined
+  let toggleMainWindowFullScreen = (): void => {}
   const dshHome = harnessHome()
   const safeMode = process.env.DSH_DESKTOP_SAFE_MODE === '1' || shouldStartInSafeMode(process.argv)
   menuLocale = await savedDesktopMenuLocale(dshHome, safeMode, reportedLocale)
@@ -601,7 +608,8 @@ async function main(): Promise<void> {
           : { restartSafeMode: () => { restartInSafeMode() } }),
         showHarnessLog: () => { shell.showItemInFolder(join(app.getPath('logs'), 'harness.log')) },
         checkForUpdates: () => { void checkForUpdates(true).catch((error: unknown) => { console.error(error) }) },
-        quit: () => { app.quit() }
+        quit: () => { app.quit() },
+        toggleFullScreen: () => { toggleMainWindowFullScreen() }
       })
       Menu.setApplicationMenu(Menu.buildFromTemplate(template as MenuItemConstructorOptions[]))
       if (desktopWindow !== undefined && !desktopWindow.isDestroyed()) desktopWindow.setMenuBarVisibility(false)
@@ -718,12 +726,58 @@ async function main(): Promise<void> {
   ipcMain.handle('desktop-titlebar:set-theme', (event, isDark: unknown) => {
     const owner = assertTitlebarOwner(event, true)
     if (typeof isDark !== 'boolean') throw new Error('The DSH Desktop titlebar theme must be a boolean.')
-    if (usesDesktopCaption(process.platform)) {
-      owner.setTitleBarOverlay(windowsTitleBarOverlay(isDark))
-      owner.setBackgroundColor(windowsChromeBackground(isDark))
-    }
+    if (usesDesktopCaption(process.platform)) owner.setBackgroundColor(windowsChromeBackground(isDark))
     return { ok: true }
   })
+  // Menu and F11 call setFullScreen directly. On Windows that event can run
+  // before isFullScreen() flips, so the caption is told the value explicitly
+  // and told again once the window has settled.
+  let fullScreenOverride: boolean | undefined
+  const publishCaptionState = (): void => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return
+    const state = readDesktopWindowCaptionState(window)
+    if (fullScreenOverride !== undefined && state.fullScreen === fullScreenOverride) fullScreenOverride = undefined
+    window.webContents.send(DESKTOP_WINDOW_STATE_CHANNEL, {
+      maximized: state.maximized,
+      fullScreen: fullScreenOverride ?? state.fullScreen
+    })
+  }
+  const noteFullScreen = (fullScreen: boolean): void => {
+    fullScreenOverride = fullScreen
+    publishCaptionState()
+    setImmediate(() => {
+      if (window.isDestroyed()) return
+      if (window.isFullScreen() === fullScreen) fullScreenOverride = undefined
+      publishCaptionState()
+    })
+  }
+  toggleMainWindowFullScreen = () => {
+    if (window.isDestroyed()) return
+    const next = !window.isFullScreen()
+    window.setFullScreen(next)
+    noteFullScreen(next)
+  }
+  ipcMain.removeHandler(DESKTOP_WINDOW_STATE_CHANNEL)
+  ipcMain.handle(DESKTOP_WINDOW_STATE_CHANNEL, event => {
+    const owner = assertTitlebarOwner(event, true)
+    if (!usesDesktopCaption(process.platform)) throw new Error('Window controls are only available on Windows and Linux.')
+    return readDesktopWindowCaptionState(owner)
+  })
+  ipcMain.removeHandler(DESKTOP_WINDOW_CONTROL_CHANNEL)
+  ipcMain.handle(DESKTOP_WINDOW_CONTROL_CHANNEL, (event, action: unknown) => {
+    const owner = assertTitlebarOwner(event, true)
+    if (!usesDesktopCaption(process.platform)) throw new Error('Window controls are only available on Windows and Linux.')
+    if (!isDesktopWindowControlAction(action)) throw new Error('The window control action is invalid.')
+    return applyDesktopWindowControl(owner, action)
+  })
+  if (usesDesktopCaption(process.platform)) {
+    window.on('maximize', publishCaptionState)
+    window.on('unmaximize', publishCaptionState)
+    window.on('enter-full-screen', () => noteFullScreen(true))
+    window.on('leave-full-screen', () => noteFullScreen(false))
+    window.webContents.on('enter-html-full-screen', () => noteFullScreen(true))
+    window.webContents.on('leave-html-full-screen', () => noteFullScreen(false))
+  }
   await showSplash(window, splashPage)
   mainWindow = window
   shortcuts = installDesktopShortcuts(
@@ -1368,7 +1422,7 @@ async function main(): Promise<void> {
         contents.setZoomLevel(Math.max(-3, contents.getZoomLevel() - 0.5))
         return
       case 'toggle-fullscreen':
-        owner.setFullScreen(!owner.isFullScreen())
+        toggleMainWindowFullScreen()
         return
       case 'about':
         await presentAbout(owner, menuLocale)

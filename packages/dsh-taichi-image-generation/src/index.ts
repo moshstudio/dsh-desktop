@@ -1,0 +1,1301 @@
+/**
+ * dsh-imagegen — host half. Mounts the plugin's settings section (channels
+ * with per-channel model catalogs on the host settings seam), the
+ * /api/dsh-imagegen route family (loopback-only settings bridge + presets /
+ * usage / image-generation proxy that keeps every API key host-side), and a
+ * system-prompt announcement. The browser half (./client) renders the sidebar
+ * entry and the split-pane generation studio.
+ */
+
+import type { Context } from '@deepseek-ai/cordis'
+import { COMPONENT_SERVICE, ROUTE_SERVICE, routeComponent, type Feature, type ComponentRuntime } from './components.ts'
+import { readFileSync } from 'node:fs'
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
+import { installSettingsSectionCompat, resolveSettingsNamespaceCompat, settingsNamespaceCompat } from './settings-compat.ts'
+import z from '@deepseek-ai/schemastery'
+// Type-only: pulls the webServer Context merge (route registration).
+import type {} from '@deepseek-ai/dsh-host-webserver'
+// Type-only: pulls the systemPrompt Context merge (announcement section).
+import type {} from '@deepseek-ai/dsh-system-prompt'
+// Type-only: pulls the human slash-command registry Context merge.
+import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-tools'
+// The skills + agents seams are reached through `ctx.inject` and read
+// structurally (see CanvasSkillServices): the host half must not import those
+// packages at runtime, and this deployment does not resolve them at
+// type-check time either.
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { IMAGEGEN_SETTINGS_NAMESPACE, isChannelProtocolPreference, isSubscriptionProvider, type CanvasSkillConfigApplyRequest, type CanvasSkillConfigApplyResult, type CanvasSkillConfigSaveRequest, type CanvasSkillConfigSaveResult, type CanvasSkillConfigView, type CanvasSkillInstallRequest, type CanvasSkillInstallResult, type CanvasSkillLibrary, type CanvasSkillRemoveResult, type ChannelConfig, type ModelMapping } from './protocol.ts'
+import { makeRoutes, type SettingsSeam } from './routes.ts'
+import { aspectsOf, outputFormatsOf } from './image-request-options.ts'
+import { cachedImageModels, ensureImageModels, resolveTaichiChatConfig, TAICHI_CHANNEL_ID, taichiRuntimeChannel } from './taichi-gateway.ts'
+import { SubscriptionManager } from './subscription/manager.ts'
+import { syncAllTemplates } from './templates-store.ts'
+import { setStorageSyncHandler, putObject, type StorageSyncConfig } from './storage-sync.ts'
+
+/**
+ * The concrete driver contract behind `ctx.agents`. The registry's published
+ * `Agent` type only guarantees an id (the driver augmentation lives in
+ * `dsh-agent-loop`), so the canvas skill runner reads the driver surface it
+ * actually needs and fails loudly at runtime if a host shells out a different
+ * driver without it.
+ */
+interface CanvasSkillAgent {
+  readonly session: { deriveMessages: () => readonly unknown[]; readonly seq?: number; eventAt?: (seq: number) => unknown }
+  followup: (message: { id: string; role: 'user'; content: Array<{ type: 'text'; text: string }>; source: { kind: 'plugin:dsh-imagegen' } }) => void
+  whenIdle: () => Promise<void>
+  /** Durable cancellation cause; `user` is the canvas cancel button. */
+  cancel: (cause: { kind: 'user' }) => void
+}
+
+/**
+ * Resolve one skill's configuration declaration and the view the panel renders.
+ *
+ * Sidecar first, built-in recipe second, nothing third — the plugin never
+ * invents a configuration surface for a skill that declared none. Exported so
+ * the smoke suite exercises the real lookup (sidecar parsing, recipe fallback,
+ * value resolution) rather than a test double of it.
+ * @param options - skill name, its library entry path, the skills root, and the
+ *   live value store; `issueText` localizes an ignored declaration.
+ */
+export async function readCanvasSkillConfig(options: {
+  name: string
+  entryPath?: string
+  root: string
+  store: SkillConfigStore
+  issueText?: (issue: SkillConfigIssue) => string
+}): Promise<{ declaration?: SkillConfigDeclaration; issue?: SkillConfigIssue; view?: CanvasSkillConfigView }> {
+  const candidates = [...new Set([bundleDirOf(options.entryPath), path.join(options.root, options.name)])]
+    .filter((dir): dir is string => dir !== undefined)
+  let declaration: SkillConfigDeclaration | undefined
+  let issue: SkillConfigIssue | undefined
+  for (const dir of candidates) {
+    const found = await readSkillConfigFile(dir).catch(() => undefined)
+    if (found === undefined) continue
+    if (found.manifest === undefined) issue = found.issue ?? 'unreadable'
+    else declaration = { manifest: found.manifest, source: 'skill' }
+    break
+  }
+  if (declaration === undefined && issue === undefined) declaration = recipeFor(options.name)
+  const values = declaration === undefined ? new Map<string, string>() : valuesFor(declaration, options.store, options.name)
+  const view = configView(
+    declaration,
+    values,
+    issue === undefined ? undefined : (options.issueText === undefined ? issue : options.issueText(issue)),
+  )
+  return {
+    ...declaration === undefined ? {} : { declaration },
+    ...issue === undefined ? {} : { issue },
+    ...view === undefined ? {} : { view },
+  }
+}
+
+/** The bundle directory a library entry points at, when it is a bundle. */
+function bundleDirOf(entryPath: string | undefined): string | undefined {
+  if (entryPath === undefined) return undefined
+  return path.basename(entryPath).toLowerCase() === 'skill.md' ? path.dirname(entryPath) : undefined
+}
+
+/** Error text for user-facing copy (never a bare `[object Object]`). */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** Structural view of the host services (skills registry, agents, presets). */
+interface CanvasSkillServices {
+  skills: {
+    list: () => Promise<Array<{ name: string; description: string; whenToUse?: string; path?: string; invocation?: { modelInvocable?: boolean }; metadata?: Readonly<Record<string, unknown>> }>>
+    get: (name: string) => Promise<{ name: string; content: string; metadata?: Readonly<Record<string, unknown>> } | undefined>
+  }
+  agents: {
+    create: (options: {
+      sessionId: string
+      meta?: { cwd?: string; origin?: 'subagent'; agentPreset?: string }
+      agentOptions?: { provider: string; model: string }
+      signal?: AbortSignal
+      setup?: (agentCtx: Context) => void | Promise<void>
+    }) => Promise<{ agent: CanvasSkillAgent; dispose: () => Promise<void> }>
+  }
+}
+
+/** The agent-preset roster a heavy skill joins (`ctx.agentPresets`). */
+interface CanvasAgentPresets {
+  /** Resolve the named preset, or the deployment default when omitted. */
+  resolve: (id?: string) => Promise<{ id: string }>
+  /** Compose a creating agent under that preset; resolves the composed preset. */
+  mount: (agentCtx: Context, id?: string) => Promise<{ id: string }>
+}
+
+/** The deployment's default model selection (`ctx.agentDefaultModel`). */
+interface CanvasDefaultModel {
+  currentSelection: () => { provider?: string; model?: string }
+}
+
+/** Everything one canvas heavy run needs to compose its headless agent. */
+export interface CanvasSkillAgentOptions {
+  agents: CanvasSkillServices['agents']
+  /** Absent on hosts that mount no preset roster (the heavy tier then refuses). */
+  presets?: CanvasAgentPresets
+  /** Absent on hosts that publish no default model (the heavy tier then refuses). */
+  defaultModel?: CanvasDefaultModel
+  /** Configured preset id; empty asks the roster for the deployment default. */
+  agentPreset: string
+  sessionId: string
+  cwd: string
+  systemPrompt: string
+  signal?: AbortSignal
+  /** Localizes a composition failure's copy key (the runner owns the language). */
+  fail?: (key: string) => string
+}
+
+/**
+ * Compose the headless agent one heavy skill run drives.
+ *
+ * Creating an agent is not enough to make it *useful*: on the Web surface every
+ * model-facing row (tools, prompt sections) lives behind an agent preset, and a
+ * model route is not implied by the request. DSH's own entry points therefore
+ * always pass both — `dsh-api-session-controller` stamps `agentOptions` from the
+ * deployment default and mounts the resolved preset in `setup`, and
+ * `dsh-subagent` joins the parent's preset for the same reason ("a child that
+ * joins no preset sees an empty tool registry and none of its parent's prompt
+ * sections"). A skill pipeline that must run a CLI is exactly that case: without
+ * the join the agent dies on its first step, and without the model route it has
+ * nothing to think with, so the canvas fails the run up front with copy instead
+ * of producing an empty result.
+ * @param options - host seams plus the run's identity, workspace and skill body.
+ * @returns the live agent handle narrowed to what a skill run drives.
+ */
+export async function createCanvasSkillAgent(options: CanvasSkillAgentOptions): Promise<SkillAgentHandle> {
+  const requested = options.agentPreset.trim()
+  const presetId = options.presets === undefined
+    ? undefined
+    : (await options.presets.resolve(requested === '' ? undefined : requested)).id
+  const selection = options.defaultModel?.currentSelection()
+  const provider = selection?.provider?.trim() ?? ''
+  const model = selection?.model?.trim() ?? ''
+  const fail = options.fail ?? (key => key)
+  if (provider === '' || model === '') throw new Error(fail('canvas.skills.needModel'))
+  let runtimeFailure: string | undefined
+  const handle = await options.agents.create({
+    sessionId: options.sessionId,
+    meta: {
+      cwd: options.cwd,
+      origin: 'subagent',
+      ...presetId === undefined ? {} : { agentPreset: presetId },
+    },
+    agentOptions: { provider, model },
+    ...options.signal === undefined ? {} : { signal: options.signal },
+    setup: async (agentCtx: Context) => {
+      // The driver contains errors before whenIdle resolves; retain its reason.
+      const events = agentCtx as unknown as { on: (name: string, listener: (payload: { agent?: { id?: string }; error?: unknown }) => void) => unknown }
+      events.on?.('agent/error', payload => {
+        if (payload.agent?.id !== options.sessionId) return
+        const error = payload.error
+        runtimeFailure = redactDiagnosticText(error instanceof Error ? error.message : String(error))
+      })
+      // Join the preset FIRST: its rows must exist before the skill body is
+      // registered, so the body never shadows the composition it runs inside.
+      if (options.presets !== undefined && presetId !== undefined) await options.presets.mount(agentCtx, presetId)
+      agentCtx.systemPrompt.section({
+        name: 'plugin:dsh-imagegen:canvas-skill',
+        order: SECTION_ORDER,
+        text: options.systemPrompt,
+      })
+    },
+  })
+  const agent = handle.agent
+  return {
+    session: agent.session,
+    followup: body => {
+      agent.followup({
+        id: `canvas-skill-${Date.now().toString(36)}`,
+        role: 'user',
+        content: [{ type: 'text', text: body }],
+        source: { kind: 'plugin:dsh-imagegen' },
+      })
+    },
+    whenIdle: async () => {
+      await agent.whenIdle()
+      if (runtimeFailure !== undefined) throw new Error(runtimeFailure)
+    },
+    // The canvas cancel button is the human asking to stop.
+    cancel: () => agent.cancel({ kind: 'user' }),
+    dispose: () => handle.dispose(),
+  }
+}
+
+/**
+ * Wrap the host skill registry for the canvas runner: only model-invocable
+ * skills are offered (the canvas runs every skill through a model, so a
+ * user-only slash-command skill would fail halfway), and the summary is
+ * narrowed to the fields the tier heuristic reads.
+ *
+ * The registry alone is not enough on the Web surface. There, a preset owns
+ * local discovery: `skill-filesystem` mounts into the *preset's* layer while
+ * this plugin is a host-plane bundle, and an unscoped `ctx.skills.list()` reads
+ * the global layer alone (the base host row is disabled — see
+ * `dsh-web-app/cordis.patch.yml`). Every skill the user installs into
+ * `~/.dsh/skills` would therefore be invisible to the canvas, even though the
+ * skill library panel lists it. So the local library is read straight from disk
+ * as a second source, and both `list` and `get` consult it — the disk source is
+ * also what makes a heavy run's body load without the agent's own scope.
+ *
+ * The canvas is one host surface shared by every session, so it deliberately
+ * offers the union: registry entries win a name collision (a deployment-level
+ * provider outranks a user install), and the local scan fills the rest.
+ * @param skills - the injected `ctx.skills` service.
+ * @param options - `root` resolves the local skill library root; omitted (as in
+ *   narrow harnesses) leaves only the registry source.
+ * @returns the runner's registry seam.
+ */
+export function createSkillRegistryBackend(
+  skills: CanvasSkillServices['skills'],
+  options: { root?: () => string } = {},
+): SkillRegistryBackend {
+  const localRoot = (): string | undefined => options.root?.()
+  const localSkills = async (): Promise<LocalSkill[]> => {
+    const root = localRoot()
+    if (root === undefined) return []
+    return await listLocalSkills(root).catch(() => [])
+  }
+  return {
+    list: async () => {
+      const listed = await skills.list()
+      const merged = new Map<string, ExternalSkillSummary>()
+      for (const skill of await localSkills()) {
+        merged.set(skill.name, {
+          name: skill.name,
+          description: skill.description,
+          ...skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse },
+          path: skill.path,
+          source: 'filesystem',
+        })
+      }
+      for (const summary of listed) {
+        if (summary.invocation?.modelInvocable === false) continue
+        merged.set(summary.name, {
+          name: summary.name,
+          description: summary.description,
+          ...summary.whenToUse === undefined ? {} : { whenToUse: summary.whenToUse },
+          ...summary.path === undefined ? {} : { path: summary.path },
+          ...summary.metadata === undefined ? {} : { metadata: summary.metadata },
+        })
+      }
+      return [...merged.values()]
+    },
+    get: async name => {
+      const definition = await skills.get(name)
+      if (definition !== undefined) {
+        return {
+          name: definition.name,
+          content: definition.content,
+          ...definition.metadata === undefined ? {} : { metadata: definition.metadata },
+        }
+      }
+      const root = localRoot()
+      const local = root === undefined ? undefined : await readLocalSkill(root, name).catch(() => undefined)
+      return local === undefined ? undefined : { name: local.name, content: local.content }
+    },
+  }
+}
+
+/** Content type for a saved image file name (object uploads). */
+function mimeOfPath(filePath: string): string {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg'
+    case '.webp': return 'image/webp'
+    case '.gif': return 'image/gif'
+    default: return 'image/png'
+  }
+}
+import { ImageGenerationRuntime, type ChannelsView, type HostChatSeam, type RuntimeChannel } from './generation-runtime.ts'
+import { createHostChatSeam, type HostAgentPresets, type HostAgentsService, type HostDefaultModel } from './host-chat.ts'
+import { registerAgentCanvasTools } from './agent-canvas-tools.ts'
+import { registerAgentImageTools } from './agent-image-tools.ts'
+import { registerAgentVideoTools } from './agent-video-tools.ts'
+import { registerEditImageCommand } from './edit-image-command.ts'
+import { setImageDataRoot, imageDataRoot } from './image-storage-path.ts'
+import { presetById } from './presets.ts'
+import { chatComplete, type PromptModelConfig } from './prompt-enhancer.ts'
+import { SkillRunner, setSkillTranslate, canvasSkillCopy, type SkillAgentBackend, type SkillAgentHandle, type SkillCanvasBackend, type SkillChatBackend, type SkillRegistryBackend } from './skill-runner.ts'
+import { installFromArchive, installFromUrl, knownSkillUrl, listLibrary, listLocalSkills, readLocalSkill, removeSkill, SkillStoreError, skillsRoot, type LocalSkill, type LocalSkillIssue } from './skill-store.ts'
+import { applySkillConfigSteps, asConfigDict, configNote, configView, missingFields, parseSkillConfigManifest, readSkillConfigFile, skillConfigKey, valuesFor, type SkillConfigDeclaration, type SkillConfigIssue, type SkillConfigStore } from './skill-config.ts'
+import { recipeFor } from './skill-config-recipes.ts'
+import { createClipComposer } from './clip-compose.ts'
+import { PptRuntime } from './ppt-runtime.ts'
+import { EDITABLE_PPT_SKILL, type ExternalSkillSummary } from './skills-catalog.ts'
+import { redactDiagnosticText } from './diagnostics-store.ts'
+import { canvasStore } from './canvas-store.ts'
+import { imageGenLanguageOf, interpolate } from './locale-tables.ts'
+
+/** Stable cordis plugin name. */
+export const name = 'imagegen'
+
+/** Services required before the surfaces can mount. */
+export const inject = ['webServer', 'systemPrompt', 'commands']
+
+// Internals re-exported for smoke tests and host-side debugging; the plugin
+// contract only requires name / inject / Config / apply.
+export { makeRoutes } from './routes.ts'
+export { SubscriptionManager, vendorOf, subscriptionOauthRef } from './subscription/manager.ts'
+export { generateImage, ImageGenError } from './engine.ts'
+export { generateVideo, VideoGenError, isVideoModel } from './video-engine.ts'
+export { describeVideoModel, DEFAULT_VIDEO_MODELS, durationsOf, isSnapgenVideoModel, normalizeVideoResolution, parseVideoResolution, resolutionRank, resolveVideoModelId, videoDurationsFor, VIDEO_RESOLUTIONS } from './video-model-catalog.ts'
+// The snapgen protocol is hand-rolled, so its primitives are exported too: the
+// offline smoke suite pins the guard bytes and the wire vocabulary against the
+// values measured from the real site, with no network and no browser.
+export { parseSnapgenCredentials, snapgenGuard, snapgenWire, snapgenWireParams } from './snapgen-engine.ts'
+export { applyPlan, hasMotion, looksChinese, MAX_PLANNED_PROMPT_CHARS, MAX_PROMPT_CHARS, parsePlanAnswer, planVideo, planVideoLocally, requirePrompt, VideoPlanError, type ChatCompleter, type VideoPlan, type VideoPlanInput } from './video-director.ts'
+export { appendVideoHistory, backfillVideoPosters, clearVideoHistory, listVideoHistory, readVideoFile, removeVideoHistory, VIDEO_HISTORY_MAX } from './video-store.ts'
+export { VideoTaskQueue } from './video-task-queue.ts'
+export { promptCharLimit } from './model-catalog.ts'
+export { generateListingCopy, listingTitleLimit } from './listing-copy.ts'
+export { analyzeLayers, normalizeLayerPlan, MAX_LAYER_IMAGE_BYTES } from './layer-analyzer.ts'
+export { ImageGenerationRuntime, type HostChatSeam } from './generation-runtime.ts'
+export { createHostChatSeam } from './host-chat.ts'
+export { runCodeRender, codeRenderPlan, probeCodeRender, validateCodeInput, type CodeRenderInput, type CodeRenderOutcome, type CodeChatCompleter } from './code-render-runtime.ts'
+export { renderCode, dimensionsFor, locateFfmpeg, extractRenderSource, looksLikeCode, CodeRenderError, MAX_CODE_CHARS, DEFAULT_RENDER_TIMEOUT_MS, type CodeRenderKind, type CodeRenderRequest, type CodeRenderResult } from './code-render.ts'
+export { codeRenderSystemPrompt, codeRenderUserPrompt, readGeneratedCode, fallbackRendererSource, type CodeBrief, type CodeTarget } from './code-prompt.ts'
+export { registerAgentCanvasTools } from './agent-canvas-tools.ts'
+export { registerAgentImageTools, resolveAgentImageModel } from './agent-image-tools.ts'
+export { registerAgentVideoTools, resolveAgentVideoModel, AGENT_VIDEO_TOOL_NAMES } from './agent-video-tools.ts'
+export { latestSessionImage, registerEditImageCommand } from './edit-image-command.ts'
+export { PptTaskStore } from './ppt-task-store.ts'
+export { pptActivity, PptProgressMonitor } from './ppt-progress.ts'
+export { appendGallery, appendGalleryVideo, clearGallery, GALLERY_TRASH_RETENTION_MS, listGallery, listGalleryTrash, purgeGallery, readGalleryImage, readGalleryVideo, removeGallery, restoreGallery, updateGalleryTags } from './gallery-store.ts'
+export { listTemplates, readTemplateImage, refreshTemplates, sampleTemplates, syncAllTemplates, clearTemplateMemo } from './templates-store.ts'
+export { addTemplateFavorite, clearTemplateFavoritesMemo, listTemplateFavorites, removeTemplateFavorite } from './template-favorites.ts'
+export { putObject, setStorageSyncHandler, testStorage, type StorageSyncConfig } from './storage-sync.ts'
+export { agentSessionFailure, SkillRunner, setSkillTranslate, setSkillLanguage, canvasSkillCopy } from './skill-runner.ts'
+export { builtinCanvasSkills, canvasSkillCatalog, EDITABLE_PPT_SKILL, findCanvasSkill, isEditablePptSkill, mergeExternalSkills, tierOfExternalSkill } from './skills-catalog.ts'
+export { extractFileText, MAX_EXTRACTED_CHARS } from './file-text.ts'
+export { buildFilePreview, MAX_PREVIEW_CHARS, type FilePreviewInput } from './file-preview.ts'
+export { classifySource, inspectSkillMarkdown, installableSkillName, installFromArchive, installFromUrl, isDshSkillName, isValidSkillName, KNOWN_SKILL_SOURCES, knownSkillUrl, listLibrary, listLocalSkills, parseSkillFrontmatter, readLocalSkill, removeSkill, SkillStoreError, skillsRoot, MAX_SKILL_ARCHIVE_BYTES, type LocalSkill, type LocalSkillIssue } from './skill-store.ts'
+export { applySkillConfigSteps, configNote, configView, missingFields, parseSkillConfigManifest, readSkillConfigFile, resolveConfigTarget, skillConfigKey, valuesFor, type SkillConfigDeclaration, type SkillConfigIssue, type SkillConfigStore } from './skill-config.ts'
+export { recipeFor, recipeNames } from './skill-config-recipes.ts'
+export { createClipComposer, findTool, localVideoToolDirs } from './clip-compose.ts'
+export { isZipDirectory, readZipDirectory, readZipEntry } from './zip.ts'
+export { canvasStore, isBlockedFileName, fileKindOf, MAX_CANVAS_FILE_BYTES, mimeFromFileName, safeFileName } from './canvas-store.ts'
+export { ProposalStore, proposalStore } from './canvas-proposal-store.ts'
+export { checkForUpdate, clearUpdateCache, compareVersions, CURRENT_VERSION, DESKTOP_PROFILE, installUpdate, isInstallableTarballUrl, ManualUpdateRequiredError, PACKAGE_NAME, profileFromProcess, updateInstallTarget, type UpdateHostContext, type UpdateInstallTarget } from './updater.ts'
+export { clearDiagnostics, listDiagnostics, networkErrorFields, redactDiagnosticText, recordDiagnostic, DIAGNOSTIC_MAX, type DiagnosticEntry } from './diagnostics-store.ts'
+
+/** The branded settings namespace of this plugin (the card edits it). */
+export const ImageGenSettingsNamespace = settingsNamespaceCompat(IMAGEGEN_SETTINGS_NAMESPACE)
+
+/**
+ * Plugin config, validated by the same-named schemastery schema.
+ *
+ * Channels own the endpoint + model catalog. The API key of each channel lives
+ * in `channelSecrets` (a secret dict keyed by channel id) instead of inside the
+ * channel objects — dsh-settings redaction supports dict/array containers, but
+ * path ops cannot reach inside arrays, so a whole-array write must never carry
+ * secrets it would clobber.
+ */
+export interface Config {
+  /** Master switch for the plugin (routes, prompt section). */
+  enabled?: boolean
+  /** Announce the plugin in every agent's system prompt. */
+  announceToAgent?: boolean
+  /** Allow Agents to submit and retrieve image-generation tasks. */
+  allowAgentImageGeneration?: boolean
+  /** Configured channels (each: name, endpoint, model catalog). */
+  channels?: ChannelConfig[]
+  /** Per-channel API keys, keyed by channel id. */
+  channelSecrets?: Record<string, string>
+  /** Channel used when a request does not name one. */
+  defaultChannelId?: string
+  /** Model alias selected by default for GUI, canvas and Agent generation. Empty uses the first configured model. */
+  defaultModel?: string
+  /** Optional OpenAI-compatible chat endpoint for prompt enhancement. */
+  promptApiUrl?: string
+  /** Optional secret for the prompt enhancement endpoint. */
+  promptApiKey?: string
+  /** Chat model used to expand short image prompts. */
+  promptModel?: string
+  /** Model alias selected by default for video generation. Empty uses the first video model. */
+  defaultVideoModel?: string
+  /** Allow Agents to submit and retrieve video-generation tasks. */
+  allowAgentVideoGeneration?: boolean
+  /** Local root for generated/history/gallery/canvas images. Empty keeps the default under DSH_HOME. */
+  localStoragePath?: string
+  /** Sync saved images to an S3-compatible object store (COS / OSS / Qiniu S3 …). */
+  storageEnabled?: boolean
+  /** S3-compatible endpoint URL including the bucket (virtual-hosted or path style). */
+  storageEndpoint?: string
+  /** Provider region for SigV4 scope, e.g. ap-guangzhou / oss-cn-hangzhou. */
+  storageRegion?: string
+  /** Object key prefix, default 'dsh-imagegen'. */
+  storagePrefix?: string
+  /** S3 access key id. */
+  storageAccessKey?: string
+  /** S3 secret access key (stored redacted). */
+  storageSecretKey?: string
+  /** Upload gallery additions (default on when storage is enabled). */
+  storageSyncGallery?: boolean
+  /** Also upload history images. */
+  storageSyncHistory?: boolean
+  /* ------------------------- infinite-canvas skills ------------------------- */
+  /** Master switch for canvas skills (menu, runs, produced nodes). */
+  skillsEnabled?: boolean
+  /** Allow heavy skills, which run a headless DSH agent (slow, token-hungry). */
+  allowHeavySkills?: boolean
+  /** External-skill allowlist (comma/newline separated; empty = all installed). */
+  skillAllowlist?: string
+  /** Working directory for heavy skill runs; empty uses `<data>/canvas/runs`. */
+  skillOutputDir?: string
+  /** Heavy-skill timeout in minutes (0 disables the timeout). */
+  skillHeavyTimeoutMinutes?: number
+  /** Headless-agent preset used for heavy runs; empty uses the host default. */
+  skillAgentPreset?: string
+  /* --------------------------- skill configuration -------------------------- */
+  /**
+   * Per-skill configuration values declared by `skill.config.json`, keyed
+   * `<skill>/<field>` (see `docs/skill-config.md`). Non-secret values only; the
+   * secret half lives in `skillConfigSecrets`.
+   */
+  skillConfig?: Record<string, string>
+  /** Secret half of the skill configuration, stored redacted. */
+  skillConfigSecrets?: Record<string, string>
+  /* ----- deprecated legacy single-endpoint fields (migrated to channels) ----- */
+  /** Legacy base URL; synthesized into the default channel on upgrade. */
+  apiUrl?: string
+  /** Legacy secret; migrated into channelSecrets on upgrade. */
+  apiKey?: string
+  /** Legacy allow-list; migrated into the default channel's catalog. */
+  imageModels?: string[]
+}
+
+const configSchema = z.object({
+  enabled: z.boolean().default(true).volatile(),
+  announceToAgent: z.boolean().default(true).volatile(),
+  allowAgentImageGeneration: z.boolean().default(true).volatile(),
+  channels: z.array(z.object({
+    id: z.string(),
+    preset: z.string().default(''),
+    name: z.string().default(''),
+    apiUrl: z.string().default(''),
+    apiUrlFull: z.boolean().default(false),
+    /** Seedream watermark opt-out (#56): absent/true keeps the badge on. */
+    watermark: z.boolean().default(true),
+    /** Use the selected adapter's reference ceiling; false pins 5. */
+    autoReferenceLimit: z.boolean().default(true),
+    protocol: z.union([z.const('auto'), z.const('images'), z.const('chat-completions'), z.const('google-native'), z.const('qwen-draw')]).default('auto'),
+    auth: z.union([z.const('api-key'), z.const('subscription')]).default('api-key'),
+    subscription: z.string().default(''),
+    models: z.array(z.object({
+      alias: z.string(),
+      id: z.string(),
+    })).default([]),
+    /** Video model catalog (alias → upstream id). Appended after `models` so
+     *  existing channels keep parsing unchanged: an absent list is empty. */
+    videoModels: z.array(z.object({
+      alias: z.string(),
+      id: z.string(),
+    })).default([]),
+  })).default([]).volatile(),
+  channelSecrets: z.dict(z.string().role('secret')).default({}).volatile(),
+  defaultChannelId: z.string().default('').volatile(),
+  defaultModel: z.string().default('').volatile(),
+  defaultVideoModel: z.string().default('').volatile(),
+  allowAgentVideoGeneration: z.boolean().default(true).volatile(),
+  promptApiUrl: z.string().default('').volatile(),
+  promptApiKey: z.string().role('secret').default('').volatile(),
+  promptModel: z.string().default('').volatile(),
+  localStoragePath: z.string().default('').volatile(),
+  storageEnabled: z.boolean().default(false).volatile(),
+  storageEndpoint: z.string().default('').volatile(),
+  storageRegion: z.string().default('').volatile(),
+  storagePrefix: z.string().default('dsh-imagegen').volatile(),
+  storageAccessKey: z.string().default('').volatile(),
+  storageSecretKey: z.string().role('secret').default('').volatile(),
+  storageSyncGallery: z.boolean().default(true).volatile(),
+  storageSyncHistory: z.boolean().default(false).volatile(),
+  skillsEnabled: z.boolean().default(true).volatile(),
+  allowHeavySkills: z.boolean().default(true).volatile(),
+  skillAllowlist: z.string().default('').volatile(),
+  skillOutputDir: z.string().default('').volatile(),
+  skillHeavyTimeoutMinutes: z.number().default(20).volatile(),
+  skillAgentPreset: z.string().default('').volatile(),
+  skillConfig: z.dict(z.string()).default({}).volatile(),
+  skillConfigSecrets: z.dict(z.string().role('secret')).default({}).volatile(),
+  apiUrl: z.string().default('').volatile(),
+  apiKey: z.string().role('secret').default('').volatile(),
+  imageModels: z.array(z.string()).default([]).volatile(),
+})
+
+// The public schema type stays the plain Config shape for plugin consumers;
+// the loader resolves these top-level fields to Volatile references.
+export const Config: z<Config> = configSchema as unknown as z<Config>
+
+/** One live config field exposed by schemastery's volatile resolver. */
+interface VolatileValue<T> {
+  get: () => T
+}
+
+/** Read a value that may be a volatile config reference. */
+function unwrapVolatileValue<T>(value: unknown): T {
+  if (typeof value === 'object' && value !== null && typeof (value as { get?: unknown }).get === 'function') {
+    return (value as VolatileValue<T>).get()
+  }
+  return value as T
+}
+
+/** Detach the plain Config view from the loader's top-level volatile fields. */
+function unwrapConfig(value: unknown): Config {
+  if (typeof value !== 'object' || value === null) return {}
+  const out: Record<string, unknown> = {}
+  for (const [key, field] of Object.entries(value)) out[key] = unwrapVolatileValue(field)
+  return out as Config
+}
+
+/** Schema defaults, re-read for hand-built contexts (the loader applies them normally). */
+const DEFAULT_ENABLED = true
+const DEFAULT_ANNOUNCE = true
+const DEFAULT_ALLOW_AGENT_IMAGE_GENERATION = true
+
+/** Order of the announcement section within the tool-guidance band. */
+const SECTION_ORDER = 150
+
+/** Model-facing announcement. Replies to the user only say sign-in is required. */
+export const IMAGEGEN_GUIDANCE = '使用图像和视频前需要先登录。未登录时告诉用户：请先登录后再使用。'
+
+/** One line per picker model so an Agent sees that model's legal options. */
+function catalogGuidance(): string {
+  const lines = cachedImageModels()
+    .filter(model => model.show_in_picker !== false)
+    .map(model => {
+      const aspects = aspectsOf(model).join('/')
+      const tiers = (model.quality_options ?? []).join('/')
+      const renders = (model.render_quality_options ?? []).join('/')
+      const formats = outputFormatsOf(model).join('/')
+      const background = (model.background_options ?? []).includes('transparent') ? '，可透明背景' : ''
+      const quality = tiers === '' ? '无清晰度档' : tiers
+      const render = renders === '' ? '' : `，渲染质量 ${renders}`
+      return `${model.name}：比例 ${aspects === '' ? '未公布' : aspects}；清晰度 ${quality}${render}；输出 ${formats}${background}`
+    })
+  return lines.length === 0 ? '' : `各模型参数：${lines.join('。')}。`
+}
+
+const SIGN_IN_GUIDANCE = '使用图像和视频前需要先登录。请告诉用户：请先登录后再使用。'
+
+/** Append the live model list so an Agent can honor user choices. */
+function guidanceFor(channels: RuntimeChannel[], defaultChannelId: string, defaultModel: string, defaultVideoModel = ''): string {
+  const taichi = channels.find(channel => channel.id === TAICHI_CHANNEL_ID)
+  if (taichi !== undefined && channels.length === 1) {
+    const names = taichi.models.map(model => model.alias).join('、')
+    if (taichi.apiKey === '' || names === '') return SIGN_IN_GUIDANCE
+    const fallback = defaultModel || names.split('、')[0]
+    return `使用图像和视频前需要先登录。可用生图模型：${names}。未指定模型时使用「${fallback}」。generate_image 做文生图；edit_image 带一张参考图做改图。工作台和画布可以在同一次请求里提交多张参考图。比例、清晰度、渲染质量、背景和输出格式只用该模型列出的选项。${catalogGuidance()}`
+  }
+  if (channels.length === 0) return SIGN_IN_GUIDANCE
+  const table = channels.map(channel => {
+    const aliases = channel.models.map(model => model.alias).join('、')
+    const mark = channel.id === defaultChannelId ? '（默认）' : ''
+    const models = channel.models.length === 0 ? '没有可用的生图模型' : `可用模型：${aliases}`
+    const videoAliases = (channel.videoModels ?? []).map(model => model.alias).join('、')
+    const videos = (channel.videoModels ?? []).length === 0 ? '' : `；视频模型：${videoAliases}`
+    return `「${channel.name}」${mark}${models}${videos}`
+  }).join('；')
+  const fallback = defaultModel === ''
+    ? '未指定模型时若仅一个可用模型可直接生成，若有多个应先询问用户选择模型。'
+    : `未指定模型时默认使用「${defaultModel}」。`
+  const videoFallback = defaultVideoModel === ''
+    ? ''
+    : `视频未指定模型时默认使用「${defaultVideoModel}」。`
+  return `${IMAGEGEN_GUIDANCE} 当前模型：${table}。用户指定模型名时使用该模型；${fallback}${videoFallback}`
+}
+
+/** Normalize raw channel entries into the wire shape (schema-adjacent guard). */
+function normalizeChannels(value: unknown): ChannelConfig[] {
+  if (!Array.isArray(value)) return []
+  const out: ChannelConfig[] = []
+  for (const item of value) {
+    if (item === null || typeof item !== 'object') continue
+    const raw = item as Record<string, unknown>
+    const id = typeof raw.id === 'string' ? raw.id.trim() : ''
+    if (id === '') continue
+    const models: ModelMapping[] = []
+    if (Array.isArray(raw.models)) {
+      for (const entry of raw.models) {
+        if (entry === null || typeof entry !== 'object') continue
+        const record = entry as Record<string, unknown>
+        const alias = typeof record.alias === 'string' ? record.alias.trim() : ''
+        const upstream = typeof record.id === 'string' ? record.id.trim() : ''
+        if (alias === '') continue
+        models.push({ alias, id: upstream === '' ? alias : upstream })
+      }
+    }
+    const videoModels: ModelMapping[] = []
+    if (Array.isArray(raw.videoModels)) {
+      for (const entry of raw.videoModels) {
+        if (entry === null || typeof entry !== 'object') continue
+        const record = entry as Record<string, unknown>
+        const alias = typeof record.alias === 'string' ? record.alias.trim() : ''
+        const upstream = typeof record.id === 'string' ? record.id.trim() : ''
+        if (alias === '') continue
+        videoModels.push({ alias, id: upstream === '' ? alias : upstream })
+      }
+    }
+    out.push({
+      id,
+      preset: typeof raw.preset === 'string' ? raw.preset : '',
+      name: typeof raw.name === 'string' ? raw.name.trim() : '',
+      apiUrl: typeof raw.apiUrl === 'string' ? raw.apiUrl.trim() : '',
+      apiUrlFull: raw.apiUrlFull === true,
+      watermark: raw.watermark !== false,
+      autoReferenceLimit: raw.autoReferenceLimit !== false,
+      ...isChannelProtocolPreference(raw.protocol) ? { protocol: raw.protocol } : {},
+      ...raw.auth === 'subscription' ? { auth: 'subscription' as const } : {},
+      ...isSubscriptionProvider(raw.subscription) ? { subscription: raw.subscription } : {},
+      models,
+      videoModels,
+    })
+  }
+  return out
+}
+
+/** Effective config (schema defaults applied + legacy migration). */
+export interface EffectiveConfig {
+  enabled: boolean
+  announceToAgent: boolean
+  allowAgentImageGeneration: boolean
+  channels: RuntimeChannel[]
+  defaultChannelId: string
+  defaultModel: string
+  /** Model alias used when a video request does not name one. */
+  defaultVideoModel: string
+  /** Allow Agents to submit and retrieve video-generation tasks. */
+  allowAgentVideoGeneration: boolean
+  promptApiUrl: string
+  promptApiKey: string
+  promptModel: string
+  storage: StorageSyncConfig & { enabled: boolean; syncGallery: boolean; syncHistory: boolean }
+  /** Infinite-canvas skill settings. */
+  skills: {
+    enabled: boolean
+    allowHeavy: boolean
+    allowlist: string[]
+    outputDir: string
+    heavyTimeoutMs: number
+    agentPreset: string
+  }
+  /** Per-skill configuration values, secrets included (host side only). */
+  skillConfig: SkillConfigStore
+}
+
+/** Whether a channel can back the optional chat model without subscription routing. */
+function isReusablePromptChannel(channel: RuntimeChannel): boolean {
+  return channel.auth !== 'subscription'
+    && channel.apiUrlFull !== true
+    && channel.apiUrl.trim() !== ''
+}
+
+/**
+ * Resolve the optional chat endpoint. Keeping this separate from image
+ * generation matters when subscription channels appear first: blank prompt
+ * fields must reuse a real API-key channel, not the first configured row.
+ */
+export function resolvePromptModelConfig(value: EffectiveConfig): PromptModelConfig {
+  const modelChannel = value.defaultModel === ''
+    ? undefined
+    : value.channels.find(channel => isReusablePromptChannel(channel)
+      && channel.models.some(model => model.alias === value.defaultModel))
+  const defaultChannel = value.channels.find(channel => channel.id === value.defaultChannelId)
+  const reusable = [modelChannel, defaultChannel, ...value.channels].find(
+    (channel): channel is RuntimeChannel => channel !== undefined && isReusablePromptChannel(channel),
+  )
+  return {
+    apiUrl: value.promptApiUrl !== '' ? value.promptApiUrl : reusable?.apiUrl ?? '',
+    apiKey: value.promptApiKey !== '' ? value.promptApiKey : reusable?.apiKey ?? '',
+    model: value.promptModel,
+  }
+}
+
+/**
+ * Mount the settings section, routes, and announcement.
+ * @param ctx - host plugin context carrying webServer/systemPrompt.
+ * @param config - resolved plugin config (schema defaults applied by the loader).
+ */
+export function apply(ctx: Context, config?: Config): (() => void) | void {
+  const mounts = new Map<Feature, (ctx: Context) => void>()
+  // The live source the surfaces read: the settings section once the settings
+  // service is attached, the composition entry otherwise.
+  let current: () => Config = () => config ?? {}
+  const refreshModels = ensureImageModels()
+  const resolve = (): EffectiveConfig => {
+    const value = unwrapConfig(current())
+    setImageDataRoot(value.localStoragePath)
+    const gateway = taichiRuntimeChannel()
+    return {
+      enabled: value.enabled ?? DEFAULT_ENABLED,
+      announceToAgent: value.announceToAgent ?? DEFAULT_ANNOUNCE,
+      allowAgentImageGeneration: value.allowAgentImageGeneration ?? DEFAULT_ALLOW_AGENT_IMAGE_GENERATION,
+      allowAgentVideoGeneration: value.allowAgentVideoGeneration ?? true,
+      channels: [gateway],
+      defaultChannelId: gateway.id,
+      defaultModel: gateway.models[0]?.alias ?? '',
+      defaultVideoModel: gateway.videoModels[0]?.alias ?? '',
+      promptApiUrl: '',
+      promptApiKey: '',
+      promptModel: '',
+      storage: {
+        enabled: value.storageEnabled ?? false,
+        endpoint: typeof value.storageEndpoint === 'string' ? value.storageEndpoint.trim() : '',
+        region: typeof value.storageRegion === 'string' ? value.storageRegion.trim() : '',
+        accessKey: typeof value.storageAccessKey === 'string' ? value.storageAccessKey.trim() : '',
+        secretKey: typeof value.storageSecretKey === 'string' ? value.storageSecretKey.trim() : '',
+        prefix: typeof value.storagePrefix === 'string' && value.storagePrefix.trim() !== '' ? value.storagePrefix.trim() : 'dsh-imagegen',
+        syncGallery: value.storageSyncGallery ?? true,
+        syncHistory: value.storageSyncHistory ?? false,
+      },
+      skills: {
+        enabled: value.skillsEnabled ?? true,
+        allowHeavy: value.allowHeavySkills ?? true,
+        allowlist: (value.skillAllowlist ?? '')
+          .split(/[\n,]/)
+          .map(item => item.trim())
+          .filter(item => item !== ''),
+        outputDir: typeof value.skillOutputDir === 'string' ? value.skillOutputDir.trim() : '',
+        heavyTimeoutMs: Math.max(0, Math.round((value.skillHeavyTimeoutMinutes ?? 20) * 60_000)),
+        agentPreset: typeof value.skillAgentPreset === 'string' ? value.skillAgentPreset.trim() : '',
+      },
+      skillConfig: {
+        values: asConfigDict(value.skillConfig),
+        secrets: asConfigDict(value.skillConfigSecrets),
+      },
+    }
+  }
+
+  // Transient helper used by several mount points below: resolve the shared
+  // channel view once per access; the runtime then picks per-request creds.
+  const channelsView = (): ChannelsView => {
+    const value = resolve()
+    return { channels: value.channels, defaultChannelId: value.defaultChannelId }
+  }
+
+  // Object-storage sync: the image stores announce every file they write; the
+  // handler resolves the live settings and uploads when enabled. Fire and
+  // forget — a sync failure never blocks the save path.
+  mounts.set('storage', componentCtx => {
+  componentCtx.effect(() => {
+  setStorageSyncHandler((kind, filePath) => {
+    const storage = resolve().storage
+    if (!storage.enabled || !storage.endpoint.trim() || storage.secretKey.trim() === '') return
+    if (kind === 'gallery' && !storage.syncGallery) return
+    if (kind === 'history' && !storage.syncHistory) return
+    const key = `${storage.prefix}/${kind === 'gallery' ? 'gallery' : 'images'}/${path.basename(filePath)}`
+    const data = readFileSync(filePath)
+    void putObject(storage, key, data, mimeOfPath(filePath)).catch(() => {
+      // Best-effort sync: surfaced through the settings test, never fatal here.
+    })
+  })
+
+  return () => setStorageSyncHandler(undefined)
+  }, 'dsh-imagegen: storage sync')
+  })
+
+  // Browser endpoints and Agent tools share the exact same serial queue. This
+  // keeps image persistence, cancellation, and retries coherent across both
+  // entry points; Agent tools wait for their task result by default and render
+  // images in the tool result instead of injecting a synthetic user message.
+  const subscriptions = new SubscriptionManager(ctx)
+  // The video director plans through the same chat endpoint prompt enhancement
+  // uses, so there is no second credential to configure. Resolved per call, so
+  // a settings change takes effect on the next render without a restart.
+  // The host conversation model is reached through its `agents` service, which
+  // this plugin only sees inside the injection block below; the runtime is
+  // built before that. A holder keeps the wiring order honest: the seam the
+  // runtime holds asks this holder per call instead of capturing a snapshot.
+  let hostServices: { agents?: HostAgentsService; presets?: HostAgentPresets; defaultModel?: HostDefaultModel } | undefined
+  const hostChatService = (): HostChatSeam => createHostChatSeam({
+    ...hostServices === undefined ? {} : hostServices,
+    cwd: () => process.cwd(),
+    preset: () => resolveSkills().agentPreset,
+  })
+
+  const runtime = new ImageGenerationRuntime(channelsView, undefined, subscriptions, {
+    resolveConfig: () => resolvePromptModelConfig(resolve()),
+    complete: async options => chatComplete(await resolveTaichiChatConfig(), options),
+  }, {
+    // The host's own conversation model, resolved lazily: `agents` mounts in
+    // the injection block below, AFTER this runtime is built, and the selected
+    // model can change at any time.
+    available: () => hostChatService().available(),
+    label: () => hostChatService().label(),
+    complete: async options => await hostChatService().complete(options),
+  })
+  const pendingConversationImages = new Map<string, ImageAttachmentRef>()
+
+  // Host-rendered copy (skill catalog labels, run errors, produced node titles)
+  // resolves through the same dictionaries the browser bundle ships, so a run
+  // started in Chinese never answers in English.
+  setSkillTranslate((key, params, language) => interpolate(key, params, imageGenLanguageOf(language)))
+
+  // The canvas skill runner is assembled lazily: its chat tier needs only the
+  // prompt-enhancement endpoint (always available), while the heavy tier needs
+  // the host agent runtime. `setSkillRuntime` is called from the soft injection
+  // below, and routes read it per request — so a deployment without the agent
+  // runtime still gets the built-in light actions.
+  let skillRunner: SkillRunner | undefined
+  // The isolated editppt environment lives under the data root, so a reinstall
+  // or a data-folder move is picked up without restarting the host.
+  const pptRuntime = new PptRuntime(
+    () => imageDataRoot(),
+    async () => {
+      const definition = await skillRunner?.skillDefinition(EDITABLE_PPT_SKILL)
+      return definition?.path
+    },
+  )
+  const resolveSkills = (): EffectiveConfig['skills'] => resolve().skills
+  skillRunner = new SkillRunner({
+    backend: {
+      canvas: canvasStore as unknown as SkillCanvasBackend,
+      chat: {
+        complete: async options => chatComplete(await resolveTaichiChatConfig(), options),
+      },
+    },
+    enabled: () => resolve().enabled && resolveSkills().enabled,
+    heavyEnabled: () => resolveSkills().allowHeavy,
+    allowlist: () => resolveSkills().allowlist,
+    runRoot: () => resolveSkills().outputDir,
+    heavyTimeoutMs: () => resolveSkills().heavyTimeoutMs,
+    dataRoot: () => imageDataRoot(),
+    pptInstallUrl: knownSkillUrl(EDITABLE_PPT_SKILL),
+    // The deck pipeline runs an installed CLI, so the runner has to know which
+    // executable this host prepared rather than assuming one on PATH.
+    pptCommand: () => pptRuntime.command(),
+    // The local (ffmpeg) tier: stitching clips happens entirely on this machine,
+    // so the runner gets a seam instead of importing the video store itself.
+    // `createClipComposer()` only resolves/memoizes the tool paths on first use,
+    // so a host without ffmpeg still runs everything else.
+    composer: createClipComposer(),
+  })
+
+  // ---------------------------------------------------------- skill config
+  //
+  // A skill may declare the settings it needs in `skill.config.json` beside its
+  // `SKILL.md` (see docs/skill-config.md). The plugin renders that declaration,
+  // stores the values in its own settings namespace, and runs the declared
+  // `apply` steps on request. Known skills that ship no declaration are covered
+  // by a built-in recipe; everything else keeps its own conventions.
+
+  /** Settings write path, installed by the settings injection further down. */
+  let mutateSettings: ((ops: Array<Record<string, unknown>>) => Promise<void>) | undefined
+  let settingsNamespace = IMAGEGEN_SETTINGS_NAMESPACE
+
+  /** Entry paths the last library listing resolved, so lookups agree with it. */
+  const entryPathByName = new Map<string, string>()
+
+  /** Localize one ignored-declaration reason for the panel. */
+  const configIssueText = (language?: string) => (issue: SkillConfigIssue): string => {
+    const t = canvasSkillCopy(language)
+    switch (issue) {
+      case 'unsupported-version': return t('canvas.skills.configIssueVersion')
+      case 'empty': return t('canvas.skills.configIssueEmpty')
+      default: return t('canvas.skills.configIssueUnreadable')
+    }
+  }
+
+  /** Resolve one skill's values from the live settings dictionaries. */
+  const skillValues = (name: string, declaration: SkillConfigDeclaration): Map<string, string> =>
+    valuesFor(declaration, resolve().skillConfig, name)
+
+  /**
+   * The library entry path for one skill: the last listing's answer when it has
+   * one, else a direct disk read — so a config lookup and the panel agree.
+   */
+  const entryPathFor = async (name: string): Promise<string | undefined> => {
+    const known = entryPathByName.get(name)
+    if (known !== undefined) return known
+    return (await readLocalSkill(skillsRoot(), name).catch(() => undefined))?.path
+  }
+
+  /** Look up a declaration by skill name, reading its path from disk. */
+  const declarationByName = async (name: string): Promise<{ declaration?: SkillConfigDeclaration; issue?: SkillConfigIssue }> => {
+    const entryPath = await entryPathFor(name)
+    return await readCanvasSkillConfig({
+      name,
+      ...entryPath === undefined ? {} : { entryPath },
+      root: skillsRoot(),
+      store: resolve().skillConfig,
+    })
+  }
+
+  /** The directory a `command` step runs in by default (created on demand). */
+  const configRunRoot = (name: string): string => {
+    const configured = resolveSkills().outputDir.trim()
+    const root = configured === '' ? path.join(imageDataRoot(), 'canvas', 'runs') : configured
+    return path.join(root, 'skill-config', name)
+  }
+
+  // Local skill library (`~/.dsh/skills`): the canvas installs skills the same
+  // way a user would by hand, and both the filesystem skill provider (through
+  // its watcher) and the canvas catalog below read the same directory — so an
+  // install needs no host restart and never stays invisible to node skills.
+  let skillRegistryNames: ReadonlyArray<{ name: string; path?: string }> | undefined
+  /** One entry's "why the node menu cannot offer this" line, in caller copy. */
+  const issueText = (language?: string) => (issue: LocalSkillIssue, name: string): string => {
+    const t = canvasSkillCopy(language)
+    switch (issue) {
+      case 'no-frontmatter': return t('canvas.skills.libraryIssueFrontmatter')
+      case 'bad-name': return t('canvas.skills.libraryIssueName', { name })
+      case 'no-description': return t('canvas.skills.libraryIssueDescription')
+      case 'bad-invocation': return t('canvas.skills.libraryIssueInvocation')
+      default: return t('canvas.skills.libraryIssueUserOnly')
+    }
+  }
+  const snapshotLibrary = async (language?: string): Promise<CanvasSkillLibrary> => {
+    const library = await listLibrary({
+      root: skillsRoot(),
+      ...skillRegistryNames === undefined ? {} : { known: skillRegistryNames },
+      networkAvailable: true,
+      issueText: issueText(language),
+    })
+    const store = resolve().skillConfig
+    const entries = await Promise.all(library.entries.map(async entry => {
+      if (entry.path !== undefined) entryPathByName.set(entry.name, entry.path)
+      const found = await readCanvasSkillConfig({
+        name: entry.name,
+        ...entry.path === undefined ? {} : { entryPath: entry.path },
+        root: skillsRoot(),
+        store,
+        issueText: configIssueText(language),
+      })
+      return found.view === undefined ? entry : { ...entry, config: found.view }
+    }))
+    return { ...library, entries }
+  }
+  /** Merge one save request into both dictionaries and write them back. */
+  const saveSkillValues = async (
+    name: string,
+    declaration: SkillConfigDeclaration,
+    edits: ReadonlyArray<{ id: string; value: string }>,
+  ): Promise<void> => {
+    if (mutateSettings === undefined) throw new SkillStoreError(canvasSkillCopy()('canvas.skills.configUnwritable'))
+    const store = resolve().skillConfig
+    const next: SkillConfigStore = { values: { ...store.values }, secrets: { ...store.secrets } }
+    const byId = new Map(declaration.manifest.fields.map(field => [field.id, field]))
+    for (const edit of edits) {
+      const field = byId.get(edit.id)
+      if (field === undefined) continue
+      const key = skillConfigKey(name, field.id)
+      const dict = field.type === 'secret' ? next.secrets : next.values
+      if (edit.value.trim() === '') delete dict[key]
+      else dict[key] = edit.value
+    }
+    await mutateSettings([
+      { op: 'set', path: ['skillConfig'], value: next.values },
+      { op: 'set', path: ['skillConfigSecrets'], value: next.secrets },
+    ])
+  }
+  const skillLibrary = {
+    list: async (options?: { language?: string }): Promise<CanvasSkillLibrary> => await snapshotLibrary(options?.language),
+    install: async (request: CanvasSkillInstallRequest): Promise<CanvasSkillInstallResult> => {
+      const root = skillsRoot()
+      const installed: string[] = []
+      const failed: Array<{ source: string; message: string }> = []
+      let message: string | undefined
+      if (request.asset !== undefined) {
+        try {
+          const found = await canvasStore.readAssets([request.asset])
+          const blob = found.get(request.asset.assetId)
+          if (blob === undefined) throw new SkillStoreError('上传的压缩包已失效，请重新上传')
+          installed.push(await installFromArchive(blob.data, root, request.name ?? 'skill', request.force === true))
+        } catch (error) { message = messageOf(error) }
+      }
+      for (const source of request.sources ?? []) {
+        try {
+          installed.push(await installFromUrl(source, root, { force: request.force === true, fallbackName: request.name }))
+        } catch (error) {
+          failed.push({ source, message: messageOf(error) })
+        }
+      }
+      return {
+        ok: installed.length > 0,
+        installed,
+        failed,
+        library: await snapshotLibrary(request.language),
+        ...message === undefined ? {} : { message },
+      }
+    },
+    remove: async (name: string, options?: { language?: string }): Promise<CanvasSkillRemoveResult> => {
+      try {
+        const removed = await removeSkill(name, skillsRoot())
+        return { ok: true, library: await snapshotLibrary(options?.language), message: removed }
+      } catch (error) {
+        return { ok: false, library: await snapshotLibrary(options?.language), message: messageOf(error) }
+      }
+    },
+    configSave: async (request: CanvasSkillConfigSaveRequest): Promise<CanvasSkillConfigSaveResult> => {
+      try {
+        const found = await declarationByName(request.name)
+        if (found.declaration === undefined) throw new SkillStoreError(configIssueText(request.language)(found.issue ?? 'empty'))
+        await saveSkillValues(request.name, found.declaration, request.values ?? [])
+        return { ok: true, library: await snapshotLibrary(request.language) }
+      } catch (error) {
+        return { ok: false, library: await snapshotLibrary(request.language), message: messageOf(error) }
+      }
+    },
+    configApply: async (request: CanvasSkillConfigApplyRequest): Promise<CanvasSkillConfigApplyResult> => {
+      const library = async (): Promise<CanvasSkillLibrary> => await snapshotLibrary(request.language)
+      try {
+        const found = await declarationByName(request.name)
+        if (found.declaration === undefined) throw new SkillStoreError(configIssueText(request.language)(found.issue ?? 'empty'))
+        const values = skillValues(request.name, found.declaration)
+        const runRoot = configRunRoot(request.name)
+        await mkdir(runRoot, { recursive: true })
+        const skillDir = bundleDirOf((await readLocalSkill(skillsRoot(), request.name).catch(() => undefined))?.path)
+        const results = await applySkillConfigSteps(found.declaration, values, {
+          runRoot,
+          ...skillDir === undefined ? {} : { skillDir },
+        })
+        return {
+          ok: results.every(result => result.ok),
+          library: await library(),
+          steps: results.map(result => ({
+            kind: result.step.kind,
+            detail: result.detail,
+            ok: result.ok,
+            ...result.output === undefined ? {} : { output: result.output },
+          })),
+        }
+      } catch (error) {
+        return { ok: false, library: await library(), steps: [], message: messageOf(error) }
+      }
+    },
+  }
+
+  // Attach the host skill registry and agent runtime when this deployment has
+  // them. Both are optional seams: the plugin must keep working (light tier
+  // included) on a host that never mounted them.
+  mounts.set('skills', componentCtx => {
+  componentCtx.inject(['skills', 'agents'], sctx => {
+    const services = sctx as unknown as CanvasSkillServices
+    // Hand the host conversation model to the code-render path. Set inside the
+    // effect and cleared on unload, so a host that drops the services makes the
+    // code path fall back to the prompt-enhancement endpoint rather than using
+    // a stale handle.
+    hostServices = {
+      agents: services.agents as unknown as HostAgentsService,
+      presets: sctx.get('agentPresets') as unknown as HostAgentPresets | undefined,
+      defaultModel: sctx.get('agentDefaultModel') as unknown as HostDefaultModel | undefined,
+    }
+    const unregister = sctx.effect(() => {
+      // The canvas catalog unions the host registry with the local library: on
+      // the Web surface the registry alone is scope-blind here (see the adapter).
+      const registry = createSkillRegistryBackend(services.skills, { root: skillsRoot })
+      // The library panel prefers these paths over its own disk guess.
+      void registry.list().then(
+        listed => { skillRegistryNames = listed.map(item => ({ name: item.name, ...item.path === undefined ? {} : { path: item.path } })) },
+        () => { skillRegistryNames = [] },
+      )
+      // A heavy run needs the preset roster and a model route. Both are optional
+      // host services (a minimal host may mount neither), so they are read once
+      // here and handed to the composition, which reports a missing model rather
+      // than starting a tool-less agent that dies on its first step.
+      const presets = sctx.get('agentPresets') as unknown as CanvasAgentPresets | undefined
+      const defaultModel = sctx.get('agentDefaultModel') as unknown as CanvasDefaultModel | undefined
+      const agents: SkillAgentBackend = {
+        available: () => services.agents !== undefined,
+        create: async options => await createCanvasSkillAgent({
+          agents: services.agents,
+          ...presets === undefined ? {} : { presets },
+          ...defaultModel === undefined ? {} : { defaultModel },
+          agentPreset: resolveSkills().agentPreset,
+          sessionId: options.sessionId,
+          cwd: options.cwd,
+          systemPrompt: options.systemPrompt,
+          ...options.signal === undefined ? {} : { signal: options.signal },
+          fail: options.fail,
+        }),
+      }
+      skillRunner?.attach({
+        registry,
+        agents,
+        // Skill configuration: the catalog shows which required fields still
+        // have no value, and a run carries the exposable values it declared.
+        skillConfig: {
+          missing: async names => {
+            const out = new Map<string, string[]>()
+            for (const name of names) {
+              const found = await declarationByName(name)
+              if (found.declaration === undefined) continue
+              const missing = missingFields(found.declaration, skillValues(name, found.declaration))
+              if (missing.length > 0) out.set(name, missing)
+            }
+            return out
+          },
+          note: async name => {
+            const found = await declarationByName(name)
+            if (found.declaration === undefined) return undefined
+            return configNote(found.declaration, skillValues(name, found.declaration))
+          },
+        },
+      })
+      return () => { skillRunner?.attach({}); hostServices = undefined }
+    }, 'dsh-imagegen: canvas skills')
+    void unregister
+  })
+
+  })
+
+  // The route family mounts once, gated on the settings seam (the bridge
+  // serves it; without the seam there is nothing to expose). Route handlers
+  // read resolve() per request, so config edits apply live. The settings
+  // bridge deliberately keeps serving while the plugin is disabled — it is
+  // how the user re-enables the plugin from the settings card.
+  ctx.inject(['settings', 'attachments'], (sctx) => {
+    const seam = sctx.get('settings') as unknown as SettingsSeam
+    settingsNamespace = resolveSettingsNamespaceCompat(ctx, seam, ImageGenSettingsNamespace)
+    // Skill configuration values are written through the same namespace the
+    // settings card edits; the panel never crafts settings ops itself.
+    mutateSettings = async ops => { await seam.mutate(settingsNamespace, ops) }
+    sctx.effect(
+      () => {
+        // The guard needs the address this host listens on: with a LAN bind
+        // (a concrete NIC address), a browser on that address is not a loopback
+        // client, and only the bind address itself can authorise its Host
+        // header. The published type advertises just the two literals, so read
+        // the runtime value as a plain string rather than narrowing it away.
+        const bindHost = (sctx.webServer as { host?: unknown } | undefined)?.host
+        const routes = makeRoutes({
+          settings: seam,
+          settingsNamespace,
+          bindHost: typeof bindHost === 'string' && bindHost !== '' ? bindHost : undefined,
+          resolve: () => {
+            const value = resolve()
+            const channel = value.channels.find(candidate => candidate.id === value.defaultChannelId) ?? value.channels[0]
+            return { apiUrl: channel?.apiUrl ?? '', apiKey: channel?.apiKey ?? '' }
+          },
+          resolveChannels: channelsView,
+          resolvePrompt: () => resolveTaichiChatConfig(),
+          resolveImageModels: () => {
+            const value = resolve()
+            return [...new Set(value.channels.flatMap(channel => channel.models.map(model => model.alias)))]
+          },
+          attachments: sctx.attachments,
+          pendingConversationImages,
+          runtime,
+          subscriptions,
+          resolveStorage: () => resolve().storage,
+          skills: skillRunner,
+          pptRuntime,
+          skillLibrary,
+        })
+        const disposeRoutes = sctx.provide(ROUTE_SERVICE, { routes })
+        const disposers = routes.filter(route => routeComponent(route.path) === 'core').map(route => sctx.webServer.register(route))
+        return () => { disposeRoutes(); for (const dispose of disposers) dispose() }
+      }, 'dsh-imagegen: core routes',
+    )
+  })
+
+  mounts.set('templates', componentCtx => {
+    componentCtx.effect(() => {
+        // Background template sync: the upstream sources update on their own
+        // schedule, so pull every one of them shortly after start and then
+        // twice a day while the plugin stays enabled. Best-effort: failures
+        // keep the last good snapshot (bundled or previously refreshed).
+        const TEMPLATE_SYNC_INITIAL_DELAY_MS = 30_000
+        const TEMPLATE_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000
+        let syncTimer: NodeJS.Timeout | undefined
+        const runSync = (): void => {
+          if (!resolve().enabled) return
+          void syncAllTemplates().catch(() => { /* keep the last good snapshot */ })
+        }
+        const startTimer = setTimeout(runSync, TEMPLATE_SYNC_INITIAL_DELAY_MS)
+        syncTimer = setInterval(runSync, TEMPLATE_SYNC_INTERVAL_MS)
+        syncTimer.unref?.()
+        return () => {
+          clearTimeout(startTimer)
+          clearInterval(syncTimer)
+        }
+      },
+      'dsh-imagegen: template sync',
+    )
+  })
+
+  for (const feature of ['image', 'video', 'canvas'] as const) {
+  mounts.set(feature, componentCtx => {
+  componentCtx.inject(['tools', 'attachments', 'commands'], (tctx) => {
+    tctx.effect(() => {
+      const resolveAgentConfig = () => {
+        const value = resolve()
+        return {
+          enabled: value.enabled,
+          allowAgentImageGeneration: value.allowAgentImageGeneration,
+          channels: value.channels,
+          defaultChannelId: value.defaultChannelId,
+          defaultModel: value.defaultModel,
+        }
+      }
+      const resolveVideoToolConfig = () => {
+        const value = resolve()
+        return {
+          enabled: value.enabled,
+          allowAgentVideoGeneration: value.allowAgentVideoGeneration,
+          channels: value.channels,
+          defaultChannelId: value.defaultChannelId,
+          defaultVideoModel: value.defaultVideoModel,
+        }
+      }
+      if (feature === 'video') return registerAgentVideoTools(tctx, runtime, resolveVideoToolConfig)
+      if (feature === 'canvas') return registerAgentCanvasTools(tctx, resolveVideoToolConfig)
+      const disposeTools = registerAgentImageTools(tctx, runtime, resolveAgentConfig)
+      // Video tools mount alongside the image ones and share the same runtime,
+      // so a task started by an Agent and one started in the panel are visible
+      // to each other and to the same persisted history.
+      // Canvas tools are structure-only: they lay out nodes and wires, never a
+      // render. Generation stays behind the user's run button (see the module
+      // header for why that is a product decision, not an omission).
+      const disposeCommand = registerEditImageCommand(tctx, runtime, resolveAgentConfig, {
+        get: sessionId => pendingConversationImages.get(sessionId),
+        consume: (sessionId, ref) => {
+          if (pendingConversationImages.get(sessionId)?.attachmentId === ref.attachmentId) pendingConversationImages.delete(sessionId)
+        },
+      })
+      return () => {
+        disposeCommand()
+        disposeTools()
+      }
+    }, 'dsh-imagegen: ' + feature + ' agent tools')
+  })
+
+  })
+  }
+  const components: ComponentRuntime = { mount: (feature, componentCtx) => { mounts.get(feature)?.(componentCtx) } }
+  ctx.provide(COMPONENT_SERVICE, components)
+
+  // System-prompt announcement (toggled by settings changes).
+  let disposeSection: (() => void) | undefined
+  const sync = (): void => {
+    if (disposeSection !== undefined) {
+      disposeSection()
+      disposeSection = undefined
+    }
+    const value = resolve()
+    if (!value.enabled || !value.announceToAgent) return
+    disposeSection = ctx.systemPrompt.section({
+      name: 'plugin:dsh-imagegen',
+      order: SECTION_ORDER,
+      text: guidanceFor(value.channels, value.defaultChannelId, value.defaultModel, value.defaultVideoModel),
+    })
+  }
+
+  installSettingsSectionCompat(ctx, ImageGenSettingsNamespace, Config, unwrapConfig(config), {
+    setSource: (source) => {
+      current = source
+      sync()
+    },
+    onChange: sync,
+  })
+
+  // Initial registration from the composition entry (covers deployments with
+  // no settings service, whose installSettingsSection never fires its hooks).
+  sync()
+  void refreshModels.then(() => { sync() })
+
+  return () => { disposeSection?.() }
+}

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
+import { hostPluginPackageName } from '../src/main/profile/host-plugin-sources'
 import { patchPath, projectRoot } from './patch-path'
 
 const profileConfigTags = [
@@ -43,7 +44,8 @@ describe('desktop plugin closure', () => {
     expect(mounted.length).toBeGreaterThan(0)
 
     const dshPatch = await readFile(patchPath('@deepseek-ai/dsh'), 'utf8')
-    for (const name of mounted) {
+    for (const specifier of mounted) {
+      const name = hostPluginPackageName(specifier)
       expect(dshPatch).toContain(`+    "${name}":`)
     }
   })
@@ -57,7 +59,7 @@ describe('desktop plugin closure', () => {
 
     for (const row of profilePatch.flatMap((entry) => entry.insert ?? [])) {
       if (typeof row.name !== 'string') continue
-      expect(manifest.dependencies[row.name]).toMatch(/^file:packages\//u)
+      expect(manifest.dependencies[hostPluginPackageName(row.name)]).toMatch(/^file:packages\//u)
     }
   })
 })

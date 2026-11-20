@@ -30,7 +30,7 @@ describe('eight-language desktop menus', () => {
     darwin[0]?.submenu?.[1]?.click?.()
     expect(action).toHaveBeenCalledOnce()
     expect(shortcutFileMenuLabels(locale)).toEqual({ fileMenu: text.fileMenu, closePage: text.closePage })
-    const windows = buildWindowsApplicationMenu({ locale, connectPhone: action, restart: action, showHarnessLog: action, checkForUpdates: action, quit: action })
+    const windows = buildWindowsApplicationMenu({ locale, connectPhone: action, restart: action, showHarnessLog: action, checkForUpdates: action, quit: action, toggleFullScreen: action })
     expect(windows[0]?.label).toBe(text.application)
     const run = vi.fn()
     const edit = vi.fn()

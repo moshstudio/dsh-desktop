@@ -1,0 +1,513 @@
+# 团团TV（TuanTuan TV）
+
+> **图片与视频一体化的 DSH 生图 / 生视频插件。**（包名 `@q253595422/dsh-imagegen-video`）
+> 生图之外，本仓库提供**完整的生视频链路**，以及**画布视频节点、片段拼接**。
+> 各版本的改动见 [CHANGELOG.md](./CHANGELOG.md)，第三方代码归属见 [NOTICE](./NOTICE)。
+
+<div align="center">
+  <a href="https://github.com/q253595422/dsh-imagegen-video/releases"><img src="https://img.shields.io/github/v/release/q253595422/dsh-imagegen-video?color=cb3837&label=release" alt="Latest release" /></a>
+  &nbsp;
+  <a href="https://github.com/q253595422/dsh-imagegen-video/releases"><img src="https://img.shields.io/github/downloads/q253595422/dsh-imagegen-video/total?label=downloads&color=blue" alt="Release downloads" /></a>
+  &nbsp;
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-3b82f6.svg" alt="License" /></a>
+  &nbsp;
+  <a href="https://github.com/q253595422/dsh-imagegen-video"><img src="https://img.shields.io/badge/platform-DeepSeek%20Harness-111827" alt="Platform" /></a>
+
+  <p><strong>在 DeepSeek Harness 里，生成、编辑、管理，一站完成；图片与视频同一套工作流。</strong></p>
+  <p><strong>快速导航</strong></p>
+  <p><a href="#quick-start">🚀 快速开始</a>　·　<a href="#canvas">无限画布</a>　·　<a href="#compose">片段拼接</a>　·　<a href="#ecommerce">电商套图</a>　·　<a href="#outfit">服饰穿戴</a>　·　<a href="#txt2img">文生图 / 图生图</a>　·　<a href="#txt2video">生视频</a>　·　<a href="#gallery">模板 / 画廊</a>　·　<a href="#configuration">模型配置</a>　·　<a href="#community">交流群</a>　·　<a href="#license">授权与致谢</a></p>
+</div>
+
+<a id="sponsor"></a>
+## 赞助商
+
+| 赞助商 | 简介与接入地址 |
+| :---: | --- |
+| <a href="https://api.closeai.hk/"><img src="docs/images/sponsor-yeazi.png" width="170" alt="椰子API" /></a> | **[椰子API](https://api.closeai.hk/)** — OpenAI 兼容的多模型网关。一个 API Key 同时覆盖 GPT Image 与 Gemini 图像模型，不必分别注册各家；在插件里就是一个普通渠道，不需要改代码。<br><br>`https://api.closeai.hk/v1` · Bearer API Key |
+| <a href="https://api.metajing.cn/"><img src="docs/images/sponsor-metajing.png" width="170" alt="清衍 API" /></a> | **[清衍 API](https://api.metajing.cn/)** — 面向国内开发者的 AI API 中转站，站点自述支持 Claude、GPT、Gemini 等模型。<br><br>`https://api.metajing.cn/v1` · `Authorization: Bearer <key>` |
+| <a href="https://github.com/ChisaAlter/WhaleIsle"><img src="docs/images/sponsor-whaleisle.png" width="170" alt="鲸屿 Whale Isle" /></a> | **[鲸屿 Whale Isle](https://github.com/ChisaAlter/WhaleIsle)** — 基于 DeepSeek Harness 的开源社区桌面客户端：AI 对话、终端与 Git、模型与 MCP 接入、主题壁纸与桌宠、用量统计，装好即可把本插件跑在桌面上。<br><br>Windows x64 · macOS Apple Silicon · MIT |
+| <a href="https://github.com/jev-chat/jev-chat-jarvis"><img src="docs/images/sponsor-jevchat.png" width="170" alt="jev-chat" /></a> | **[jev-chat](https://github.com/jev-chat/jev-chat-jarvis)** — 聊天辅助决策工具：回复前先读懂对方意图与当下风险，再给出可一键填入的草稿，发不发由你。Android · Windows · macOS · iOS，MIT。<br><br>官网 `chatjevs.com` |
+| <a href="https://mrday.one/"><img src="docs/images/sponsor-mrdayone.png" width="170" alt="Mr. Day One" /></a> | **[Mr. Day One](https://mrday.one/)** — AI 原生编辑器，把仓库、终端和诊断信息接进同一条智能体回路：改代码、跑测试、读报错、再复审结果。<br><br>`https://mrday.one` |
+| <a href="https://harnesscatalog.com/"><img src="docs/images/sponsor-harnesscatalog.png" width="170" alt="Harness Catalog" /></a> | **[Harness Catalog](https://harnesscatalog.com/)** — DeepSeek Harness 插件目录：逐个评测、给出真实安装命令，并说明什么场景该用它。本项目已收录其中。<br><br>[dsh-imagegen-video 条目](https://harnesscatalog.com/plugins/dsh-imagegen-video/) |
+| <a href="http://82.157.4.13/"><img src="docs/images/sponsor-leon.png" width="170" alt="莱昂 LEON" /></a> | **[莱昂 LEON](http://82.157.4.13/)** — AI 电商操盘手 × GEO 顾问：把电商一线经验蒸馏成可审计的方法论与 AI 工作流，提供 GEO 品牌托管、电商方法论体系搭建与多智能体工作流定制。<br><br>点击名称或徽章访问站点 |
+
+> **以上是赞助位，不是中立推荐。** 七项均由第三方独立维护：两家 API 网关的
+> 可用模型、价格、限流与稳定性，桌面客户端、移动应用与编辑器的兼容性、稳定性
+> 及其使用条款，顾问站点的服务内容与交付承诺，以及插件目录的收录与评价，均以
+> 各自站点公告为准，本项目不做担保。配置网关后密钥会发送给对应服务，请按需
+> 自行评估；不要用它们处理你不愿意交给第三方的内容。
+
+<a id="quick-start"></a>
+## 快速开始
+
+需要已安装 [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) 和 Node.js 20+。
+
+安装包有两个来源：**npm registry**（推荐，包名即版本，`npm view` 能查、能被锁文件盯住）与 **GitHub Release 资产**（每次附带 `SHA256SUMS`）。
+
+```bash
+# npm（registry 直达）
+dsh plugin --profile web add @q253595422/dsh-imagegen-video
+
+# 或 GitHub Release 资产（把两处 X.Y.Z 换成目标版本号）
+dsh plugin --profile web add https://github.com/q253595422/dsh-imagegen-video/releases/download/vX.Y.Z/q253595422-dsh-imagegen-video-X.Y.Z.tgz
+```
+
+也可以先到 [Releases](https://github.com/q253595422/dsh-imagegen-video/releases) 页面下载 `.tgz`，再安装本地文件：
+
+```bash
+dsh plugin --profile web add ./q253595422-dsh-imagegen-video-X.Y.Z.tgz
+```
+
+> ⚠️ **不要与 `@dickpy/dsh-imagegen` 同时安装。** 两者注册的是同一套
+> `/api/dsh-imagegen/*` 路由和同一个 UI 面板，同时启用会冲突。数据目录
+> `~/.dsh/dsh-imagegen/` 也是两者共用的，切换前请先备份。详见 [授权与致谢](#license)。
+
+安装后重启 `dsh web`，侧边栏会出现「生图」入口。打开「设置 → 生图 / 生视频」后按页面的三步引导操作：先添加一个模型服务并填写 API 密钥，再分别选择图像模型和视频模型，最后保存即可开始创作。一个服务商可以同时提供生图和生视频；只做生图时，视频模型可以留空。Windows 若遇 PowerShell 脚本策略限制，请使用 `dsh.cmd`。
+
+<details>
+<summary><b>其他安装方式、升级与回滚</b></summary>
+
+- **让 Agent 安装：**把上面的安装命令发给 DSH、Codex 或其他 coding agent。
+- **指定版本：**把上面两处命令里的 `X.Y.Z` 换成同一个目标版本号（形如 `1.2.3`）——URL 里的 `vX.Y.Z` 与文件名里的 `X.Y.Z` 是同一个版本；版本号在 [GitHub Releases](https://github.com/q253595422/dsh-imagegen-video/releases) 页面可见，或运行 `npm view @q253595422/dsh-imagegen-video version` 查最新版。也可以直接在 Releases 页面下载对应版本的 tgz，再按上面的本地文件命令安装。
+- **升级：**重复执行 `add` 命令指向新版本即可；插件也会在面板中提示新版本。更新后重启 `dsh web`。
+- **DSH Desktop 用户：**宿主 CLI 不允许写入 `desktop` 这个 profile，所以面板不会假装去更新，而是直接给出可复制的命令和下载地址，由你自己执行——不会只甩一句「更新失败」而没有原因。
+- 渠道配置、历史记录和画廊数据保存在 DSH 宿主侧，正常升级不会清空。
+
+</details>
+
+<a id="features"></a>
+## 核心功能
+
+| 能力 | 用途 |
+| --- | --- |
+| **无限画布** | 把提示词、参考图和生成节点连成可迭代的创作流程。 |
+| **视频节点与拼接** | 视频节点与图片节点同一套控制；多选后按画布位置拼成一条成片。 |
+| **分镜节点** | 一列镜头各出一段视频，可接上一镜尾帧；成品就是普通视频节点，同样能拼接。 |
+| **3D 导演台** | 一个场景摆多个角色与机位，时间轴打关键帧，导出视频或参考图。 |
+| **时间线与身份锚定** | 成片可以在时间线里排序、裁剪、加转场再拼；钉住的角色/物品会跟着后续每一次生成。 |
+| **电商套图** | 从商品参考图生成主图、卖点图、场景图等成套素材。 |
+| **服饰穿戴** | 商品试穿与角色搭配；人物、服装、姿势来自内置图库，自己的模特库就在人物图库里，也可上传或 AI 生成。 |
+| **文生图 / 图生图** | 使用兼容的生图渠道生成、编辑并比较图片。 |
+| **生视频** | 文生视频、图生视频、首尾帧与多参考图；按协议族适配异步渲染与轮询。 |
+| **代码生成** | 让 DSH 里已有的对话模型写绘图程序，本机渲染成视频或图片；不调生图/生视频模型，每个任务单独选。 |
+| **对话与 Agent** | 在 DSH 对话中生成图片、继续编辑，并把结果带回会话。 |
+| **画廊与历史** | 图片与视频同列管理，支持模板与标签；在不同设备上接续创作。 |
+
+<a id="canvas"></a>
+
+把文字、图片和生成配置连起来；从历史或画廊加入素材，再继续生成和迭代。
+
+<div align="center">
+  <img src="docs/images/infinite-canvas-demo.gif" alt="无限画布：连接节点并继续创作的演示" width="100%" />
+</div>
+
+<details>
+<summary><b>画布、文件节点与技能细节</b></summary>
+
+- 支持图片、文本、视频、生成配置、文件、**导演台**与**分镜**节点；图片节点可标注、移除背景或拆分图层。
+- **导演台**（原「姿势节点」）：一个场景里摆多个角色、多台机位、天空与地面，视口是 three.js 真三维——前后遮挡成立（立方体摆在人前就真的挡住人），没有 WebGL 的机器自动退回 2D，不报错、不白屏。角色默认是 **CC0 标准蒙皮人形**（53 骨，T恤 / 牛仔裤 / 鞋，灰白膜；场景设置可切轻量木偶或木色）；标准体会用现有 17 关节姿势做世界方向重定向，站、坐、走都能跟上。轻量木偶保留脚底真实接触、自动坐箱与木铰链，作为无资产 / 无 WebGL 的回退。底部时间轴固定 30fps：播放 / 暂停 / 逐帧 / 循环、时长 2–15 秒、拖动 scrub、逐轨关键帧菱形与五种运动轨迹。顶栏「导出视频」逐帧渲染后交给宿主 ffmpeg 编成 mp4，落成一个普通视频节点并与导演台连线；「生成参考图」导出的就是视口里那一帧（1280×1280 PNG）。成品仍是普通图片 / 视频节点，下游生成与导出不需要知道「导演台」存在。老画布里的姿势节点按单角色舞台读出来，零迁移。
+- **节点成组**：框选几个节点右键「成组」，之后拖任一个整组一起动；解散、改名、删成员都会自动收拾。框的位置由成员算出来，不存第二份坐标。
+- **图层顺序**：置顶 / 置底 / 上移一层 / 下移一层，右键菜单、⌘K 目录、键位（`⌥]` / `⌥[`，加 `⌥⇧` 置顶置底）三个入口。顺序存在节点数组里、不新增 `z` 字段，老文档零迁移；多选时整组当刚体跨一位，不会把组内次序弄反。
+- **锁定 / 隐藏**：`⌥⇧L` 锁定的卡片不再跟随拖动、也不会被删除或批量整理（仍可选中，否则没法解锁）；`⌥⇧H` 隐藏的卡片从渲染、框选、`⌘A`、缩略图、`fitView` 一起摘掉，连线同步消失，底栏留一条「N 张卡片已隐藏 / 全部显示」把它叫回来。复制出来的卡片不带这两个标记。
+- **全部功能目录（⌘K）与找节点（⌘F）**：一张可搜索的目录把六个分组、四十多个动作收在一起，中英文同义词都能搜，↑↓ 只在能点的行之间走；不可用的行不隐藏，压暗并写明原因。找节点同时搜标题、正文、提示词与模型名，结果行显示命中的那段原文，回车跳过去、选中它并居中。
+- **画布体检与整理画布**：体检一次算全五类问题（环、残线、空配置、未就绪配置、孤立产物），按「阻断项在前」排好，每一条都能点过去；整理画布（`⌥⇧F`）把有向图排成从左到右的列，遇到环直接拒绝，没接线的卡片停在流程下方的停放带里，连按两次结果不变。
+- **多选对齐**：选中两张以上时底栏上方出现对齐条（左/中/右、上/中/下、水平/垂直等距），只动选中、分组当刚体、结果取整并跑到不动点；不够两张、三张时按钮压暗并写出原因。
+- **撤销说得出「这一步是什么」，历史面板能一次退几格**：撤销按钮的提示由 `history-model` 把两份快照折成一句话；按住 Shift / Option 点撤销或右键撤销，列出每一步并可直接跳回，跳回是一次文档替换，重做栈仍可逐步走回来。
+- **套图（提示词组）**：一张配置卡上挂一组带标题的提示词（正面 / 侧面 / 背面…），一次提交各出一条，每条是独立任务、落成自己的占位卡与标题。它和「生成数量」是两件事：数量是同一条出 N 张，套图是 N 条各出一张。
+- **首次打开画布**：空态只给内存草稿（状态条如实写「未保存」），不放一份用户没建过的画布；六张快捷卡里有一张「载入示例」，一次落一条提示词 → 配置卡的链，按生成就能出图。
+- **连线说清用途**：连线可标首帧 / 尾帧 / 素材，视频插帧不再按数组顺序猜。标记只在画布上生效，老画布保持原样。
+- **生成前自动连边**：图拖到配置节点旁边却没拉线时，提交生成那一刻会把近处的图补成连线（边缘距离在 1.5 个节点短边内，最多 4 张），补出来的线看得见、删得掉、一步就能撤销。
+- **Agent 改画布先出提案**：对话里的 Agent 想增删节点、连线时，改动先出现在画布右上的提案条上，写明「接受之前画布不会有任何变化」；接受是增量的，你自己拖过的坐标、改过的标题都留着。
+- **分镜**：一个节点就是一列镜头，每镜一条提示词与一个时长，顺序即片序。板顶可直接选视频模型与渠道，未选时沿用生成器当前的选择；时长与分辨率会按这个模型收窄。可以「每镜独立」一次提交全部待生成的镜头，也可以「接上一镜尾帧」一次跑一镜——用上一镜的最后一帧当这一镜的第一帧。每一镜的成品都是普通视频节点，预览、下载、收藏、重试和拼接都走原来那条链路；分镜自己有「拼接全部镜头」，交给同一套本机 ffmpeg 和同一张顺序确认卡。
+- **时间线**：画布底部的胶片按钮把选中的成片按阅读顺序排成一条，可以重排、逐段设入点/出点、给每条接缝选硬切 / 叠化 / 淡入淡出并调时长，也可以整体关掉声音。面板上显示的总时长与最终文件一致。
+- **身份锚定**：任意有图的图片节点右键「钉为身份参考」，选角色 / 物品 / 风格并起名。之后每一次图像与视频生成都会自动带上这些参考，提示词里补一句说明谁是第几张；连线仍然优先，二者去重合并。定义存在节点上，重拍那张图就能改脸。
+- **取尾帧续拍**：任意已完成的片段可以一键取结尾帧，落成图片节点并接好一个视频配置节点，直接写下一镜的描述就能接着拍。
+- **海报编辑**：在图片节点上叠加文字与 Logo 图层，拖动改位置，实时预览；导出是一张新图片节点，原图与图层配方都保留，随时可以重开继续改。整条链路纯本地 Canvas 2D，不调用任何模型、不消耗额度。
+- **快捷键面板**：按 `?`（或 `F1`）随时呼出，或点工具栏的键盘图标；`Esc` 关闭。常用操作同时写在控件自身的提示里（如「撤销 (Ctrl+Z)」），不必先记住有这块面板。
+- 单个文件最大 50MB；可在画布内预览常见文档、表格、PDF、图片与音视频。
+- 内置文本润色、图片描述、内容抽取和图片转可编辑 PPT 等技能；图片转 PPT 不需要另外安装第三方技能或配置 OCR token。
+- 图片转 PPT 使用配置的聊天模型理解版式，在本地生成可编辑文字与基础矢量形状；复杂照片或插画可能会简化。
+- 也可安装和管理外部技能。重任务技能会启动具有本机文件读写与命令执行能力的无头 Agent；运行前请检查技能来源和权限。
+- 旧版第三方 `image-to-editable-ppt` 可继续用于独立 Agent 工作流；它不参与内置图片转 PPT，相关 OCR 或图片后端配置也不是内置流程的前置条件。
+- 技能配置格式与安全边界见 [`docs/skill-config.md`](docs/skill-config.md)。
+
+</details>
+
+<a id="compose"></a>
+### 片段拼接
+
+把生好的视频片段拖到画布上，**框选两段以上**，底部会出现「拼接这 N 段」按钮。
+
+- **顺序按画布位置**：从上到下、从左到右；每个被选中的片段上会标出 ①②③，确认卡里也会列出最终顺序 —— 你看到的序号就是成片里的顺序。
+- **本机 ffmpeg 执行**：不调用任何模型、不联网、不消耗额度。工具从 `~/.local/bin`、`/opt/homebrew/bin`、`/usr/local/bin`、`/usr/bin` 依次查找；找不到时按钮会明确说明原因，而不是静默失败。
+- **成片进入视频历史**：拼接结果作为一条普通视频记录落盘，可以在侧栏看到、播放，也可以收藏进素材库。
+- 找不到的片段会让**整次拼接失败**并指出是第几段，而不是悄悄少拼一段。
+- **要剪再接就用时间线**：底部胶片按钮打开时间线，逐段裁剪、选转场、决定是否保留声音，再一次性交给同一条 ffmpeg 链路。不设时间线时行为与以前完全一致（整段、硬切、带音轨）。
+- 输出统一为 1280×720 / 30fps / H.264 + AAC，不同尺寸或帧率的输入会等比缩放并补边，不会变形。
+
+判定规则与已知边界见 [`docs/compose-contract.md`](docs/compose-contract.md)。
+
+分镜节点也有自己的「拼接全部镜头」：它把各镜已经生成的片段按镜头顺序交给同一条链路，
+还在生成的镜头会被跳过并说明少了几镜。
+
+<a id="ecommerce"></a>
+
+从商品主体和可选风格参考出发，先预览套图计划、逐张调整提示词，再批量生成；主图可作为其他用途图片的一致性参考。
+
+<div align="center">
+  <img src="docs/images/ecommerce-mode.png" alt="电商模式：配置商品参考图并生成成套商品视觉" width="100%" />
+</div>
+
+<a id="outfit"></a>
+
+把人物、服装和姿势三类参考素材拼成一次编辑请求，先看预览再提交；素材可以来自内置图库、自己的模特库，也可以现场上传或让 AI 生成。
+
+<div align="center">
+  <img src="docs/images/outfit-panel.png" alt="服饰穿戴面板：左侧配人物、服装与姿势，右侧显示生成结果" width="100%" />
+  <p><em>面板总览（角色搭配）：左侧配素材，右侧出结果；顶部写明容量规则——人物 1 张、服装最多 4 张、姿势 1 张，超出模型容量时自动压成编号拼图一起发送，不丢弃、也不会少发。</em></p>
+</div>
+
+- **两种模式**。「商品试穿」保留真实商品图的版型、颜色、图案与材质，人物与至少一张服装图为必选；「角色搭配」把参考服装设计穿到人物身上，三类素材任选其一以上，也可以混合自己的图片。
+- **素材来自内置图库**。人物、服装、姿势各有独立图库，选图器支持按名称或标签搜索、按分类与来源筛选，姿势还能按视角筛选；服装条目带多视角，姿势可选深度图（仅作视觉参考，不是 ControlNet 控制）。默认不显示 18+ 素材，需要时手动打开。
+- **模特库就是人物图库的一部分**。自己上传的人物和 AI 生成的人像都存进同一个模特库，并作为「我的模特」出现在人物图库列表最前面，用来源筛选器就能只看它们；选中即用，不需要再对着另一个独立面板挑。添加照片与「AI 生成模特」都在人物图库顶部完成，生成用当前选中的渠道和模型。
+- **内置素材选中即可用，但先落到本机**。图库项要先下载原图并缓存，预览成功后才允许选入配方，之后每次生成读的都是这份本地副本，不会因为第三方站点失效而中途失败。
+- **图库索引锁定到固定提交**。索引与图片都按 Git blob 校验，来源站不可达时会换镜像重试，并用图片魔数确认拿到的确实是图片；更新失败时继续使用已有离线索引，并在面板上说明原因。
+- **提交前预览**。点「准备参考图预览」只下载与排版参考图、不调用模型，右侧给出**实际会发送**的图片与完整提示词；点「确认生成」才提交。任何一次编辑、换渠道或换模型都会让预览失效，需要重新准备。
+
+<div align="center">
+  <img src="docs/images/outfit-gallery-garment.png" alt="服装图库：搜索、分类与来源筛选，底部标注素材版权与离线导入" width="100%" />
+  <p><em>服装图库：按名称或标签搜索，按分类、来源筛选，18+ 素材默认隐藏；底部明示素材版权归来源原作者、部分不允许商用，已有本地图库的填目录路径即可离线导入。</em></p>
+  <img src="docs/images/outfit-gallery-model.png" alt="人物图库：我的模特排在最前，支持上传照片与 AI 生成模特" width="100%" />
+  <p><em>人物图库与「我的模特」：上传的照片和 AI 生成的人像存进同一个模特库，排在列表最前面，选中即用；添加照片与 AI 生成模特都在图库顶部完成。</em></p>
+  <img src="docs/images/outfit-gallery-pose.png" alt="姿势图库：线稿姿势，支持分类、来源与视角筛选" width="100%" />
+  <p><em>姿势图库：线稿姿势参考，支持分类、来源、视角三重筛选；不选则沿用人物原图的姿势，选了也只作视觉参考。</em></p>
+  <img src="docs/images/outfit-tryon-result.png" alt="商品试穿生成结果：商品组合穿到指定模特身上，左侧历史记录可回看" width="100%" />
+  <p><em>生成结果（商品试穿）：商品组合穿到指定模特身上，版型与材质保留自商品图；每次生成进入左侧历史记录，随时回看、复用配方再改一版。</em></p>
+  <img src="docs/images/outfit-history-recall.png" alt="历史回看：点左侧试穿记录，右侧展示当次完整提示词与成片" width="100%" />
+  <p><em>历史回看：点左侧任一试穿记录，右侧还原当次提交的完整提示词——编号参考图各借用什么用途、场景与尺寸清晰度——以及成片，照着改一版再提交即可。</em></p>
+</div>
+
+<details>
+<summary><b>参考图上限、拼图与离线使用</b></summary>
+
+- **上限与引擎一致**：人物 1 张 + 服装最多 4 张 + 姿势 1 张，一共 6 张素材；引擎的镜像参考图上限是 5 张，所以满配时会超出一张。
+- **超出时压成一张编号拼图，不静默少发**：参考图张数超过当前模型渠道的容量（部分模型只收 1 张）时，插件把全部素材排进一张带「图N 用途」标注的拼图发给模型，提示词同步改成按格子编号指代，并在预览里说明本次发送的是一张拼图。拼图按原比例留白，不裁切服装或姿势。
+- **体积限制**：单张 10 MiB、合计 16 MiB；任一张超限或格式不支持会直接报错并指出是哪一张，不会降级成少图提交。
+- **搭配草稿自动保存**：模式、素材、场景、比例、清晰度与所选模型都会存到本机，编辑停顿约 0.35 秒即写入；重新打开界面会恢复上次的配方。草稿里的图库条目会重新按索引核对，不会被伪造的地址带进来。
+- **完全离线可用**：把 [`anhao/ai-pose-gallery-zh`](https://github.com/anhao/ai-pose-gallery-zh) 克隆到本地后，在选图器底部填目录路径即可导入——索引仍按同一套 Git blob 校验，读取只发生在该目录内。所有缓存都在 `~/.dsh/dsh-imagegen/outfit/` 下（索引、原图、上传素材与草稿），由你控制。
+- **来源与授权**：
+
+| 来源 | 站点 | 说明 |
+| --- | --- | --- |
+| ギア · 写实 | <https://ai-costume-gallery.pages.dev/> | 人物、服装、姿势 |
+| ギア · 动漫 | <https://ai-costume-anime-gallery.pages.dev/> | 服装 |
+| たき AI · CharaDB | <https://charadb-2fi.pages.dev/> | 服装 |
+| Shisei · 中国历代 | <https://github.com/wquguru/shisei> | 服装；非历史服饰考据复原 |
+
+参考图片的权利归各来源原作者所有，**不适用本插件的代码许可证**，使用时须遵守原站条款；部分素材不允许商用。面板底部会显示当前选中素材的来源说明与原始链接。
+
+</details>
+
+<a id="txt2img"></a>
+
+输入提示词即可生成，也可上传参考图进行编辑。图生图支持**多张参考图**（默认 5 张；渠道开启「自动参考图上限」时按模型取上限，CloseAI 为 20 张；单张 10 MiB、合计 16 MiB）：可多选、拖拽或粘贴，逐张移除，缩略图里用方向键翻看。请求形状按协议族各自整形——第一张始终在 `image`，其余在 `images`，所以只接受单张的渠道看到的仍是一张图；面板会在提交前就按模型能力拦下超额张数，而不是让服务端默默截断。此外支持多张结果、比例与清晰度设置、任务队列、历史恢复和全屏预览。
+
+#### 预置：CloseAI
+
+「添加渠道 → 预置」里选 **CloseAI**，地址 `https://api.closeai.hk/v1`，填该站「令牌」页创建的 `sk-…` 即可。预置目录带 `gpt-image-2.6`、`gpt-image-2.5`、`gpt-image-2` 与 `chatgpt-image-latest`。
+
+- **生成与编辑是两条严格分开的入口**：文生图走 `POST /images/generations`，带参考图必须走 `POST /images/edits`（multipart）。插件会按当前模式自动选择，不会把参考图塞进生成接口。
+- **尺寸可以直接发比例**：该网关的 `size` 接受 `16:9`、`4:3`、`3:4`、`21:9` 这类写法。插件在这个渠道上直接发比例，避免固定像素表把 4:3 / 21:9 带偏；普通 OpenAI 官方渠道仍走原来的像素档位。
+- **GIF**：`gpt-image-2.6` 系列与 `chatgpt-image-latest` 支持 `output_format=gif`，面板的 GIF 开关可用，帧数 2–16、每帧 20–2000ms。
+- **链接会过期**：结果链接默认约 1 小时后失效，提示在响应里的 `hint`。宿主拿到 `url` 会立即下载转存，历史与画廊不依赖上游链接长期可用。
+- **参考图上限自动/固定**：渠道设置里的「自动参考图上限」默认开启，CloseAI 自动到 20 张；关闭后固定 5 张。宿主的单张 10 MiB / 合计 16 MiB 仍保留（上游允许单张 50 MB、合计 100 MB，但本机请求体上限更保守）。`output_format=svg` 与 `response_format=both` 暂未做面板开关。
+
+<div align="center">
+  <img src="docs/images/image-generation-studio-four.png" alt="文生图与图生图工作台" width="100%" />
+</div>
+
+在 DSH 对话里可让 Agent 调用生图；用 `/edit_image` 描述修改内容，也可从工作台或画廊把图片加入当前会话继续编辑。
+
+<a id="txt2video"></a>
+
+### 生视频
+
+在「生视频」标签页里写视频描述，选择视频模型、比例、分辨率与时长即可提交。视频是**异步渲染**：宿主先提交任务、再按协议族轮询，渲染完成后把成片以文件落盘，并在面板内直接播放；渲染通常需要数分钟，期间可以关闭页面，任务仍在宿主继续执行。
+
+**视频模型按渠道单独配置**，与图片模型分开：渠道里的「视频模型」目录决定该渠道能用哪些视频模型，因为视频走的是提交+轮询协议，和图片的同步返回不是一回事。
+
+#### 先规划（导演规划）
+
+视频面板的**先规划**开关默认打开。开启后，提交前会先跑一轮推理，把一句话需求拆成镜头、动作、运镜、时长与风格，再落成真正发给模型的提示词与参数：
+
+- **提示词**：上游收到的是规划后的多镜头描述，而不是你输入的原句。结构参照 Wan 2.2 官方 `--use_prompt_extend` 的电影语言（景别、光线、运镜、风格），在「生成前先规划」之后，原句只作为素材。
+- **参数**：时长、画幅、分辨率可以按镜头节奏收紧，但**永远不会超过你自己选的值**；规划提出的画幅/分辨率还会再按模型协议族收敛一次（例如算力萌只接受 16:9 / 9:16 / 1:1）。
+- **可检查**：点「预览规划」不消耗渲染，只运行规划本身；确认后提交会**沿用这份预览**，不会重新问一次对话模型，所以所预览即所提交。
+- **降级有据**：对话模型调用失败、超时或返回的不是合法 JSON 时，会自动改用离线镜头规划，并在面板与视频历史里标明降级原因与来源（`对话模型` / `本地规则`），不会静默地把原句发出去。
+- **拒绝非法输入**：空描述直接报 `video-prompt-empty`；超过 4000 字符报 `video-prompt-too-long`，且都不会提交到上游。
+
+规划用的对话模型复用「设置 → 提示词增强模型」那一处配置（`promptModel` / `promptApiUrl` / `promptApiKey`），**不需要额外申请密钥**：
+
+- `promptModel`：任意支持 `/chat/completions` 的模型；留空时退回本地规则规划。
+- `promptApiUrl` / `promptApiKey`：留空时复用生图渠道的地址与密钥。
+- 规划阶段失败只降级、不会中断渲染；渲染本身失败仍按原有报错返回。
+
+代码落点：`src/video-director.ts`（规划与参数收敛）、`src/generation-runtime.ts`（接入 `runVideo`）、`POST /api/dsh-imagegen/video/plan`（预览）。对应离线检查：`pnpm run test:director`。
+
+<details>
+<summary><b>支持的协议族与模式</b></summary>
+
+| 协议族 | 模型示例 | 说明 |
+| --- | --- | --- |
+| Agnes 视频 | `agnes-video-2.5-flash`、`agnes-video-2.5` | 提交 `POST /v1/videos`，轮询 `GET /v1/videos/{id}`（文档同时给出 `/agnesapi?video_id=…&model_name=…`，实测两条路径都通），结果取顶层 `url` 或 `metadata.url`；支持文生视频、首尾帧、多参考图、`seed`。**Flash 专属限制**（创建任务前就校验）：`size` 只接受 `720P`，参考图最多 5 张，不支持音频/视频参考；画幅另支持 `21:9`。插件按 id 把 Flash 的档位收窄成 `720P`（非 flash 保留 480P/720P/1080P），参考图超出 5 张在提交前截断，不会把必然 400 的请求发出去。 |
+| 火山 Seedance（方舟） | `doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`、`doubao-seedance-1-0-pro-250528` | 方舟原生任务协议：提交 `POST /contents/generations/tasks`，轮询 `GET /contents/generations/tasks/{id}`，成片在 `content.video_url`。提示词与参考图放在 `content` 数组里（参考图带 `role`：`first_frame` / `last_frame` / `reference_image`），比例字段是 `ratio`，分辨率小写。时长：2.x 为 4–15 秒、1.0 为 2–12 秒。分辨率：2.0 支持 480p/720p/1080p/4k，`fast` / `mini` 只到 720p；1.0 为 480p/720p/1080p。1.0 不支持 `reference_image` 角色，`1.0 pro fast` 也不支持尾帧，面板会把这两种模式从该型号上收起来。 |
+| 算力萌 comemoe | `wan2.2-t2v`、`zhimeng-h3-local` | `wan2.2-t2v` 仅文生视频；`zhimeng-h3-local` 支持图生视频。比例只接受 16:9 / 9:16 / 1:1；5 秒片子实测约 9 分钟。 |
+| 启航AIGC Wan 3.0 | `wan-3-0` | 提交 `POST /v1/videos/generations`（参数扁平放顶层），轮询 `GET /v1/tasks/{id}`；以 `is_final` 判终点、结果取 `output_url`（`data[].url` 同值）。`mode` 映射为 `text-to-video` / `first-frame` / `first-last` / `reference`，参考图直接以 data URI 放 `images`；时长 4–30 秒，分辨率 480p / 720p / 1080p，比例 16:9 / 9:16 / 1:1 / 4:3 / 3:4。预置渠道 **启航AIGC（Wan 3.0）**，API 地址填 `https://qh.token6688.com/v1`，密钥用该站「API 密钥」页创建的 `sk-…`。 |
+| Nbility MiniMax-H3 | `MiniMax-H3` | 提交 `POST /v1/videos`，轮询 `GET /v1/videos/{id}`，结果取 `url`；固定 `768P`、1–15 秒。参考图必须是公网 HTTPS 地址，宿主会先把本地帧上传到 `POST /v1/media/uploads`（1 小时有效），再以 `content` 数组里的 `first_frame` / `last_frame` / `reference_image` 角色提交；参考图最多 9 张。预置渠道 **Nbility · MiniMax-H3**，API 地址 `https://api.nbility.ai/v1`。 |
+| xAI Grok | `grok-imagine-video-1.5`、`grok-imagine-video-1.5-lite` | 提交 `POST /videos/generations`（注意不是 `/videos`），轮询 `GET /videos/{id}`，取 `video.url` 与 `video.duration`。 |
+| snapgen.ai | `grok-1.5-lite`、`grok-video`、`grok-lower`、`muse-ai-video`、`vela-ai-video` | 非 OpenAI 兼容：`multipart` 提交 + 反爬守卫头 `x-guard-id`，返回历史 `uuid` 而不是任务 id，`GET /history/{uuid}` 用**数字状态** 1 生成中 / 2 完成 / 3 失败，成片在 `generated_video[0].video_url`（预签名，未鉴权即可下载）。每次提交要一枚一次性 Cloudflare Turnstile token，由本机 CDP Chrome 现场换取。详见下文。 |
+| 通用视频 | 其他视频模型 id | 按 OpenAI 兼容视频端点尽力适配；未识别的协议族会明确报错，不会静默发出错误请求。 |
+
+- **生成模式**：文生视频、图生视频（单张参考图）、首尾帧（首帧+尾帧插值）、参考图（多张风格/主体参考）；不同模型支持的模式不同，面板只会给出该模型支持的选项。
+- **成片存储**：视频保存在本机数据目录的 `videos/` 下，历史列表只存元数据，播放走支持 Range 的同源路由，所以可以拖动进度条。
+- **Agent 调用**：Agent 可调用 `generate_video`（文生视频）与 `generate_video_from_image`（图生视频/首尾帧/参考图），并用 `get_video_generation_task` 查询进度；视频渲染较慢，不要紧凑轮询。
+
+**火山方舟（Seedream / Seedance）** 的生图与生视频可以共用一个渠道（`https://ark.cn-beijing.volces.com/api/v3`），渠道里分别填图片模型与视频模型即可：
+
+- **生图（Seedream）**：方舟的 `size` 只能是档位（`1K`/`1.5K`/`2K`/`3K`/`4K`）**或** `宽x高`，二选一，且没有 `aspect_ratio` 参数。所以选了具体比例时，插件按该模型的像素预算换算出显式的偶数宽高（例如 5.0 pro 在 16:9 / 4K 下是 `2784x1566`），这样比例才真的生效；`auto` 才回落到档位字符串。
+- **水印**：生图的 `watermark` 默认是 **true**（右下角「AI生成」），插件每次都显式发 `watermark: false`。生视频的默认值是 `false`，插件同样显式发送，不依赖上游默认值。
+- **音轨**：生视频的 `generate_audio` 默认是 **true**（2.5 / 2.0 才有这个字段）；面板没有音轨控制，插件显式发 `false`，1.0 系列则完全不带这个字段。
+- **响应格式**：方舟的 Seedream 用 `response_format: 'url'`，插件随后回源下载；网关版的 Seedream 仍走 `b64_json`。
+- **模型 ID**：请填方舟控制台的模型 ID（`doubao-seedream-*` / `doubao-seedance-*`）——协议族是从这个 id 前缀判断的。方舟的**推理接入点**（`ep-…`）目前无法判断协议族：图片会被当成通用渠道、生视频会在提交前直接报「协议族未知」而不是静默发一个形状错误的请求。要在接入点上用，请把该渠道的模型 ID 填成对应的方舟模型 ID。
+
+</details>
+
+#### snapgen.ai 视频（需要本机 Chrome）
+
+预置渠道里选 **snapgen.ai** 即可带出五个视频模型。这条链路和别的渠道有三处不一样，配置时要注意：
+
+**1. 密钥填 refresh_token，不是 access_token。** snapgen 的 access_token 只有十分钟寿命，过期后接口返回的是 `403 TOKEN_EXPIRED` 而不是 401。渠道密钥可以填三样东西之一：
+
+- 直接填 `refresh_token`（形如 `"邮箱".xxxx.yyyy`）——最简单；
+- 或者填 JSON：`{"refresh_token":"…","cdp_port":9333}`，其中 `cdp_port` 指定去哪个 CDP 端口换 Turnstile；
+- 或者填一个还没过期的 `access_token`（JWT，`eyJ…` 开头），只在它过期前能用。
+
+宿主每次提交前都会用 refresh_token 换新 token，所以刷新失效时只需更新这一个字段。
+
+**2. 提交前要一枚 Turnstile token，只能由真浏览器换来。** snapgen 不接受没有 `turnstile_token` 的提交（`400 TURNSTILE_REQUIRED`），也不接受复用的 token。插件会在提交时连上本机带调试端口的 Chrome，在 snapgen.ai 页面里现场渲染并执行一次 Turnstile 组件，把拿到的 token 塞进这次 `multipart` 请求。所以：
+
+- 需要本机有一个开了 `--remote-debugging-port` 的 Chrome（默认 9333），并且有（或能自动打开）一个 snapgen.ai 标签页；无头模式同样可用。
+- 换不到 token 时提交会直接报 `snapgen-turnstile`，不会发一个注定被拒的请求。
+- 这一步与登录状态无关，用的是站点公开的 Turnstile sitekey。
+
+**3. 参数与模式按模型收窄。** 面板会按所选模型给出该模型真正接受的比例/分辨率/时长：
+
+| 模型 | 模式 | 比例 | 分辨率 | 时长 | 额度 |
+| --- | --- | --- | --- | --- | --- |
+| `grok-1.5-lite` | 文生视频 | 16:9 / 9:16 / 1:1 / 4:3 / 3:4（线上映射成 landscape / portrait / square / 3:2 / 2:3） | 480p / 720p / 1080p | 6 / 10 / 15 秒 | 免费账号每天 5 条；1080p 需要付费套餐 |
+| `grok-video`、`grok-lower` | 文生视频 | 同上 | 480p / 720p / 1080p（`grok-video` 另有 4k） | 6 / 10 / 15 秒 | 免费账号不可用（`main_limit 0/0`） |
+| `muse-ai-video` | 文生 / 图生视频 | landscape / portrait / square | — | 固定 10 秒 | 每天 100 条 |
+| `vela-ai-video` | 文生 / 图生视频 | landscape / portrait / square | — | 固定 5 秒 | 每天 10 条，但服务端长期维护中，实测常返回 `HIGH_TRAFFIC_ERROR` |
+
+超出套餐或额度时返回的是 `snapgen-premium` / `snapgen-quota` / `snapgen-credit`，面板与 Agent 会原样转述上游文案（例如「Daily limit reached (main_limit: 5/5)」）。
+
+代码落点：`src/snapgen-engine.ts`（守卫头、Turnstile、`multipart` 提交、数字状态轮询、token 刷新）与 `src/video-engine.ts` 的 `snapgen` 分支。
+
+#### 代码生成路径（不调生图/生视频模型）
+
+画布合成栏里有一个「生成方式」下拉，两个选项：**模型生成**（默认，就是上面那整条链路）和**代码生成**。它**按任务选**，不写进设置、不做全局开关；同一个画布上这一张用模型、下一张用代码都行。
+
+选「代码生成」时：
+
+- **谁来画**：用 **DSH 里已经接入的对话模型**——就是你在对话面板里选中的那个模型，不是插件设置里的「提示词增强模型」，插件也不新增任何模型或密钥配置。宿主把这个请求当成一次无头对话：系统提示里给绘图 API 与约束，用户消息就是你的描述，模型返回一段 JavaScript 绘图程序。
+- **谁来渲染**：本机 `node:vm` 沙箱逐帧执行这段程序，拿到 RGBA 像素后交给 ffmpeg 编码（视频）或直接写成 PNG（图片）。全过程不产生任何网络请求，也不消耗生图/生视频额度。沙箱里没有 `require`、没有 `process`、没有文件系统，只有一套绘图方法（矩形、圆、路径、渐变、文字等）。
+- **参数照旧**：分辨率、比例、时长仍按合成栏选的档位生效（`480P`/`720P`/`1080P` × 比例，30fps），视频帧数 = 时长 × 30。同一套档位，代码路径不另立一套。
+- **产物对等**：视频落进同一个 `videos/` 目录、同一条视频历史（条目带 `renderer: 'code'`），因此预览、下载、收藏、取尾帧、多选拼接、时间线裁剪与转场、工作流执行器全部照常；图片落进同一个 `images/` 与图片历史，可以继续做标注、海报编辑、当参考图。
+- **模型会「答非所问」时降级**：如果模型返回的不是代码（比如直接回了一段说明），会改用内置标题卡渲染，任务标记 `degraded` 并记录原因——**照样出图/出片**，不会白跑一趟。真正无法继续的情况（语法错、运行时抛错、超时、缺 ffmpeg）才失败。
+- **重试不重复问模型**：第一次生成的绘图程序存在任务里，重试会沿用它；想换一版再重新生成。
+
+失败语义（错误码会直接显示在节点上，并附一行「可在上方「生成方式」里切回模型生成后重试」）：
+
+| 错误码 | 含义 | 怎么办 |
+| --- | --- | --- |
+| `code-prompt-empty` | 描述为空 | 写一句画面描述（代码路径靠这句话绘图，不会自己编） |
+| `code-prompt-too-long` | 描述超过 4000 字符 | 压缩到核心画面与文案 |
+| `code-no-chat-model` | DSH 里没有选中的对话模型 | 在对话面板选一个模型，或切回模型生成 |
+| `code-chat-failed` | 对话模型调用失败（鉴权、网络、上游报错） | 看节点上的原始原因；换模型或切回模型生成 |
+| `code-not-code` / `code-syntax` | 模型返回的不是可执行代码，或代码编译不过 | 重试（会重新问模型），或切回模型生成 |
+| `code-runtime` | 代码逐帧执行时抛错（报文里带第几帧） | 同上 |
+| `render-timeout` | 整次渲染超过 120 秒 | 缩短时长或降分辨率后重试 |
+| `render-no-ffmpeg` | 本机找不到 ffmpeg，无法编码视频 | `brew install ffmpeg`，或在设置里填 `FFMPEG_PATH`；图片不需要 ffmpeg |
+| `render-cancelled` | 用户取消 | 重新提交即可 |
+| `render-encoder-died` / `render-encoder-failed` | ffmpeg 进程异常退出 | 重试；持续失败请查 ffmpeg 是否可用 |
+
+缺 ffmpeg 在**提交前**就会提示（合成栏下方一行黄色说明），不会等渲染到一半才报。
+
+依赖只有 ffmpeg（视频路径；图片路径零依赖）。不引入任何新框架或原生模块。
+
+</details>
+
+#### 多模型对比
+
+同一提示词可提交给多个模型并列查看结果，便于快速挑选风格与质量。
+
+<div align="center">
+  <img src="docs/images/multi-model-comparison.png" alt="多个生图模型的并列结果对比" width="100%" />
+</div>
+
+<a id="gallery"></a>
+
+提示词模板库内置八个来源（精选案例、沧河、手绘、Prompt/Signal、evolink、itgoyo、songtianlun、youart），共三千余条，可搜索、筛选、收藏并直接带入生图。模板库以**右侧抽屉**打开，约占工作区 75% 宽度：左边缘可拖动调宽（宽度记在本地），可一键铺满工作区，手机上自动全宽；搜索可限定当前来源或横跨全部来源；最近用过的 24 条留在「历史记录」里一键复用。选中的提示词可以**替换**输入框内容，也可以**追加**在后面。生成结果可在画廊中用标签和收藏继续整理；**删除是可撤销的**——被删的条目先进回收站，保留 30 天，期间可以逐条还原或一键清空，只有清空（或超过 30 天后的首次访问）才真正删除磁盘上的文件。
+
+<p align="center">
+  <img src="docs/images/prompt-template-library.png" alt="提示词案例模板库" width="49%" />
+  <img src="docs/images/gallery-workspace.png" alt="画廊工作区" width="49%" />
+</p>
+
+<a id="configuration"></a>
+## 模型配置
+
+在「设置 → 生图 / 生视频」添加模型服务，填写 API 地址与密钥，再分别选择图像模型和视频模型。可配置多个服务商，并分别设置默认图像模型、默认视频模型和可选的提示词增强聊天模型；同一个服务商下，两套模型列表互不影响。
+
+支持 OpenAI 兼容的 Images API / Chat Completions，以及 xAI Grok、Google Nano Banana、Seedream、Agnes、Qwen-Image、GLM-Image、MiniMax 等预置渠道；也可手动添加兼容模型。
+
+**Agnes 图像（`agnes-image-*`）** 与别的渠道有两处不同：
+
+- **端点是统一的**：文生图和图生图都走 `POST {apiUrl}/images/generations`。Agnes 没有 `/images/edits`，按 OpenAI 编辑协议发过去会被网关回 `503 no available server`；编辑请求把参考图放进 `extra_body.image`（公共 URL 或 `data:` URI，可多张），输出格式也写在 `extra_body.response_format` 里（顶层的 `response_format` 会被判为错误）。
+- **尺寸是档位 + 比例**：`size` 用 `1K` / `2K` / `3K` / `4K`，比例用 `ratio`（`1:1`、`3:4`、`4:3`、`16:9`、`9:16`、`2:3`、`3:2`、`21:9`）。插件把面板的清晰度档映射成 `size`、把画幅映射成 `ratio`，并且**不发** OpenAI 的 `quality`——Agnes 会直接 400（`quality is not supported by text image queue`）。
+
+<details>
+<summary><b>接口与渠道补充说明</b></summary>
+
+- 通用渠道默认自动判断 Images API 与 Chat Completions；也可在设置中手动指定。
+- One-API、New API、LiteLLM 等只暴露 `/chat/completions` 的网关，可填写完整接口地址并选择对应模型。
+- 千问生图 API（自建 ComfyUI HTTP 封装）：协议选「千问生图 API」，填服务根地址（如 `http://127.0.0.1:8787`）与 API Key。插件调用 `GET /api/models` 检测模型，`POST /api/draw` 提交异步任务并轮询 `GET /api/jobs/{id}`，再从 `/api/images/…` 拉回结果；图生图先 `POST /api/upload` 逐张上传参考图（最多 5 张），单张用 `image_id`、多张用 `image_ids` 提交；服务端若关闭鉴权（首页显示「无需鉴权」），渠道密钥可以留空。
+- API 密钥保存在 DSH 宿主设置中；未被自动识别的兼容模型可手动添加。
+- 不同服务商的图生图、尺寸与返回格式可能不同，请确认所选模型实际支持的能力。
+
+</details>
+
+<a id="security"></a>
+## 数据与安全
+
+- API 请求经 DSH 宿主转发；密钥保存在本机设置中，不直接暴露给浏览器。
+- 历史、画廊、画布和图片保存在 DSH 数据目录 `~/.dsh/dsh-imagegen/`，由你控制。
+- 生图与图生图会把提示词或参考图发送给所配置的 API 服务商；请按服务商政策处理敏感内容。
+- 内置轻量技能会把所选内容发送给配置的聊天模型。图片转 PPT 的 PPTX 在本地生成，由原生文字与基础矢量形状组成，不会把整张原图直接铺成幻灯片背景；结果需人工检查。
+- 外部重任务技能可能读写本机文件并执行命令；运行前请确认技能可信、输入内容可共享。
+- 生图会消耗 API 服务商额度；请人工检查生成结果。不要把 API 密钥贴到 Issue、日志或截图中。
+- **诊断日志**（两个工作台右上角）：失败的 API 请求会留在本机内存里
+  （最多 200 条，重启即清空，不写磁盘，不产生后台请求），
+  可一键复制后贴进 Issue。记录含实际请求地址、HTTP 状态、网络错误码、耗时、
+  体积与服务商原始响应；**密钥已在写入前脱敏**（`Bearer` 令牌、查询串密钥、
+  内联 base64 均替换为占位符，API Key 只记「是否发送」）。
+  生图与生视频写同一个缓冲：视频的提交 / 轮询 / 下载三条腿各自标记。
+
+<a id="community"></a>
+## 交流群
+
+微信群「龙虾吹水🦞群」：使用问题、版本更新与画布玩法都可以在群里聊。
+
+<div align="center">
+  <img src="docs/images/wechat-group-qr.png" alt="微信群「龙虾吹水🦞群」的加群二维码" width="360" />
+</div>
+
+> 二维码 7 天内有效（2026 年 11 月 21 日前）。过期或人数已满时，请改到
+> [Issues](https://github.com/q253595422/dsh-imagegen-video/issues) 提问题，
+> 并提醒维护者换一张新码。安全敏感的问题不要发在群里，也不要贴 API 密钥。
+
+<a id="license"></a>
+## 授权与致谢
+
+本项目按 [Apache-2.0](./LICENSE) 发布。各版本的改动逐条列在
+[CHANGELOG.md](./CHANGELOG.md)；第三方代码与素材的版权、许可与来源见
+[NOTICE](./NOTICE) 与 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+
+**核心能力**：生图（文生图 / 图生图 / 多参考图编辑）、生视频（文生视频 / 图生视频 /
+首尾帧 / 多参考图）、图片转可编辑 PPT（最多 12 张，每张一页）、无限画布（图片与视频节点、
+分镜节点、片段拼接、技能）、电商套图、服饰穿戴（商品试穿 / 角色搭配）、模板库与画廊。
+
+**支持与问题反馈请提到本仓库的 Issues**（[Bug 报告](https://github.com/q253595422/dsh-imagegen-video/issues/new?template=bug_report.yml) · [功能建议](https://github.com/q253595422/dsh-imagegen-video/issues/new?template=feature_request.yml) · [全部 Issues](https://github.com/q253595422/dsh-imagegen-video/issues)）。
+
+**与 `@dickpy/dsh-imagegen` 不能共存**：两者注册同一套 `/api/dsh-imagegen/*` 路由与
+同一个 UI 面板，同时安装会冲突；数据目录 `~/.dsh/dsh-imagegen/` 也是共用的。要换回
+原版，请先卸载本插件。
+
+<details>
+<summary><b>本地开发</b></summary>
+
+```bash
+pnpm run typecheck
+pnpm run build
+pnpm run watch
+pnpm test
+node scripts/smoke-video.mjs
+pnpm run test:negative
+```
+
+`pnpm test` 跑全部离线检查（`verify-tracked` 排第一）；`pnpm run test:negative` 做反向验证——
+把每处修复对应的缺陷重新注回**仓库副本**，要求对应检查变红，
+工作树不被改动。
+
+反向验证的 17 个组可以并排跑，不必等 40 分钟以上的串行链：
+
+```bash
+node scripts/verify-negative-parallel.mjs              # 默认 2 并发
+node scripts/verify-negative-parallel.mjs --jobs 3     # 上限 4（内存）
+node scripts/verify-negative-parallel.mjs --only smoke,pack
+```
+
+它从 `test:negative` 里读组名，启动前先 `pnpm build` 把工作树钉住（有别的进程
+持有 `.build-lock` 时拒绝启动）。一组失败不会中断其余组，最后统一报。
+
+**注意瓶颈不在调度**：`contracts` 与 `smoke` 这类组内部是逐条用例跑的，单组就是
+大半的墙钟；并发只能把「各组之和」压到「最慢那一组」，要再快得让每条用例只跑
+它针对的那条检查。
+
+`smoke` 组（37 条）实测**整组跑不完**：单独一条 1 分 47 秒，乘 37 约 66 分钟，
+但整组实际跑过 2 小时仍未结束，撞上任何执行时限都会被砍在中途——砍掉后日志只
+有开头，等于整组白跑。多出来的时间不是套件，是每条用例先把整棵树复制一份再注入
+缺陷。整组跑不通时按名字分批，加第二参数过滤：
+
+```bash
+node scripts/verify-negative.mjs smoke "quick-start cards"   # 只跑命中的那条
+```
+
+实测分批：9 条 14 分 12 秒、8 条 11 分 39 秒、11 条 15 分 07 秒，合计比整组快且
+每批都有完整结论。
+
+时间线与身份锚定各有自己的纯函数套件，可以单独跑：
+`pnpm run test:timeline`、`pnpm run test:cast`、`pnpm run test:timeline-compose`
+（最后一个需要本机 ffmpeg，缺工具时明确跳过）。
+
+跟进本项目的上游发布：
+
+```bash
+pnpm run upstream:check   # 有新版本时退出码为 1
+pnpm run upstream:plan    # 生成移植报告到 .upstream/<版本>/report.md
+pnpm run upstream:adopt v1.8.3   # 记录「已整合到哪个版本」
+```
+
+`upstream:plan` 会把每个改动文件按**能否干净应用到当前树**分类：新增（整份复制）、
+可直接应用、冲突（需人工读）、本项目自有（视频链、发布说明、授权，不覆盖）。
+它只生成报告，不改任何源码。这几个命令都是**手动**跑的——本项目不跟随上游版本线，
+所以没有定时检测；要跟进时自己跑一次 `upstream:check`。
+
+本地打包并安装到 DSH 验收：
+
+```bash
+pnpm pack --pack-destination .
+dsh plugin --profile web add ./q253595422-dsh-imagegen-video-X.Y.Z.tgz
+```
+
+仓库里的离线套件不需要网络与付费 API 调用；需要浏览器或 `ffmpeg` 的检查在缺
+少工具时会**明确跳过并返回成功**，而不是伪装成失败。并行跑构建与测试请用
+`./scripts/with-lock.sh`，它会把整棵工作树串行化。
+
+</details>
+
+## 许可证
+
+[Apache-2.0](./LICENSE)
+
+版权归属与第三方许可见 [NOTICE](./NOTICE) 与 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。

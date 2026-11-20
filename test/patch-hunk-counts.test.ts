@@ -31,7 +31,7 @@ describe('patch hunk counts', () => {
 
   it('keeps image generation and the log bridge in the dsh package.json patch', async () => {
     const patch = await readFile(patchPath('@deepseek-ai/dsh'), 'utf8')
-    expect(patch).toContain('+    "dsh-image-generation": "0.1.0"')
+    expect(patch).toContain('+    "dsh-taichi-image-generation": "0.1.0"')
     expect(patch).toContain('+    "dsh-desktop-log-bridge": "0.1.0",')
   })
 

@@ -249,7 +249,7 @@ build/
 └── 图标、DMG、NSIS 安装脚本、entitlements
 packages/                    宿主插件和运行时：client-ui、market-installer、office、onboarding、
                              workbenches、preset-transfer、log-bridge、hmr-fallback、
-                             image-generation、plugin-gis、ppt-runtime，以及第三方 dshmarket
+                             dsh-taichi-image-generation、plugin-gis、ppt-runtime，以及第三方 dshmarket
 patches/                     37 个对 npm 包的补丁
 scripts/                     打包、签名、公证、发布资产、PPT 构建、各类 verify 与 smoke
 test/                        约 300 个测试文件

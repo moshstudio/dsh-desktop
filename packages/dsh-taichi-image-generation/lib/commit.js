@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { ImageError } from './provider.js'
+import { ImageError } from './errors.js'
 
 export async function writerPlan(ctx, root, exec) {
   const policy = ctx.sandboxPolicy.resolve({ session: exec.agent.session })
@@ -13,7 +13,13 @@ export function writerEnvironment(runtime = process) {
   // Tombstones clear ordinary parent entries too: no launch credentials or
   // NODE_OPTIONS enter the asset writer, even if the host inherited them.
   const env = Object.fromEntries(Object.keys(runtime.env).map(key => [key, undefined]))
-  if (runtime.platform === 'win32') env.SystemRoot = runtime.env.SystemRoot
+  if (runtime.platform === 'win32') {
+    env.SystemRoot = runtime.env.SystemRoot
+    // GetTempPathW falls back to the Windows directory when TEMP is absent.
+    // The ACL sandbox creates its lock files there and cannot do so.
+    if (typeof runtime.env.TEMP === 'string' && runtime.env.TEMP !== '') env.TEMP = runtime.env.TEMP
+    if (typeof runtime.env.TMP === 'string' && runtime.env.TMP !== '') env.TMP = runtime.env.TMP
+  }
   // Desktop's macOS Host is an Electron utility process. Its executable runs
   // this child script only in Node mode; this constant is launch configuration.
   if (runtime.versions.electron) env.ELECTRON_RUN_AS_NODE = '1'

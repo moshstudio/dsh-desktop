@@ -4,10 +4,13 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     const React = require('react')
     const { useEffect, useId, useRef, useState } = React
+    const useLayoutEffect = React.useLayoutEffect || useEffect
     const {
       Button,
       Modal,
       RiskConfirmation,
+      SegmentedControl,
+      SegmentedTabs,
       Tooltip,
       IconChevronLeftOutlineRegular,
       IconInfoOutlineRegular,
@@ -68,11 +71,49 @@ window.__ModuleLoader__.load({
         needsPassword,
         needsConfirm,
         needsToken,
-        verificationToken,
+        codeIssue,
         canSubmit
       } = form
       const { messageText, isErrorCode } = copy
       const EMAIL_MEMORY_KEY = 'dsh-taichi-account-email'
+      const FIELD_ORDER = ['email', 'token', 'password', 'confirm']
+      const MOTION_MS = 280
+
+      function fieldsFor(nextMode) {
+        const names = []
+        if (needsEmail(nextMode)) names.push('email')
+        if (needsToken(nextMode)) names.push('token')
+        if (needsPassword(nextMode)) names.push('password')
+        if (needsConfirm(nextMode)) names.push('confirm')
+        return names
+      }
+
+      // Login and registration share the secret the user is still typing.
+      // Every other step leaves that flow, so the secret is cleared there.
+      function keepsPassword(from, to) {
+        return (from === 'login' || from === 'register') && (to === 'login' || to === 'register')
+      }
+
+      function motionEnabled() {
+        try {
+          return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches === false
+        } catch {
+          return false
+        }
+      }
+
+      function motionFrame(node, columnBox, slotsBox) {
+        const box = node.getBoundingClientRect()
+        return {
+          top: box.top,
+          left: box.left,
+          relTop: box.top - columnBox.top,
+          relLeft: box.left - columnBox.left,
+          // Slot-relative position lets a leaving field fade inside the moving
+          // column instead of fighting the column's own position animation.
+          slotTop: slotsBox ? box.top - slotsBox.top : box.top - columnBox.top
+        }
+      }
 
       function rememberedEmail() {
         try {
@@ -411,11 +452,13 @@ window.__ModuleLoader__.load({
         return React.createElement(
           Tooltip,
           { label: longContextLabel(t, tier), side: 'top', portal: true, maxWidth: 360, delayMs: 200, openOnClick: true },
-          React.createElement(
-            'button',
-            { type: 'button', className: 'dshDeskAccountInfo', 'aria-label': t('longContext') },
-            React.createElement(IconInfoOutlineRegular, { size: 14 })
-          )
+          React.createElement(Button, {
+            type: 'button',
+            variant: 'ghost',
+            size: 'sm',
+            'aria-label': t('longContext'),
+            icon: React.createElement(IconInfoOutlineRegular, { size: 16 })
+          })
         )
       }
 
@@ -750,13 +793,13 @@ window.__ModuleLoader__.load({
         )
       }
 
-      function rangeButton(value, label, selected, onSelect) {
-        return React.createElement('button', {
-          type: 'button',
-          className: 'dshDeskAccountRange',
-          'aria-pressed': selected ? 'true' : 'false',
-          onClick: () => { if (!selected) onSelect(value) }
-        }, label)
+      function tabLabel(text, count) {
+        if (!(count > 0)) return text
+        return React.createElement(React.Fragment, null,
+          text,
+          ' ',
+          React.createElement('span', { className: 'dshDeskAccountTabCount' }, String(count))
+        )
       }
 
       function statCard(label, value, tone) {
@@ -786,22 +829,14 @@ window.__ModuleLoader__.load({
         )
       }
 
-      function sectionTab(id, panelId, value, label, count, selected, onSelect) {
-        return React.createElement(
-          'button',
-          {
-            type: 'button',
-            id,
-            className: 'dshDeskAccountTab',
-            role: 'tab',
-            'aria-selected': selected ? 'true' : 'false',
-            'aria-controls': panelId,
-            tabIndex: selected ? 0 : -1,
-            onClick: () => { if (!selected) onSelect(value) }
-          },
-          label,
-          count > 0 ? React.createElement('span', { className: 'dshDeskAccountTabCount' }, String(count)) : null
-        )
+      function textButton(label, disabled, onClick) {
+        return React.createElement(Button, {
+          type: 'button',
+          variant: 'ghost',
+          size: 'sm',
+          disabled,
+          onClick
+        }, label)
       }
 
       const RECHARGE_YUAN = [39, 99, 199, 299]
@@ -863,12 +898,17 @@ window.__ModuleLoader__.load({
             ? React.createElement(
               React.Fragment,
               null,
-              React.createElement(
-                'div',
-                { className: 'dshDeskAccountRanges dshDeskAccountModelSort', role: 'group', 'aria-label': t('sortModels') },
-                rangeButton('vendor', t('sortByVendor'), sort === 'vendor', onModelSort),
-                rangeButton('price', t('sortByPrice'), sort === 'price', onModelSort)
-              ),
+              React.createElement(SegmentedControl, {
+                id: 'dsh-taichi-account-model-sort',
+                className: 'dshDeskAccountModelSort',
+                label: t('sortModels'),
+                value: sort,
+                options: [
+                  { value: 'vendor', label: t('sortByVendor') },
+                  { value: 'price', label: t('sortByPrice') }
+                ],
+                onChange: onModelSort
+              }),
               sort === 'price' || vendorGroups.length < 2
                 ? React.createElement('ul', { className: 'dshDeskAccountModels' }, modelCards(t, sort === 'price' ? modelsByPrice(models) : vendorGroups[0].models))
                 : React.createElement(
@@ -954,21 +994,26 @@ window.__ModuleLoader__.load({
                 ? React.createElement(
                   'div',
                   { className: 'dshDeskAccountHeroStat' },
-                  React.createElement('p', { className: 'dshDeskAccountStatLabel' }, t('consumed')),
+                  React.createElement('p', { className: 'dshDeskAccountStatLabel' }, t('totalConsumed')),
                   React.createElement('p', { className: 'dshDeskAccountBalance' }, formatCredits(credits.consumed))
                 )
                 : null
             ),
             stats
-              ? React.createElement(
-                'div',
-                { className: 'dshDeskAccountRanges' },
-                rangeButton('today', t('rangeToday'), activeRange === 'today', onRange),
-                rangeButton('yesterday', t('rangeYesterday'), activeRange === 'yesterday', onRange),
-                rangeButton('7', t('range7'), activeRange === '7', onRange),
-                rangeButton('30', t('range30'), activeRange === '30', onRange),
-                rangeButton('all', t('rangeAll'), activeRange === 'all', onRange)
-              )
+              ? React.createElement(SegmentedControl, {
+                id: 'dsh-taichi-account-range',
+                className: 'dshDeskAccountRanges',
+                label: t('creditStats'),
+                value: activeRange,
+                options: [
+                  { value: 'today', label: t('rangeToday') },
+                  { value: 'yesterday', label: t('rangeYesterday') },
+                  { value: '7', label: t('range7') },
+                  { value: '30', label: t('range30') },
+                  { value: 'all', label: t('rangeAll') }
+                ],
+                onChange: onRange
+              })
               : null,
             stats
               ? React.createElement(
@@ -996,13 +1041,17 @@ window.__ModuleLoader__.load({
           React.createElement(
             'section',
             { className: 'dshDeskAccountBoard' },
-            React.createElement(
-              'div',
-              { className: 'dshDeskAccountTabs', role: 'tablist', 'aria-label': t('titleAccount') },
-              sectionTab(modelsId, modelsPanel, 'models', t('models'), flags.models ? 0 : models.length, active === 'models', onSection),
-              sectionTab(usageId, usagePanel, 'usage', t('consumption'), credits?.consumption.length ?? 0, active === 'usage', onSection),
-              sectionTab(rechargeId, rechargePanel, 'recharge', t('recharge'), credits?.recharge.length ?? 0, active === 'recharge', onSection)
-            ),
+            React.createElement(SegmentedTabs, {
+              label: t('titleAccount'),
+              value: active,
+              size: 'sm',
+              onChange: onSection,
+              items: [
+                { value: 'models', label: tabLabel(t('models'), flags.models ? 0 : models.length), id: modelsId, panelId: modelsPanel },
+                { value: 'usage', label: tabLabel(t('consumption'), credits?.consumption.length ?? 0), id: usageId, panelId: usagePanel },
+                { value: 'recharge', label: tabLabel(t('recharge'), credits?.recharge.length ?? 0), id: rechargeId, panelId: rechargePanel }
+              ]
+            }),
             React.createElement(
               'div',
               { className: 'dshDeskAccountPanel', role: 'tabpanel', id: panelId, 'aria-labelledby': panelLabel },
@@ -1039,6 +1088,8 @@ window.__ModuleLoader__.load({
           React.createElement(
             'div',
             { className: 'dshDeskAccountPacks', role: 'list' },
+            // Button is a single-line control. A tier has to show the yuan amount
+            // and the credited points together, so this card stays local.
             RECHARGE_YUAN.map(yuan => React.createElement(
               'button',
               {
@@ -1093,6 +1144,8 @@ window.__ModuleLoader__.load({
         const usageId = useId()
         const rechargeId = useId()
         const [mode, setMode] = useState('login')
+        const [ghosts, setGhosts] = useState([])
+        const [entered, setEntered] = useState([])
         const [section, setSection] = useState('models')
         const [range, setRange] = useState('7')
         const [modelSort, setModelSort] = useState('vendor')
@@ -1107,6 +1160,10 @@ window.__ModuleLoader__.load({
         const operationId = useRef(0)
         const profileEpoch = useRef(0)
         const inFlight = useRef(false)
+        const columnRef = useRef(null)
+        const snapshotRef = useRef(null)
+        const framesRef = useRef(null)
+        const focusRequest = useRef(false)
         const [status, setStatus] = useState(() => initialStatus !== undefined ? initialStatus : statusBus.current)
         const [busy, setBusy] = useState(false)
         const [task, setTask] = useState('')
@@ -1196,6 +1253,43 @@ window.__ModuleLoader__.load({
           onStatus(next)
           if (next?.signedIn === true && next?.needsRestart === true) requestAccountRestart()
         }
+        // Record the on-screen positions before React commits the next step.
+        // getBoundingClientRect includes an in-progress transform, so a fast
+        // second switch continues from the current visual position.
+        const captureMotion = () => {
+          const root = columnRef.current
+          if (!root || typeof root.getBoundingClientRect !== 'function' || typeof root.querySelectorAll !== 'function') {
+            snapshotRef.current = null
+            return
+          }
+          const columnBox = root.getBoundingClientRect()
+          const slots = typeof root.querySelector === 'function' ? root.querySelector('.dshDeskAccountSlots') : null
+          const slotsBox = slots && typeof slots.getBoundingClientRect === 'function' ? slots.getBoundingClientRect() : null
+          const frames = new Map()
+          frames.set('column', { top: columnBox.top, left: columnBox.left, relTop: 0, relLeft: 0, slotTop: 0 })
+          for (const node of root.querySelectorAll('[data-dsh-flip]')) {
+            const key = node.getAttribute('data-dsh-flip')
+            if (!key || typeof node.getBoundingClientRect !== 'function') continue
+            frames.set(key, motionFrame(node, columnBox, slotsBox))
+          }
+          snapshotRef.current = frames
+        }
+        const beginTransition = (next) => {
+          if (next === mode) return
+          captureMotion()
+          const previous = fieldsFor(mode)
+          const upcoming = fieldsFor(next)
+          const upcomingSet = new Set(upcoming)
+          const previousSet = new Set(previous)
+          if (motionEnabled()) {
+            setGhosts(previous.filter(name => !upcomingSet.has(name)))
+            setEntered(upcoming.filter(name => !previousSet.has(name)))
+          } else {
+            setGhosts([])
+            setEntered([])
+          }
+          setMode(next)
+        }
         const run = async (operation, taskName) => {
           if (!account || inFlight.current) return
           inFlight.current = true
@@ -1210,16 +1304,17 @@ window.__ModuleLoader__.load({
             if (taskName === 'submit' && mode === 'login' && next?.signedIn === true && next?.needsRestart === true) {
               onClose()
             } else if (next?.message === 'accepted' && mode === 'register') {
-              setMode('verify')
+              beginTransition('verify')
               setPassword('')
               setConfirm('')
               setPasswordTouched(false)
               setConfirmTouched(false)
               setShown(false)
-            } else if (next?.message === 'accepted' && mode === 'reset') setMode('resetConfirm')
+            } else if (next?.message === 'accepted' && mode === 'reset') beginTransition('resetConfirm')
+            else if (taskName === 'resend' && next?.message === 'accepted') setToken('')
             else if (next?.message === 'accepted' && (mode === 'verify' || mode === 'resetConfirm')) {
               setNotice(mode === 'verify' ? 'verified' : 'passwordReset')
-              setMode('login')
+              beginTransition('login')
               setPassword('')
               setConfirm('')
               setToken('')
@@ -1265,17 +1360,20 @@ window.__ModuleLoader__.load({
           }
         }
         const go = (next) => {
-          if (busy) return
-          setMode(next)
+          if (busy || next === mode) return
+          beginTransition(next)
           setNotice('')
           setStatus(value => value ? { ...value, message: '' } : value)
           setEmailTouched(false)
           setPasswordTouched(false)
           setConfirmTouched(false)
-          setPassword('')
+          if (!keepsPassword(mode, next)) {
+            setPassword('')
+            setShown(false)
+          }
           setConfirm('')
-          setToken('')
-          setShown(false)
+          if (!needsToken(next)) setToken('')
+          focusRequest.current = true
         }
 
         const signedIn = status?.signedIn === true
@@ -1288,6 +1386,8 @@ window.__ModuleLoader__.load({
         const passwordError = passwordCode ? t(passwordCode) : ''
         const confirmCode = confirmIssue(mode, password, confirm, confirmTouched)
         const confirmError = confirmCode ? t(confirmCode) : ''
+        const codeErrorKey = codeIssue(mode, token)
+        const codeError = codeErrorKey ? t(codeErrorKey) : ''
         const ready = canSubmit(mode, email, password, token, confirm)
         const titles = {
           login: 'titleLogin',
@@ -1323,8 +1423,149 @@ window.__ModuleLoader__.load({
           : screen === 'gateway'
             ? t('descGateway')
             : t(descriptions[mode], { email: email.trim() })
-        // Remounting replays the short enter animation when the screen or step changes.
-        const stageKey = `${screen}:${mode}`
+        // The auth stage stays mounted. Only its text and fields change, so a
+        // step can move existing inputs instead of replacing the whole form.
+        const stageKey = screen === 'auth' ? 'auth' : screen
+        const openFields = screen === 'auth' ? fieldsFor(mode) : []
+        // Ghosts and entered fields are presentation for the mode change already
+        // measured above. Clearing them after the transition must not measure again,
+        // or the inputs snap once the move has finished.
+        const motionSignature = [
+          screen,
+          mode,
+          errorCode,
+          successCode,
+          emailError,
+          passwordError,
+          confirmError,
+          codeError,
+          description,
+          title,
+          busy ? task : '',
+          status?.needsRestart === true ? 'restart' : ''
+        ].join('|')
+
+        useEffect(() => {
+          if (ghosts.length === 0 && entered.length === 0) return undefined
+          const timer = setTimeout(() => {
+            setGhosts([])
+            setEntered([])
+          }, MOTION_MS)
+          return () => { clearTimeout(timer) }
+        }, [mode, ghosts, entered])
+
+        useEffect(() => {
+          snapshotRef.current = null
+        }, [motionSignature])
+
+        useLayoutEffect(() => {
+          const root = columnRef.current
+          if (screen !== 'auth' || !root || typeof root.getBoundingClientRect !== 'function' || typeof root.querySelectorAll !== 'function') {
+            framesRef.current = null
+            return undefined
+          }
+          const nodes = [...root.querySelectorAll('[data-dsh-flip]')]
+          const first = snapshotRef.current || framesRef.current
+          const animate = Boolean(first && motionEnabled())
+          const slots = typeof root.querySelector === 'function' ? root.querySelector('.dshDeskAccountSlots') : null
+          const clearMotionStyle = (node) => {
+            node.style.transition = 'none'
+            node.style.transform = 'none'
+          }
+          if (animate) {
+            for (const node of nodes) {
+              if (node.getAttribute('data-motion') !== 'exit') continue
+              const key = node.getAttribute('data-dsh-flip')
+              const origin = key ? first.get(key) : null
+              if (!origin) continue
+              node.style.position = 'absolute'
+              node.style.left = '0'
+              node.style.right = '0'
+              node.style.margin = '0'
+              node.style.top = `${typeof origin.slotTop === 'number' ? origin.slotTop : origin.relTop}px`
+              node.style.pointerEvents = 'none'
+            }
+            clearMotionStyle(root)
+            for (const node of nodes) {
+              if (node.getAttribute('data-motion') === 'exit') continue
+              clearMotionStyle(node)
+            }
+            root.getBoundingClientRect()
+          }
+          const columnBox = root.getBoundingClientRect()
+          const slotsBox = slots && typeof slots.getBoundingClientRect === 'function' ? slots.getBoundingClientRect() : null
+          const current = new Map()
+          current.set('column', { top: columnBox.top, left: columnBox.left, relTop: 0, relLeft: 0, slotTop: 0 })
+          for (const node of nodes) {
+            if (node.getAttribute('data-motion') === 'exit') continue
+            const key = node.getAttribute('data-dsh-flip')
+            if (!key || typeof node.getBoundingClientRect !== 'function') continue
+            current.set(key, motionFrame(node, columnBox, slotsBox))
+          }
+          if (animate) {
+            const moves = []
+            const columnFrom = first.get('column')
+            if (columnFrom) {
+              const dx = columnFrom.left - columnBox.left
+              const dy = columnFrom.top - columnBox.top
+              if (Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) moves.push({ node: root, dx, dy })
+            }
+            for (const node of nodes) {
+              const motion = node.getAttribute('data-motion')
+              if (motion === 'exit' || motion === 'enter') continue
+              const key = node.getAttribute('data-dsh-flip')
+              const origin = key ? first.get(key) : null
+              const next = key ? current.get(key) : null
+              if (!origin || !next) continue
+              const dx = origin.relLeft - next.relLeft
+              const dy = origin.relTop - next.relTop
+              if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
+              moves.push({ node, dx, dy })
+            }
+            for (const move of moves) move.node.style.transform = `translate(${move.dx}px, ${move.dy}px)`
+            root.getBoundingClientRect()
+            for (const move of moves) {
+              move.node.style.transition = 'transform 260ms cubic-bezier(.22, .8, .24, 1)'
+              move.node.style.transform = 'translate(0px, 0px)'
+            }
+          }
+          framesRef.current = current
+          return () => {
+            root.style.transition = ''
+            root.style.transform = ''
+            for (const node of nodes) {
+              if (!node.style) continue
+              node.style.transition = ''
+              node.style.transform = ''
+              if (node.getAttribute('data-motion') === 'exit') {
+                node.style.position = ''
+                node.style.top = ''
+                node.style.left = ''
+                node.style.right = ''
+                node.style.margin = ''
+                node.style.pointerEvents = ''
+              }
+            }
+          }
+        }, [motionSignature, screen])
+
+        useEffect(() => {
+          if (screen !== 'auth') return undefined
+          const root = columnRef.current
+          if (!root || typeof root.querySelector !== 'function' || typeof root.contains !== 'function') return undefined
+          const requested = focusRequest.current
+          focusRequest.current = false
+          const active = document.activeElement
+          const slot = active && typeof active.closest === 'function' ? active.closest('[data-dsh-account-slot]') : null
+          const valid = Boolean(active && root.contains(active) && slot?.getAttribute('data-open') === 'true' && active.disabled !== true)
+          if (valid) return undefined
+          const inside = Boolean(active && root.contains(active))
+          if (!requested && !inside) return undefined
+          const nextField = root.querySelector('[data-dsh-account-slot][data-open="true"] [data-dsh-account-field]')
+          if (!nextField || typeof nextField.focus !== 'function' || nextField === active) return undefined
+          nextField.focus({ preventScroll: true })
+          return undefined
+        }, [mode, screen])
 
         const submit = (event) => {
           event.preventDefault()
@@ -1338,12 +1579,42 @@ window.__ModuleLoader__.load({
           if (mode === 'login' || mode === 'register') rememberEmail(address)
           void run(api => {
             if (mode === 'register') return api.register(address, password)
-            if (mode === 'verify') return api.verify(verificationToken(token))
+            if (mode === 'verify') return api.verify(token.trim())
             if (mode === 'reset') return api.requestReset(address)
             if (mode === 'resetConfirm') return api.confirmReset(token.trim(), password)
             return api.login(address, password)
           }, 'submit')
         }
+
+        const resendReset = () => {
+          if (screen !== 'auth' || busy || mode !== 'resetConfirm') return
+          const address = email.trim().toLowerCase()
+          if (!validEmail(address)) return
+          if (address !== email) setEmail(address)
+          void run(api => api.requestReset(address), 'resend')
+        }
+
+        const linkAlign = mode === 'reset' ? 'end' : 'between'
+        const linkActions = mode === 'login'
+          ? [
+            textButton(t('needReset'), busy, () => { go('reset') }),
+            textButton(t('needAccount'), busy, () => { go('register') })
+          ]
+          : mode === 'register'
+            ? [
+              textButton(t('needVerify'), busy, () => { go('verify') }),
+              textButton(t('haveAccount'), busy, () => { go('login') })
+            ]
+            : mode === 'verify' || mode === 'resetConfirm'
+              ? [
+                textButton(
+                  t(task === 'resend' ? 'sending' : 'resendCode'),
+                  busy || (mode === 'resetConfirm' && !validEmail(email)),
+                  mode === 'resetConfirm' ? resendReset : () => { go('register') }
+                ),
+                textButton(t('haveAccount'), busy, () => { go('login') })
+              ]
+              : [textButton(t('haveAccount'), busy, () => { go('login') })]
 
         const body = screen === 'loading'
           ? React.createElement('p', { className: 'dshDeskAccountLoading' }, t('descLoading'))
@@ -1383,80 +1654,148 @@ window.__ModuleLoader__.load({
                 }
               })
               : React.createElement(React.Fragment, null,
-                errorCode ? React.createElement('p', { className: 'dshDeskAccountAlert', role: 'alert' }, messageText(t, errorCode)) : null,
-                successCode ? React.createElement('p', { className: 'dshDeskAccountStatus', role: 'status' }, messageText(t, successCode)) : null,
-                status?.needsRestart ? React.createElement(RestartNotice, { t, kind: 'signOut', busy, onRestart: restart }) : null,
-                needsEmail(mode) ? React.createElement(TextField, {
-                  field: 'email',
-                  label: t('email'),
-                  type: 'email',
-                  value: email,
-                  busy,
-                  invalid: emailError !== '',
-                  error: emailError,
-                  autoComplete: 'username',
-                  autoFocus: true,
-                  onBlur: () => { setEmailTouched(true) },
-                  onChange: setEmail
-                }) : null,
-                needsToken(mode) ? React.createElement(TextField, {
-                  field: 'token',
-                  label: t(mode === 'verify' ? 'verifyLink' : 'token'),
-                  type: 'text',
-                  value: token,
-                  busy,
-                  invalid: false,
-                  error: '',
-                  autoComplete: mode === 'verify' ? 'off' : 'one-time-code',
-                  autoFocus: !needsEmail(mode),
-                  onChange: setToken
-                }) : null,
-                needsPassword(mode) ? React.createElement(PasswordField, {
-                  t,
-                  field: 'password',
-                  label: t('password'),
-                  value: password,
-                  shown,
-                  busy,
-                  invalid: passwordError !== '',
-                  error: passwordError,
-                  autoComplete: mode === 'login' ? 'current-password' : 'new-password',
-                  autoFocus: false,
-                  onBlur: () => { setPasswordTouched(true) },
-                  onChange: setPassword,
-                  onToggle: () => { setShown(value => !value) }
-                }) : null,
-                needsConfirm(mode) ? React.createElement(PasswordField, {
-                  t,
-                  field: 'confirm',
-                  label: t('confirmPassword'),
-                  value: confirm,
-                  shown,
-                  busy,
-                  invalid: confirmError !== '',
-                  error: confirmError,
-                  autoComplete: 'new-password',
-                  autoFocus: false,
-                  onBlur: () => { setConfirmTouched(true) },
-                  onChange: setConfirm,
-                  onToggle: () => { setShown(value => !value) }
-                }) : null,
-                React.createElement(
-                  'div',
-                  { className: 'dshDeskAccountLinks' },
-                  mode === 'login'
-                    ? React.createElement(React.Fragment, null,
-                      React.createElement('button', { type: 'button', disabled: busy, onClick: () => { go('register') } }, t('needAccount')),
-                      React.createElement('button', { type: 'button', disabled: busy, onClick: () => { go('verify') } }, t('needVerify')),
-                      React.createElement('button', { type: 'button', disabled: busy, onClick: () => { go('reset') } }, t('needReset'))
-                    )
-                    : React.createElement('button', { type: 'button', disabled: busy, onClick: () => { go('login') } }, t('haveAccount'))
+                React.createElement('div', { 'data-dsh-flip': 'feedback' },
+                  errorCode ? React.createElement('p', { className: 'dshDeskAccountAlert', role: 'alert' }, messageText(t, errorCode)) : null,
+                  successCode ? React.createElement('p', { className: 'dshDeskAccountStatus', role: 'status' }, messageText(t, successCode)) : null,
+                  status?.needsRestart ? React.createElement(RestartNotice, { t, kind: 'signOut', busy, onRestart: restart }) : null
+                ),
+                React.createElement('div', { className: 'dshDeskAccountSlots' },
+                  FIELD_ORDER.filter(name => openFields.includes(name) || ghosts.includes(name)).map(name => {
+                    const open = openFields.includes(name)
+                    const locked = busy || !open
+                    const control = name === 'email'
+                      ? React.createElement(TextField, {
+                        field: 'email',
+                        present: open,
+                        label: t('email'),
+                        type: 'email',
+                        value: email,
+                        busy: locked,
+                        invalid: open && emailError !== '',
+                        error: open ? emailError : '',
+                        autoComplete: 'username',
+                        autoFocus: open,
+                        onBlur: () => { setEmailTouched(true) },
+                        onChange: setEmail
+                      })
+                      : name === 'token'
+                        ? React.createElement(TextField, {
+                          field: 'token',
+                          present: open,
+                          label: t('token'),
+                          type: 'text',
+                          value: token,
+                          busy: locked,
+                          invalid: open && codeError !== '',
+                          error: open ? codeError : '',
+                          autoComplete: 'one-time-code',
+                          autoFocus: open && !needsEmail(mode),
+                          onChange: setToken
+                        })
+                        : name === 'password'
+                          ? React.createElement(PasswordField, {
+                            t,
+                            field: 'password',
+                            present: open,
+                            label: t('password'),
+                            value: password,
+                            shown,
+                            busy: locked,
+                            invalid: open && passwordError !== '',
+                            error: open ? passwordError : '',
+                            autoComplete: mode === 'login' ? 'current-password' : 'new-password',
+                            autoFocus: false,
+                            onBlur: () => { setPasswordTouched(true) },
+                            onChange: setPassword,
+                            onToggle: () => { setShown(value => !value) }
+                          })
+                          : React.createElement(PasswordField, {
+                            t,
+                            field: 'confirm',
+                            present: open,
+                            label: t('confirmPassword'),
+                            value: confirm,
+                            shown,
+                            busy: locked,
+                            invalid: open && confirmError !== '',
+                            error: open ? confirmError : '',
+                            autoComplete: 'new-password',
+                            autoFocus: false,
+                            onBlur: () => { setConfirmTouched(true) },
+                            onChange: setConfirm,
+                            onToggle: () => { setShown(value => !value) }
+                          })
+                    return React.createElement('div', {
+                      key: name,
+                      className: 'dshDeskAccountSlot',
+                      'data-dsh-account-slot': name,
+                      'data-dsh-flip': name,
+                      'data-open': open ? 'true' : 'false',
+                      'data-motion': open ? (entered.includes(name) ? 'enter' : undefined) : 'exit',
+                      'aria-hidden': open ? undefined : 'true',
+                      inert: open ? undefined : ''
+                    }, React.createElement('div', { className: 'dshDeskAccountSlotBody' }, control))
+                  })
+                ),
+                React.createElement('div', { className: 'dshDeskAccountLinks', 'data-dsh-flip': 'links' },
+                  React.createElement('div', {
+                    key: mode,
+                    className: 'dshDeskAccountLinkRow dshDeskAccountCross',
+                    'data-align': linkAlign
+                  }, ...linkActions)
                 )
               )
 
-        const surface = screen === 'auth'
-          ? { className: 'dshDeskAccountPanel', 'aria-labelledby': titleId, onSubmit: submit }
-          : { className: 'dshDeskAccountPanel', 'aria-labelledby': titleId }
+        const surface = {
+          className: 'dshDeskAccountPanel',
+          'data-screen': screen,
+          'aria-labelledby': titleId,
+          ...(screen === 'auth' ? { onSubmit: submit } : {})
+        }
+        const titleNode = React.createElement('h2', {
+          id: titleId,
+          className: 'dshDeskAccountTitle',
+          'data-dsh-flip': screen === 'auth' ? 'title' : undefined
+        }, screen === 'auth'
+          ? React.createElement('span', { key: title, className: 'dshDeskAccountCross' }, title)
+          : title)
+        const descriptionNode = description
+          ? React.createElement('p', {
+            className: 'dshDeskAccountDescription',
+            'data-dsh-flip': screen === 'auth' ? 'description' : undefined
+          }, screen === 'auth'
+            ? React.createElement('span', { key: mode, className: 'dshDeskAccountCross' }, description)
+            : description)
+          : null
+        const reading = React.createElement('div', {
+          className: 'dshDeskAccountBody',
+          'data-loading': screen === 'loading' ? 'true' : 'false',
+          'data-dsh-account-screen': screen,
+          'data-mode': screen === 'auth' ? mode : screen
+        }, React.createElement('div', { key: stageKey, className: 'dshDeskAccountStage' }, body))
+        const content = screen === 'auth'
+          ? React.createElement('div', { className: 'dshDeskAccountContent', 'data-dsh-account-panel': 'true', 'data-auth': 'true' },
+            React.createElement('div', { className: 'dshDeskAccountAuthColumn', ref: columnRef },
+              React.createElement('div', { className: 'dshDeskAccountLive', 'aria-live': 'polite', 'aria-atomic': 'true' }, `${title}. ${description}`),
+              React.createElement('div', { className: 'dshDeskAccountHeader' }, titleNode),
+              descriptionNode,
+              reading,
+              React.createElement('div', { className: 'dshDeskAccountFooter', 'data-align': 'stretch', 'data-dsh-flip': 'action' },
+                React.createElement(Button, {
+                  variant: 'primary',
+                  type: 'submit',
+                  className: 'dshDeskAccountPrimary',
+                  'data-dsh-account-primary': 'true',
+                  disabled: busy || !ready
+                }, React.createElement('span', { key: `${mode}:${task}`, className: 'dshDeskAccountCross' }, t(task === 'submit' ? pending[mode] : actions[mode])))
+              )
+            )
+          )
+          : React.createElement('div', { className: 'dshDeskAccountContent', 'data-dsh-account-panel': 'true', 'data-auth': 'false' },
+            React.createElement('div', { className: 'dshDeskAccountHeader' }, titleNode),
+            descriptionNode,
+            reading
+          )
         return React.createElement(React.Fragment, null,
           React.createElement(
             screen === 'auth' ? 'form' : 'div',
@@ -1464,51 +1803,18 @@ window.__ModuleLoader__.load({
             React.createElement(
               'div',
               { className: 'dshDeskAccountToolbar' },
-              React.createElement(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dshDeskAccountBack',
-                  'aria-label': t('back'),
-                  disabled: busy || mustRestart,
-                  onClick: requestClose
-                },
-                React.createElement(IconChevronLeftOutlineRegular, { size: 16 }),
-                React.createElement('span', null, t('back'))
-              )
+              React.createElement(Button, {
+                type: 'button',
+                variant: 'ghost',
+                size: 'sm',
+                className: 'dshDeskAccountBack',
+                'aria-label': t('back'),
+                disabled: busy || mustRestart,
+                icon: React.createElement(IconChevronLeftOutlineRegular, { size: 16 }),
+                onClick: requestClose
+              }, t('back'))
             ),
-            React.createElement(
-              'div',
-              { className: 'dshDeskAccountContent', 'data-dsh-account-panel': 'true' },
-              React.createElement(
-                'div',
-                { className: 'dshDeskAccountHeader' },
-                React.createElement('h2', { id: titleId, key: stageKey, className: 'dshDeskAccountTitle' }, title)
-              ),
-              description ? React.createElement('p', { key: stageKey, className: 'dshDeskAccountDescription' }, description) : null,
-              React.createElement(
-                'div',
-                {
-                  className: 'dshDeskAccountBody',
-                  'data-loading': screen === 'loading' ? 'true' : 'false',
-                  'data-dsh-account-screen': screen,
-                  'data-mode': screen === 'auth' ? mode : screen
-                },
-                React.createElement('div', { key: stageKey, className: 'dshDeskAccountStage' }, body)
-              ),
-              screen === 'auth'
-                  ? React.createElement(
-                    'div',
-                    { className: 'dshDeskAccountFooter', 'data-align': 'end' },
-                    React.createElement(Button, {
-                      variant: 'primary',
-                      type: 'submit',
-                      'data-dsh-account-primary': 'true',
-                      disabled: busy || !ready
-                    }, t(task === 'submit' ? pending[mode] : actions[mode]))
-                  )
-                  : null
-            )
+            content
           ),
           RechargeDialog({
             t,
@@ -1605,22 +1911,20 @@ window.__ModuleLoader__.load({
           React.createElement(
             Tooltip,
             { label, side: 'top', align: 'end', portal: true, maxWidth: 280, delayMs: 0, focusDelayMs: 0 },
-            React.createElement(
-              'button',
-              {
-                type: 'button',
-                className: 'dshDeskAccountButton',
-                'data-dsh-taichi-account': 'true',
-                'data-signed-in': signedIn ? 'true' : 'false',
-                'data-selected': selected ? 'true' : 'false',
-                'aria-pressed': selected ? 'true' : 'false',
-                'aria-label': label,
-                onClick: () => { if (typeof toggleAccount === 'function') toggleAccount() }
-              },
-              React.createElement(IconUserOutlineRegular, { size: 18 }),
-              signedIn ? React.createElement('span', { className: 'dshDeskAccountPresence', 'aria-hidden': 'true' }) : null
-            )
-          )
+            React.createElement(Button, {
+              type: 'button',
+              variant: 'ghost',
+              size: 'sm',
+              'data-dsh-taichi-account': 'true',
+              'data-signed-in': signedIn ? 'true' : 'false',
+              'data-selected': selected ? 'true' : 'false',
+              'aria-pressed': selected ? 'true' : 'false',
+              'aria-label': label,
+              icon: React.createElement(IconUserOutlineRegular, { size: 16 }),
+              onClick: () => { if (typeof toggleAccount === 'function') toggleAccount() }
+            })
+          ),
+          signedIn ? React.createElement('span', { className: 'dshDeskAccountPresence', 'aria-hidden': 'true' }) : null
         )
       }
 

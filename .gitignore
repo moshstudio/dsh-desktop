@@ -45,3 +45,4 @@ docs/mobile-connection-latency.zh.md
 
 # Snapshots fetched by scripts/upstream-diff.mjs. Not source.
 /.upstream-cache/
+.history

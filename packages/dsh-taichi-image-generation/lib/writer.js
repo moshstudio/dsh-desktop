@@ -1,7 +1,7 @@
 // This child receives image bytes only. The Host wraps it with its configured
 // OS sandbox; filesystem confinement remains effective during path-swap races.
 import { materialize } from './storage.js'
-import { MAX_IMAGE_BYTES } from './provider.js'
+import { MAX_IMAGE_BYTES } from './errors.js'
 const chunks = []; let length = 0
 for await (const chunk of process.stdin) {
   length += chunk.length

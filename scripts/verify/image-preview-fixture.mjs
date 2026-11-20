@@ -7,7 +7,7 @@ import { Session, SessionStore, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { createUserMessage, createAssistantMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import sharp from 'sharp'
-import { materialize } from '../../packages/dsh-image-generation/lib/storage.js'
+import { materialize } from '../../packages/dsh-taichi-image-generation/lib/storage.js'
 
 export async function imagePreviewFixture(home) {
   const directory = path.join(home, 'preview-workspace'); await mkdir(directory)

@@ -3,7 +3,7 @@ import { constants } from 'node:fs'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { assetDirectory } from './assets.js'
-import { ImageError, MAX_IMAGE_BYTES } from './provider.js'
+import { ImageError, MAX_IMAGE_BYTES } from './errors.js'
 
 /** Read only canonical image results, including results created before previews existed. */
 export function imageResult(content) {
@@ -61,10 +61,10 @@ export async function previewImage(ctx, request) {
       offset += bytesRead
     }
     if (offset !== data.length || createHash('sha256').update(data).digest('hex') !== sha || data.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new ImageError('PREVIEW', 'The generated image has changed.', 404)
-    ctx.logger.info('image-generation: preview allowed; session=%s asset=%s', sessionId, sha)
+    ctx.logger.info('taichi-image: preview allowed; session=%s asset=%s', sessionId, sha)
     return new Response(data, { headers: { 'Content-Type': 'image/png', 'Content-Length': String(data.length), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'inline; filename="generated-image.png"' } })
   } catch (error) {
-    ctx.logger.info('image-generation: preview unavailable')
+    ctx.logger.info('taichi-image: preview unavailable')
     return Response.json({ code: 'PREVIEW', error: 'Image preview is unavailable.' }, { status: error instanceof ImageError && error.code === 'PREVIEW' ? error.status : 404, headers: { 'Cache-Control': 'no-store' } })
   } finally { try { await file?.close() } catch { /* Keep the constructed response when close fails. */ } }
 }

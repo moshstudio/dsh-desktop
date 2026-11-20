@@ -57,6 +57,7 @@ describe('Desktop account UI composition', () => {
         name: 'dsh-ppt-composer',
         config: { root: { __jsExpr: "dshHomePath('kimi-ppt')" } }
       })
+      expect(entries.find((entry) => entry.id === 'dsh-taichi-image-generation')?.name).toBe('dsh-taichi-image-generation')
       const safePatch = await writeDesktopProductPatch(home, 'safe')
       const safeEntries = composeEntries([base, web, loadOverlayPatches('test', safePatch)])
       expect(safeEntries.find((entry) => entry.id === 'dsh-taichi-account')?.name).toBe('dsh-taichi-account')
@@ -64,6 +65,7 @@ describe('Desktop account UI composition', () => {
       expect(safeEntries.find((entry) => entry.id === 'dsh-desktop-market-installer')).toBeUndefined()
       expect(safeEntries.find((entry) => entry.id === 'dsh-desktop-office')).toBeUndefined()
       expect(safeEntries.find((entry) => entry.id === 'dsh-ppt-composer')).toBeUndefined()
+      expect(safeEntries.find((entry) => entry.id === 'dsh-taichi-image-generation')).toBeUndefined()
       for (const name of ['@deepseek-ai/dsh-client-ui-settings-general', '@deepseek-ai/dsh-client-ui-settings-models']) {
         expect(entries.filter((entry) => entry.name === name && !entry.disabled)).toHaveLength(1)
       }

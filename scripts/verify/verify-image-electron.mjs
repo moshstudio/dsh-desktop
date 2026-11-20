@@ -20,19 +20,20 @@ if (process.argv.includes('--worker')) {
   const { LocalSandboxProvider } = await use('@deepseek-ai/dsh-sandbox-local')
   const { LocalSubprocessRuntime } = await use('@deepseek-ai/dsh-subprocess-local')
   const { default: sharp } = await use('sharp')
-  const { imageTool } = await use('dsh-image-generation')
+  const { imageTool } = await use('dsh-taichi-image-generation')
   const workspace = await realpath(await mkdtemp(path.join(tmpdir(), 'dsh-image-electron-work-')))
   const ctx = new Context(); const forks = []; let calls = 0
   const png = await sharp({ create: { width: 256, height: 192, channels: 4, background: '#12345680' } }).png().toBuffer()
   const server = createServer(async (request, response) => {
     let body = ''; for await (const part of request) body += part
-    const input = JSON.parse(body)
-    assert.ok(input.prompt); calls++
-    if (input.model === 'doubao-seedream-5-0-pro-260628' && (['sequential_image_generation', 'sequential_image_generation_options'].some(field => Object.hasOwn(input, field)) || input.stream === true)) {
-      response.writeHead(400, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ error: { code: 'InvalidParameter', param: 'sequential_image_generation', message: 'The parameter is unsupported for this model.' } }))
+    if (request.url === '/v1/images/models') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ data: [{ id: 'gpt-image-2', show_in_picker: true, sizes: [{ aspect_ratio: '16:9', quality: '1k', size: '1536x864' }], quality_map: {} }] }))
       return
     }
+    const input = JSON.parse(body)
+    assert.equal(input.model, 'gpt-image-2')
+    assert.ok(input.prompt); calls++
     response.writeHead(200, { 'content-type': 'application/json' })
     response.end(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }))
   })
@@ -40,15 +41,13 @@ if (process.argv.includes('--worker')) {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
     for (const plugin of [LocalSandboxProvider, LocalSubprocessRuntime]) { const fork = ctx.plugin(plugin, {}); forks.push(fork); await fork }
     const services = { sandbox: ctx.sandbox, subprocess: ctx.subprocess, logger: { info() {} }, sandboxPolicy: { resolve: () => ({ mode: 'workspace-write', workspaceRoot: workspace }) } }
-    for (const [provider, model] of [['openai', 'gpt-image-2.5-flare'], ['bytedance', 'doubao-seedream-5-0-pro-260628']]) {
-      const tool = imageTool(services, { active: async () => ({ provider, model, baseUrl: `http://127.0.0.1:${server.address().port}/v1`, key: 'local-smoke-key' }) })
-      const value = await tool.execute({ prompt: 'A flower', aspect_ratio: '16:9' }, { agent: { session: { header: { cwd: workspace } } }, signal: new AbortController().signal })
-      const data = await readFile(path.join(workspace, value.workspace_path))
-      assert.equal(createHash('sha256').update(data).digest('hex'), value.sha256)
-      const meta = await sharp(data).metadata(); assert.equal(meta.format, 'png'); assert.equal(meta.hasAlpha, true)
-    }
-    assert.equal(calls, 2)
-    console.log(`PASS: real Electron ${process.versions.electron} utility Host, OpenAI and Seedream 5.0 Pro single-image contract, sandboxed PNG writer (loopback simulation).`)
+    const tool = imageTool(services, { TAICHI_GATEWAY_URL: `http://127.0.0.1:${server.address().port}`, TAICHI_GATEWAY_ACCESS_TOKEN: 'local-smoke-token' })
+    const value = await tool.execute({ prompt: 'A flower', aspect_ratio: '16:9' }, { agent: { session: { header: { cwd: workspace } } }, signal: new AbortController().signal })
+    const data = await readFile(path.join(workspace, value.workspace_path))
+    assert.equal(createHash('sha256').update(data).digest('hex'), value.sha256)
+    const meta = await sharp(data).metadata(); assert.equal(meta.format, 'png'); assert.equal(meta.hasAlpha, true)
+    assert.equal(calls, 1)
+    console.log(`PASS: real Electron ${process.versions.electron} utility Host, Taichi image gateway contract, sandboxed PNG writer (loopback simulation).`)
   } finally {
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve))
     for (const fork of forks.reverse()) await fork.dispose()

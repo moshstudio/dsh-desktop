@@ -264,6 +264,52 @@ describe('builtin account gateway', () => {
     })
   })
 
+  it('reports a rejected code separately from a gateway rate limit or a failed request', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-account-code-'))
+    directories.push(home)
+    let verifyCalls = 0
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/verify')) {
+        verifyCalls += 1
+        if (verifyCalls === 1) return Response.json({ error: 'token_expired' }, { status: 400 })
+        if (verifyCalls === 2) return Response.json({ error: 'rate_limited' }, { status: 429 })
+        throw new TypeError('fetch failed')
+      }
+      if (url.endsWith('/password-reset')) return Response.json({ error: 'invalid_token' }, { status: 400 })
+      return new Response('{}', { status: 404 })
+    }
+    const account = new DesktopAccountService({
+      gatewayUrl: 'https://gateway.test',
+      sessionFile: join(home, 'account-session.json'),
+      profileDir: join(home, 'profile'),
+      secretBox: box,
+      fetchImpl
+    })
+    expect((await account.verify('000000')).message).toBe('code_rejected')
+    expect((await account.verify('000000')).message).toBe('rate_limited')
+    expect((await account.confirmPasswordReset('000000', 'new-horse-1')).message).toBe('code_rejected')
+    await expect(account.verify('000000')).rejects.toThrow(/request failed/u)
+  })
+
+  it('surfaces an unregistered email when a password reset is requested', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-account-missing-'))
+    directories.push(home)
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/password-reset')) return Response.json({ error: 'email_not_registered' }, { status: 404 })
+      return new Response('{}', { status: 404 })
+    }
+    const account = new DesktopAccountService({
+      gatewayUrl: 'https://gateway.test',
+      sessionFile: join(home, 'account-session.json'),
+      profileDir: join(home, 'profile'),
+      secretBox: box,
+      fetchImpl
+    })
+    expect((await account.requestPasswordReset('missing@example.com')).message).toBe('email_not_registered')
+  })
+
   it('does not ask for a restart when sign-out happens before the host is running', async () => {
     const home = await mkdtemp(join(tmpdir(), 'dsh-account-idle-'))
     directories.push(home)

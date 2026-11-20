@@ -148,7 +148,7 @@ export class DesktopAccountService {
   }
 
   async verify(token: unknown): Promise<AccountStatus> {
-    return this.accept(client => client.verify(text(token)))
+    return this.acceptCode(client => client.verify(text(token)))
   }
 
   async login(email: unknown, password: unknown): Promise<AccountStatus> {
@@ -182,7 +182,7 @@ export class DesktopAccountService {
   }
 
   async confirmPasswordReset(token: unknown, password: unknown): Promise<AccountStatus> {
-    return this.accept(client => client.confirmPasswordReset(text(token), text(password)))
+    return this.acceptCode(client => client.confirmPasswordReset(text(token), text(password)))
   }
 
   async checkIn(): Promise<AccountStatus> {
@@ -238,6 +238,20 @@ export class DesktopAccountService {
     if (result.status !== 202 && result.status !== 204 && result.status !== 200) return this.fail(readError(result.body))
     this.message = 'accepted'
     return this.status()
+  }
+
+  // A completed rejection means the code was not accepted. Transport failures still throw,
+  // so the page can keep "could not reach the service" for those alone.
+  private async acceptCode(send: (client: GatewayClient) => Promise<{ status: number; body: unknown }>): Promise<AccountStatus> {
+    const client = this.requireClient()
+    if (!client) return this.status()
+    const result = await send(client)
+    if (result.status === 202 || result.status === 204 || result.status === 200) {
+      this.message = 'accepted'
+      return this.status()
+    }
+    const code = readError(result.body)
+    return this.fail(code === 'rate_limited' ? code : 'code_rejected')
   }
 
   private async remember(email: string, tokens: { accessToken: string; refreshToken: string }): Promise<void> {

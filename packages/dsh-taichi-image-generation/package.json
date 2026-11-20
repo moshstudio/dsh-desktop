@@ -1,7 +1,8 @@
 {
-  "name": "dsh-image-generation",
+  "name": "dsh-taichi-image-generation",
   "version": "0.1.0",
-  "description": "Shared OpenAI and ByteDance image generation for DSH conversations, presentations and documents.",
+  "description": "Taichi account image generation for conversations, presentations and a standalone drawing page.",
+  "private": true,
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -13,37 +14,23 @@
   "files": [
     "index.js",
     "client.js",
+    "client.locale.js",
+    "client.style.js",
+    "client.panel.js",
     "lib",
     "skills",
-    "cordis.patch.yml",
-    "README.md",
-    "STATUS.md",
-    "LICENSE"
+    "cordis.patch.yml"
   ],
   "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/dataelement/dsh-desktop.git",
-    "directory": "packages/dsh-image-generation"
-  },
-  "keywords": [
-    "dsh-plugin",
-    "image-generation",
-    "seedream",
-    "openai"
-  ],
   "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
+    "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-primitives",
-        "@deepseek-ai/dsh-client-ui-settings-plugins",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-chat",
         "@deepseek-ai/dsh-client-ui-attachment"
       ],
@@ -57,14 +44,14 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2 || ^4.0.6-alpha.1 || ^4.1.0",
     "@deepseek-ai/dsh-client-connection": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1",
-    "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1",
     "@deepseek-ai/dsh-sandbox-policy": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1",
     "@deepseek-ai/dsh-sandbox": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1",
     "@deepseek-ai/dsh-subprocess": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1",
-    "@deepseek-ai/dsh-settings": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1",
     "@deepseek-ai/dsh-skill": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1",
     "@deepseek-ai/dsh-system-prompt": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1",
     "@deepseek-ai/dsh-tools": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1",
-    "@deepseek-ai/dsh-api-session-controller": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1"
+    "@deepseek-ai/dsh-api-session-controller": "^0.1.2-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.1",
+    "react": "^18.2.0"
   }
 }

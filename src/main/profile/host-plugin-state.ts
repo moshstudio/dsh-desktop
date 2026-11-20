@@ -4,9 +4,8 @@ import { join } from 'node:path'
 import { disableProfilePlugin, isProfilePluginDisabledByPatch, readMarketDisabledPackages } from './plugin-disable'
 
 const STATE_FILE = 'desktop-host-plugins.json'
-export const BUILTIN_IMAGE_GENERATION = 'dsh-image-generation'
 const PROTECTED_HOST_PLUGINS = new Set(['dsh-taichi-account'])
-const DEFAULT_DISABLED_HOST_PLUGINS = [BUILTIN_IMAGE_GENERATION]
+const DEFAULT_DISABLED_HOST_PLUGINS: string[] = []
 
 export async function readDisabledHostPlugins(dshHome: string): Promise<string[]> {
   let source: string

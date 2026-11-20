@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { imagePreviewFixture } from './image-preview-fixture.mjs'
-import { DEFAULTS } from '../../packages/dsh-image-generation/lib/provider.js'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const home = await mkdtemp(path.join(tmpdir(), 'dsh-image-host-'))
@@ -18,15 +17,15 @@ const preview = await imagePreviewFixture(home)
 const calls = []
 const mock = createServer(async (request, response) => {
   let body = ''; for await (const chunk of request) body += chunk
-  calls.push({ method: request.method, path: request.url })
-  const valid = request.headers.authorization === 'Bearer smoke-image-key'
-  const probe = valid && request.url.endsWith('/images/generations') && body && !Object.hasOwn(JSON.parse(body), 'prompt')
-  assert.ok(!body || !JSON.parse(body).prompt, 'The configuration flow must omit the required generation prompt')
-  response.writeHead(valid ? probe ? 400 : 200 : 401, { 'Content-Type': 'application/json' })
-  response.end(JSON.stringify(valid ? probe ? { error: { code: 'MissingParameter', message: 'The request is missing a required parameter: prompt.' } } : request.url.endsWith('/models') ? { data: [{ id: 'gpt-image-2.5-flare' }, { id: DEFAULTS.openai.model }, { id: 'gpt-5' }] } : { id: DEFAULTS.openai.model } : { error: { message: 'Invalid API key' } }))
+  calls.push({ method: request.method, path: request.url, auth: request.headers.authorization })
+  const allowed = request.headers.authorization === 'Bearer smoke-image-token'
+  response.writeHead(allowed ? 200 : 401, { 'Content-Type': 'application/json' })
+  response.end(JSON.stringify(allowed && request.url === '/v1/images/models'
+    ? { object: 'list', data: [{ id: 'gpt-image-2', name: 'GPT Image 2', show_in_picker: true, credits: 150, sizes: [] }] }
+    : { error: { message: 'unauthorized', type: 'authentication_error', code: 'unauthorized' } }))
 })
 await new Promise((resolve, reject) => { mock.once('error', reject); mock.listen(0, '127.0.0.1', resolve) })
-const mockBase = `http://127.0.0.1:${mock.address().port}/v1`
+const mockBase = `http://127.0.0.1:${mock.address().port}`
 const portServer = createServer()
 await new Promise(resolve => portServer.listen(0, '127.0.0.1', resolve))
 const port = portServer.address().port
@@ -36,7 +35,7 @@ const node = process.env.IMAGE_SMOKE_NODE || process.execPath
 const bin = process.env.IMAGE_SMOKE_DSH || path.join(root, 'node_modules/@deepseek-ai/dsh/lib/bin.js')
 const patch = process.env.IMAGE_SMOKE_PATCH || path.join(root, 'build/dsh-desktop.patch.yml')
 const child = spawn(node, [bin, 'web', '--patch', patch, '--no-open', '--host', '127.0.0.1', '--port', String(port)], {
-  cwd: root, env: { ...process.env, DSH_HOME: home, NO_COLOR: '1', DSH_TELEMETRY_DISABLED: '1' }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: root, env: { ...process.env, DSH_HOME: home, NO_COLOR: '1', DSH_TELEMETRY_DISABLED: '1', TAICHI_GATEWAY_URL: mockBase, TAICHI_GATEWAY_ACCESS_TOKEN: 'smoke-image-token' }, stdio: ['ignore', 'pipe', 'pipe'],
 })
 let output = ''; let cleaned = false
 async function cleanup() {
@@ -57,48 +56,26 @@ try {
     child.stdout.on('data', scan); child.stderr.on('data', scan)
     child.once('exit', code => { clearTimeout(timer); reject(new Error(`Host exited ${code}`)) })
   })
-  assert.equal((await fetch(`${base}/api/image-generation.settings`)).status, 401)
   const exchange = await fetch(url, { redirect: 'manual' })
   const cookie = exchange.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
   assert.ok(cookie)
-  const api = async (suffix, body, extra = {}) => fetch(`${base}/api/image-generation.${suffix}`, {
-    method: body ? 'POST' : 'GET', headers: { Cookie: cookie, ...(body ? { 'Content-Type': 'application/json' } : {}), ...extra },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  })
   const previewPath = `preview?session=${preview.sessionId}&asset=${preview.image.sha256}`
-  assert.equal((await fetch(`${base}/api/image-generation.${previewPath}`)).status, 401)
-  const imageResponse = await api(previewPath)
+  assert.equal((await fetch(`${base}/api/taichi-image.${previewPath}`)).status, 401)
+  const imageResponse = await fetch(`${base}/api/taichi-image.${previewPath}`, { headers: { Cookie: cookie } })
   assert.equal(imageResponse.status, 200)
   assert.deepEqual(Buffer.from(await imageResponse.arrayBuffer()), preview.png)
-  const initialResponse = await api('settings')
-  assert.equal(initialResponse.status, 200)
-  assert.equal(initialResponse.headers.get('cache-control'), 'no-store')
-  let state = await initialResponse.json()
-  assert.equal(state.profiles.openai.configured, false)
-  assert.equal((await api('save', { revision: 0 }, { Origin: 'https://evil.example' })).status, 403)
-  for (const provider of ['openai', 'bytedance']) {
-    const response = await api('save', { revision: state.revision, provider, baseUrl: mockBase, model: DEFAULTS[provider].model, apiKey: 'smoke-image-key' })
-    const result = await response.json()
-    assert.equal(response.status, 200, JSON.stringify(result))
-    assert.equal(result.profiles[provider].configured, true)
-    assert.ok(!JSON.stringify(result).includes('smoke-image-key'))
-    state = result
-  }
-  const failure = await api('save', { revision: state.revision, provider: 'bytedance', baseUrl: mockBase, model: DEFAULTS.bytedance.model, apiKey: 'wrong-key' })
-  assert.equal((await failure.json()).code, 'AUTH')
-  assert.deepEqual(await (await api('settings')).json(), state)
-  assert.equal(calls.length, 3)
-  assert.deepEqual(calls.map(call => call.method), ['GET', 'POST', 'POST'])
-  assert.equal((await api('models', { revision: state.revision }, { Origin: 'https://evil.example' })).status, 403)
-  const models = await api('models', { revision: state.revision, provider: 'openai', baseUrl: mockBase, model: DEFAULTS.openai.model, apiKey: '' })
+  const models = await fetch(`${base}/api/taichi-image.models`, { headers: { Cookie: cookie } })
   assert.equal(models.status, 200)
-  assert.deepEqual((await models.json()).models, ['gpt-image-2.5-flare', DEFAULTS.openai.model])
-  assert.equal(calls.length, 4)
-  assert.deepEqual(await (await api('settings')).json(), state)
+  assert.equal(models.headers.get('cache-control'), 'no-store')
+  const catalog = await models.json()
+  assert.equal(catalog.signedIn, true)
+  assert.equal(catalog.models[0].id, 'gpt-image-2')
+  assert.equal(JSON.stringify(catalog).includes('smoke-image-token'), false)
+  assert.equal(calls.length, 1)
   const page = await (await fetch(base, { headers: { Cookie: cookie } })).text()
-  assert.ok(page.includes('dsh-image-generation'), 'Image client entry must be present in the composed page')
-  assert.ok(!/image-generation.*(?:failed|Error)/i.test(output), 'Image plugin must load successfully')
-  console.log('PASS: Host composition, authentication, origin checks, redacted settings, save success/failure, single-request validation read-only model discovery and authenticated historical PNG preview.')
+  assert.ok(page.includes('dsh-taichi-image-generation'), 'Image client entry must be present in the composed page')
+  assert.ok(!/taichi-image.*(?:failed|Error)/i.test(output), 'Image plugin must load successfully')
+  console.log('PASS: Host composition, authentication, signed-in model list without token echo, and authenticated historical PNG preview.')
   if (process.argv.includes('--keep')) {
     await writeFile(path.join(home, 'browser-url.txt'), url, { mode: 0o600 })
     await writeFile(path.join(home, 'smoke-context.json'), JSON.stringify({ base, mockBase, sessionId: preview.sessionId }), { mode: 0o600 })

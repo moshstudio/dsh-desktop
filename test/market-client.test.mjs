@@ -288,18 +288,14 @@ describe('recommended market ordinary PluginManager client', () => {
     app.dispose()
   })
 
-  it('keeps the built-in image market conflict guard', async () => {
-    const desktop = {
-      getBuiltInImageGenerationStatus: vi.fn(async () => ({ enabled: false, marketActive: true })),
-      setBuiltInImageGenerationEnabled: vi.fn()
-    }
-    const app = setup({ desktop })
-    const control = app.mount('desktop-host-plugins')
-    control.render(); await flush()
-    const tree = control.render()
-    expect(find(tree, node => node.type === 'input')[0].props.disabled).toBe(true)
-    expect(text(tree)).toContain('Disable the market version')
-    expect(desktop.setBuiltInImageGenerationEnabled).not.toHaveBeenCalled()
+  it.each(['zh', 'en'])('keeps the recommended market entry and matching copy in %s', async language => {
+    const app = setup({ language })
+    await flush()
+    const copy = app.dictionaries()[language]
+    const page = app.mount('market')
+    expect(text(page.render())).toContain(copy.community)
+    expect(app.dictionaries().zh).toHaveProperty('enable')
+    expect(Object.keys(app.dictionaries().zh).sort()).toEqual(Object.keys(app.dictionaries().en).sort())
     app.dispose()
   })
 
@@ -355,45 +351,6 @@ describe('recommended market ordinary PluginManager client', () => {
     expect(text(page.render())).toContain('avoid a downgrade')
     await app.controller.update()
     expect(app.manager.installBundle).not.toHaveBeenCalled()
-    app.dispose()
-  })
-
-  it('does not request a restart when image enablement was applied live', async () => {
-    const desktop = {
-      getBuiltInImageGenerationStatus: vi.fn(async () => ({ enabled: false, marketActive: false })),
-      setBuiltInImageGenerationEnabled: vi.fn(async () => ({ ok: true, restartRequired: false }))
-    }
-    const app = setup({ desktop })
-    const control = app.mount('desktop-host-plugins')
-    control.render(); await flush()
-    const input = find(control.render(), node => node.type === 'input')[0]
-    await input.props.onChange({ preventDefault() {} })
-    expect(button(control.render(), app.dictionaries().en.builtInImageRestart)).toBeUndefined()
-    expect(text(control.render())).toContain(app.dictionaries().en.builtInImageEnabled)
-    app.dispose()
-  })
-
-  it.each(['zh', 'en'])('preserves the recommended entry and built-in image enable/restart behavior in %s', async language => {
-    const desktop = {
-      getBuiltInImageGenerationStatus: vi.fn(async () => ({ enabled: false, marketActive: false })),
-      setBuiltInImageGenerationEnabled: vi.fn(async () => ({ ok: true, restartRequired: true })),
-      restartHarness: vi.fn(async () => ({ ok: true }))
-    }
-    const app = setup({ language, desktop })
-    await flush()
-    const copy = app.dictionaries()[language]
-    const page = app.mount('market')
-    expect(text(page.render())).toContain(copy.community)
-    expect(app.dictionaries().zh).toHaveProperty('enable')
-    expect(Object.keys(app.dictionaries().zh).sort()).toEqual(Object.keys(app.dictionaries().en).sort())
-    const control = app.mount('desktop-host-plugins')
-    control.render(); await flush()
-    const input = find(control.render(), node => node.type === 'input')[0]
-    expect(input.props.disabled).toBe(false)
-    await input.props.onChange({ preventDefault() {} })
-    expect(desktop.setBuiltInImageGenerationEnabled).toHaveBeenCalledExactlyOnceWith(true)
-    await button(control.render(), copy.builtInImageRestart).props.onClick()
-    expect(desktop.restartHarness).toHaveBeenCalledTimes(1)
     app.dispose()
   })
 })

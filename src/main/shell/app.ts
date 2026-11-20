@@ -1018,6 +1018,9 @@ async function main(): Promise<void> {
       console.error(`[desktop] login shell: ${result.failures.map(item => `${item.shell} (${item.reason})`).join('; ')}`)
     }
     await prepareHostAccount()
+    const gatewayUrl = developmentGatewayUrl(desktopDevelopmentBuild(), hostEnvironment)
+    if (gatewayUrl) hostEnvironment.TAICHI_GATEWAY_URL = gatewayUrl
+    else delete hostEnvironment.TAICHI_GATEWAY_URL
   })
   bootSession.track(startup)
   installDesktopProtocol(name => packagedPagePath(name))

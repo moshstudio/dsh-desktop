@@ -15,6 +15,9 @@ window.__ModuleLoader__.load({
       './client.dialog.js'
     ]
     const PANEL = 'desktop-account'
+    // Chunks require this same package where they render. The entry require
+    // keeps the client graph dependency on the host controls.
+    require('@deepseek-ai/dsh-client-ui-primitives')
 
     async function apply(ctx) {
       if (typeof require.async !== 'function') throw new Error('dsh-taichi-account: client chunks need require.async')

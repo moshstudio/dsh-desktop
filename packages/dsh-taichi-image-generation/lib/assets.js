@@ -1,6 +1,6 @@
 import { lstat, mkdir, realpath } from 'node:fs/promises'
 import path from 'node:path'
-import { ImageError, MAX_IMAGE_BYTES } from './provider.js'
+import { ImageError, MAX_IMAGE_BYTES } from './errors.js'
 
 async function loadSharp() {
   try {

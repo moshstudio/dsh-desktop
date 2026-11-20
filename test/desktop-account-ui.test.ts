@@ -174,7 +174,7 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
   }
   const definition = registrations.get('')
   if (!definition) throw new Error('client.js did not register a plugin definition')
-  const primitiveNames = ['Button', 'Input', 'Modal', 'RiskConfirmation', 'Tooltip', 'IconChevronLeftOutlineRegular', 'IconInfoOutlineRegular', 'IconUserOutlineRegular']
+  const primitiveNames = ['Button', 'Input', 'Modal', 'RiskConfirmation', 'SegmentedControl', 'SegmentedTabs', 'Tooltip', 'IconChevronLeftOutlineRegular', 'IconInfoOutlineRegular', 'IconUserOutlineRegular']
   const primitives = Object.fromEntries(primitiveNames.map(name => [name, () => null]))
   const require = (id: string): unknown => {
     if (id === 'react') return React
@@ -229,8 +229,20 @@ function nodes(tree: unknown, predicate: (node: Node) => boolean): Node[] {
   return found
 }
 
+function linkLabels(tree: unknown): string[] {
+  const row = nodes(tree, node => String(node.props.className ?? '').includes('dshDeskAccountLinkRow'))[0]
+  const labels: string[] = []
+  walk(row?.children, node => {
+    for (const child of node.children) {
+      if (typeof child === 'string') labels.push(child)
+    }
+  })
+  return labels
+}
+
 function fields(tree: unknown): string[] {
   return nodes(tree, node => typeof node.type === 'function').flatMap(node => {
+    if (node.props.present === false) return []
     const name = (node.type as { name?: string }).name
     if (name === 'PasswordField') return [typeof node.props.field === 'string' ? node.props.field : 'password']
     if (name === 'TextField' && typeof node.props.field === 'string') return [node.props.field]
@@ -308,6 +320,7 @@ describe('desktop account page', () => {
     loaded.window.dispatchEvent = loaded.dispatchEvent as typeof window.dispatchEvent
     loaded.window.localStorage.clear()
     loaded.window.dshDesktop = {}
+    setReducedMotion(null)
   })
   const plugin = loaded.plugin
   const dictionaries: Record<string, Record<string, string>> = {}
@@ -420,6 +433,20 @@ describe('desktop account page', () => {
     ...overrides
   })
 
+  function setReducedMotion(reduced: boolean | null) {
+    const browser = loaded.window as typeof loaded.window & {
+      matchMedia?: (query: string) => { matches: boolean, media: string }
+    }
+    if (reduced === null) {
+      delete browser.matchMedia
+      return
+    }
+    browser.matchMedia = (query: string) => ({
+      matches: reduced && query.includes('reduce'),
+      media: query
+    })
+  }
+
   function invoke(node: Node | undefined, event: string, ...args: unknown[]) {
     const handler = node?.props[event]
     if (typeof handler !== 'function') throw new Error(`Missing ${event}`)
@@ -427,10 +454,32 @@ describe('desktop account page', () => {
   }
 
   function field(tree: unknown, name: string) {
-    return nodes(tree, node => node.props.field === name)[0]
+    return nodes(tree, node => node.props.field === name && node.props.present !== false)[0]
   }
 
   const click = (tree: unknown, label: string) => invoke(nodes(tree, node => node.children.includes(label))[0], 'onClick')
+  const segment = (tree: unknown, label: string) => {
+    const control = nodes(tree, node => {
+      const options = node.props.options
+      return Array.isArray(options) && options.some(option => (
+        option !== null && typeof option === 'object' && 'label' in option && option.label === label
+      ))
+    })[0]
+    if (!control) throw new Error(`Missing segment ${label}`)
+    return control
+  }
+  const choose = (tree: unknown, label: string) => {
+    const control = segment(tree, label)
+    const options = control.props.options as Array<{ value: string, label: string }>
+    const option = options.find(item => item.label === label)
+    if (!option) throw new Error(`Missing segment ${label}`)
+    invoke(control, 'onChange', option.value)
+  }
+  const tabs = (tree: unknown) => {
+    const control = nodes(tree, node => Array.isArray(node.props.items))[0]
+    if (!control) throw new Error('Missing tabs')
+    return control
+  }
   const submit = (tree: unknown) => invoke(nodes(tree, node => node.type === 'form')[0], 'onSubmit', { preventDefault: () => undefined })
   const risk = (tree: unknown) => nodes(tree, node => 'acknowledgeLabel' in node.props)[0]
 
@@ -447,6 +496,8 @@ describe('desktop account page', () => {
     const keys = Object.keys(dictionaries.zh ?? {}).sort()
     expect(keys.length).toBeGreaterThan(20)
     for (const language of expected) expect(Object.keys(dictionaries[language] ?? {}).sort()).toEqual(keys)
+    expect(dictionaries.zh?.needVerify).toBe('已收到验证码')
+    expect(dictionaries.en?.needVerify).toBe('Already have a code')
     const css = loaded.styles.map(style => style.textContent ?? '').join('\n')
     expect(css).toContain('[data-dsh-sidebar-settings-actions]{display:flex;flex-direction:row;align-items:center}')
     expect(css).toContain('.dshDeskAccountPanel{box-sizing:border-box;display:flex;flex:1;flex-direction:column;width:100%;height:100%')
@@ -466,12 +517,8 @@ describe('desktop account page', () => {
     expect(css).toContain('@keyframes dshDeskAccountPresenceIn{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}')
     const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'))
     for (const selector of [
-      '.dshDeskAccountButton',
-      '.dshDeskAccountInfo',
-      '.dshDeskAccountBack',
-      '.dshDeskAccountReveal',
-      '.dshDeskAccountLinks button',
-      '.dshDeskAccountInput',
+      '.dshDeskAccountPack',
+      '.dshDeskAccountModel',
       '.dshDeskAccountTitle',
       '.dshDeskAccountDescription',
       '.dshDeskAccountStage',
@@ -479,18 +526,127 @@ describe('desktop account page', () => {
       '.dshDeskAccountAlert',
       '.dshDeskAccountStatus',
       '.dshDeskAccountNotice',
-      '.dshDeskAccountPresence'
+      '.dshDeskAccountPresence',
+      '.dshDeskAccountSlot',
+      '.dshDeskAccountSlotBody',
+      '.dshDeskAccountCross',
+      '.dshDeskAccountAuthColumn'
     ]) expect(reduced).toContain(selector)
     expect(reduced).toContain('transition:none')
     expect(reduced).toContain('animation:none')
+    expect(css).toContain('.dshDeskAccountContent[data-auth=true]{justify-content:center;overflow-y:auto;overflow-anchor:none;padding-bottom:120px}')
+    expect(css).toContain('.dshDeskAccountFooter[data-align="stretch"] [data-dsh-account-primary]{flex:1 1 0;width:auto;min-width:0;margin-inline:4px;box-sizing:border-box}')
+    expect(css).toContain('.dshDeskAccountLinks{display:flex;flex-direction:column;gap:4px;margin-top:4px;margin-inline:4px}')
+    expect(css).toContain('.dshDeskAccountLinkRow{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0}')
+    expect(css).toContain('.dshDeskAccountLinkRow[data-align="end"]{justify-content:flex-end}')
+    expect(css).toContain('@keyframes dshDeskAccountFieldIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}')
+    expect(css).toContain('@keyframes dshDeskAccountFieldOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(8px)}}')
+    expect(css).toContain('@media (height<=720px),(width<=560px){.dshDeskAccountContent[data-auth=true]{justify-content:flex-start;padding-bottom:32px}}')
 
     const { rerender } = await mountReady()
     const stageKey = () => nodes(rerender().tree, node => node.props.className === 'dshDeskAccountStage')[0]?.props.key
-    expect(stageKey()).toBe('auth:login')
-    expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountTitle')[0]?.props.key).toBe('auth:login')
+    const emailSlot = () => nodes(rerender().tree, node => node.props['data-dsh-account-slot'] === 'email')[0]
+    expect(stageKey()).toBe('auth')
+    expect(emailSlot()?.props.key).toBe('email')
+    expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountCross').some(node => node.children.includes('titleLogin'))).toBe(true)
     click(rerender().tree, 'needAccount')
-    expect(stageKey()).toBe('auth:register')
-    expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountDescription')[0]?.props.key).toBe('auth:register')
+    expect(stageKey()).toBe('auth')
+    expect(emailSlot()?.props.key).toBe('email')
+    expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountCross').some(node => node.children.includes('titleRegister'))).toBe(true)
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-slot'] === 'confirm')[0]?.props['data-motion']).toBeUndefined()
+    expect(nodes(rerender().tree, node => node.props['aria-live'] === 'polite')[0]?.props['aria-atomic']).toBe('true')
+  })
+
+  it('keeps a shared password between sign-in and registration, then clears it outside that flow', async () => {
+    const { rerender } = await mountReady()
+    invoke(field(rerender().tree, 'email'), 'onChange', 'a@example.com')
+    invoke(field(rerender().tree, 'password'), 'onChange', 'secret-pass')
+    click(rerender().tree, 'needAccount')
+    expect(linkLabels(rerender().tree)).toEqual(['needVerify', 'haveAccount'])
+    expect(fields(rerender().tree)).toEqual(['email', 'password', 'confirm'])
+    expect(field(rerender().tree, 'email')?.props.value).toBe('a@example.com')
+    expect(field(rerender().tree, 'password')?.props.value).toBe('secret-pass')
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-slot'] === 'email')[0]?.props.key).toBe('email')
+    click(rerender().tree, 'haveAccount')
+    expect(fields(rerender().tree)).toEqual(['email', 'password'])
+    expect(field(rerender().tree, 'password')?.props.value).toBe('secret-pass')
+    click(rerender().tree, 'needReset')
+    expect(linkLabels(rerender().tree)).toEqual(['haveAccount'])
+    expect(nodes(rerender().tree, node => String(node.props.className ?? '').includes('dshDeskAccountLinkRow'))[0]?.props['data-align']).toBe('end')
+    expect(fields(rerender().tree)).toEqual(['email'])
+    click(rerender().tree, 'haveAccount')
+    invoke(field(rerender().tree, 'password'), 'onChange', 'secret-pass')
+    click(rerender().tree, 'needAccount')
+    click(rerender().tree, 'needVerify')
+    expect(fields(rerender().tree)).toEqual(['token'])
+    click(rerender().tree, 'haveAccount')
+    expect(field(rerender().tree, 'email')?.props.value).toBe('a@example.com')
+    expect(field(rerender().tree, 'password')?.props.value).toBe('')
+  })
+
+  it('does not change steps while sign-in is still running', async () => {
+    let finish: (status: AccountStatus) => void = () => undefined
+    const login = vi.fn(() => new Promise<AccountStatus>(resolve => { finish = resolve }))
+    const { rerender } = await mountReady({ login })
+    invoke(field(rerender().tree, 'email'), 'onChange', 'a@example.com')
+    invoke(field(rerender().tree, 'password'), 'onChange', 'onlyletters')
+    submit(rerender().tree)
+    click(rerender().tree, 'needAccount')
+    expect(fields(rerender().tree)).toEqual(['email', 'password'])
+    expect(nodes(rerender().tree, node => node.props['data-mode'] === 'login').length).toBeGreaterThan(0)
+    finish(emptyStatus({ message: 'invalid_credentials' }))
+    await flush()
+    click(rerender().tree, 'needAccount')
+    expect(fields(rerender().tree)).toEqual(['email', 'password', 'confirm'])
+  })
+
+  it('slides a new field in and holds a leaving field until the motion ends', async () => {
+    setReducedMotion(false)
+    const { rerender } = await mountReady()
+    invoke(field(rerender().tree, 'email'), 'onChange', 'a@example.com')
+    invoke(field(rerender().tree, 'password'), 'onChange', 'secret-pass')
+    click(rerender().tree, 'needAccount')
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-slot'] === 'confirm')[0]?.props['data-motion']).toBe('enter')
+    expect(field(rerender().tree, 'password')?.props.value).toBe('secret-pass')
+    click(rerender().tree, 'haveAccount')
+    click(rerender().tree, 'needReset')
+    const leaving = nodes(rerender().tree, node => node.props.field === 'password' && node.props.present === false)[0]
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-slot'] === 'password')[0]?.props['data-motion']).toBe('exit')
+    expect(leaving?.props.value).toBe('')
+    expect(fields(rerender().tree)).toEqual(['email'])
+    setReducedMotion(true)
+    click(rerender().tree, 'haveAccount')
+    click(rerender().tree, 'needAccount')
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-slot'] === 'confirm')[0]?.props['data-motion']).toBeUndefined()
+    click(rerender().tree, 'haveAccount')
+    click(rerender().tree, 'needReset')
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-slot'] === 'password')).toHaveLength(0)
+  })
+
+  it('connects a visible field error to its input', async () => {
+    const dictionary = dictionaries.zh ?? {}
+    const { view, rerender } = mountAccount(api(), key => dictionary[key] ?? key)
+    for (const effect of view.effects) effect()
+    await flush()
+    invoke(field(rerender().tree, 'email'), 'onChange', 'a')
+    invoke(field(rerender().tree, 'email'), 'onBlur')
+    const email = field(rerender().tree, 'email')
+    if (typeof email?.type !== 'function') throw new Error('email field missing')
+    const emailView = react.render(email.type as (props: Record<string, unknown>) => unknown, email.props)
+    const emailInput = nodes(emailView.tree, node => node.props['aria-invalid'] === true)[0]
+    const emailMessage = nodes(emailView.tree, node => node.props.role === 'alert')[0]
+    expect(emailInput?.props['aria-describedby']).toBeTruthy()
+    expect(emailMessage?.props.id).toBe(emailInput?.props['aria-describedby'])
+    click(rerender().tree, dictionary.needAccount ?? '')
+    invoke(field(rerender().tree, 'password'), 'onChange', 'short')
+    invoke(field(rerender().tree, 'password'), 'onBlur')
+    const password = field(rerender().tree, 'password')
+    if (typeof password?.type !== 'function') throw new Error('password field missing')
+    const passwordView = react.render(password.type as (props: Record<string, unknown>) => unknown, password.props)
+    const passwordInput = nodes(passwordView.tree, node => node.props['aria-invalid'] === true)[0]
+    const passwordMessage = nodes(passwordView.tree, node => node.props.role === 'alert')[0]
+    expect(passwordMessage?.props.id).toBe(passwordInput?.props['aria-describedby'])
+    expect(passwordMessage?.children).toEqual([dictionary.passwordLength])
   })
 
   it('shows a reading state before the account form', async () => {
@@ -532,6 +688,11 @@ describe('desktop account page', () => {
     expect(screenOf(signedOut.tree)).toBe('auth')
     expect(fields(signedOut.tree)).toEqual(['email', 'password'])
     expect(primaryDisabled(signedOut.tree)).toBe(true)
+    const primary = nodes(signedOut.tree, node => node.props['data-dsh-account-primary'] === 'true')[0]
+    expect(primary?.props.className).toBe('dshDeskAccountPrimary')
+    expect(nodes(signedOut.tree, node => node.props.className === 'dshDeskAccountFooter')[0]?.props['data-align']).toBe('stretch')
+    expect(linkLabels(signedOut.tree)).toEqual(['needReset', 'needAccount'])
+    expect(nodes(signedOut.tree, node => String(node.props.className ?? '').includes('dshDeskAccountLinkRow'))[0]?.props['data-align']).toBe('between')
     const reset = nodes(signedOut.tree, node => node.children.includes('needReset'))[0]
     const onClick = reset?.props.onClick
     if (typeof onClick !== 'function') throw new Error('reset link is missing')
@@ -673,7 +834,7 @@ describe('desktop account page', () => {
       })
     })
     const open = rerender().tree
-    expect(nodes(open, node => node.props.role === 'tab' && node.props['aria-selected'] === 'true').map(node => node.children[0])).toEqual(['models'])
+    expect(tabs(open).props.value).toBe('models')
     expect(nodes(open, node => node.type === 'article')).toHaveLength(2)
     expect(nodes(open, node => node.props.className === 'dshDeskAccountRateNow').flatMap(node => node.children)).toEqual(['2,500', '10,000'])
     expect(nodes(open, node => node.props.className === 'dshDeskAccountRateList').flatMap(node => node.children)).toEqual(['14,000', '70,000'])
@@ -686,7 +847,7 @@ describe('desktop account page', () => {
       ' · ',
       'cacheWriteBrief', ' ', '3,125', 'perMillionTokens'
     ])
-    expect(nodes(open, node => node.props.className === 'dshDeskAccountInfo')).toHaveLength(1)
+    expect(nodes(open, node => node.props['aria-label'] === 'longContext')).toHaveLength(1)
     expect(nodes(open, node => node.props.label === 'longContext longContextFrom 272,001 tokens inputPrice ×2 outputPrice ×1.5 cachePrice ×2 cacheWritePrice ×2')).toHaveLength(1)
     const noteText: unknown[] = []
     for (const note of nodes(open, node => node.props.className === 'dshDeskAccountPriceNote')) {
@@ -700,31 +861,39 @@ describe('desktop account page', () => {
     expect(nodes(open, node => node.props.className === 'dshDeskAccountRateUnit')).toHaveLength(2)
     expect(nodes(open, node => node.type === 'svg')).toHaveLength(1)
     expect(nodes(open, node => node.props.className === 'dshDeskAccountChartTip').flatMap(node => node.children)).toContain('30')
+    expect(dictionaries.zh?.totalConsumed).toBe('总消耗')
+    expect(nodes(open, node => node.props.className === 'dshDeskAccountStatLabel').flatMap(node => node.children)).toEqual([
+      'totalConsumed',
+      'consumed',
+      'recharged',
+      'usageCount',
+      'consumed'
+    ])
     expect(nodes(open, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['30'], ['700'], ['1']])
-    click(open, 'rangeYesterday')
+    choose(open, 'rangeYesterday')
     const yesterday = rerender().tree
     expect(nodes(yesterday, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['0'], ['600'], ['0']])
     expect(nodes(yesterday, node => node.children.includes('chartEmpty'))).toHaveLength(1)
-    click(yesterday, 'rangeToday')
+    choose(yesterday, 'rangeToday')
     const today = rerender().tree
     expect(nodes(today, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['30'], ['100'], ['1']])
     expect(nodes(today, node => node.type === 'svg')).toHaveLength(1)
-    click(today, 'rangeAll')
+    choose(today, 'rangeAll')
     const entire = rerender().tree
     expect(nodes(entire, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['30'], ['700'], ['1']])
     expect(nodes(open, node => node.children.includes('−30'))).toHaveLength(0)
-    click(entire, 'consumption')
+    invoke(tabs(entire), 'onChange', 'usage')
     const usage = rerender().tree
     expect(nodes(usage, node => node.type === 'article')).toHaveLength(0)
     expect(nodes(usage, node => node.children.includes('demo-chat')).length).toBeGreaterThan(0)
     expect(nodes(usage, node => node.children.includes('−30'))).toHaveLength(1)
-    click(usage, 'recharge')
+    invoke(tabs(usage), 'onChange', 'recharge')
     const grants = rerender().tree
     expect(nodes(grants, node => node.children.includes('+100'))).toHaveLength(1)
     expect(nodes(grants, node => node.children.includes('+600'))).toHaveLength(1)
     expect(nodes(grants, node => node.children.includes('kindCheckin'))).toHaveLength(1)
     expect(nodes(grants, node => node.children.includes('kindSignup'))).toHaveLength(1)
-    expect(nodes(grants, node => node.props.role === 'tab' && node.props['aria-selected'] === 'true').map(node => node.children[0])).toEqual(['recharge'])
+    expect(tabs(grants).props.value).toBe('recharge')
   })
 
   it('sorts the model list by vendor or by input price', async () => {
@@ -744,12 +913,12 @@ describe('desktop account page', () => {
     })
     const names = (tree: unknown) => nodes(tree, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children[0])
     const home = rerender().tree
-    expect(nodes(home, node => node.props['aria-pressed'] === 'true').map(node => node.children[0])).toContain('sortByVendor')
+    expect(segment(home, 'sortByVendor').props.value).toBe('vendor')
     expect(nodes(home, node => node.props.className === 'dshDeskAccountVendorName').map(node => node.children[0])).toEqual(['OpenAI', 'Anthropic', 'vendorOther'])
     expect(names(home)).toEqual(['Mini', 'GPT', 'o1', 'Claude', 'Plain'])
-    click(home, 'sortByPrice')
+    choose(home, 'sortByPrice')
     const priced = rerender().tree
-    expect(nodes(priced, node => node.props['aria-pressed'] === 'true').map(node => node.children[0])).toContain('sortByPrice')
+    expect(segment(priced, 'sortByPrice').props.value).toBe('price')
     expect(nodes(priced, node => node.props.className === 'dshDeskAccountVendorName')).toHaveLength(0)
     expect(names(priced)).toEqual(['Plain', 'Mini', 'Claude', 'GPT', 'o1'])
   })
@@ -801,6 +970,7 @@ describe('desktop account page', () => {
   it('clears old service errors when changing forms and describes verification without an email', async () => {
     const { rerender } = await mountReady({ status: async () => emptyStatus({ message: 'invalid_credentials' }) })
     expect(nodes(rerender().tree, node => node.props.role === 'alert')).toHaveLength(1)
+    click(rerender().tree, 'needAccount')
     click(rerender().tree, 'needVerify')
     const tree = rerender().tree
     expect(nodes(tree, node => node.props.role === 'alert')).toHaveLength(0)
@@ -1033,17 +1203,89 @@ describe('desktop account page', () => {
     }
   })
 
-  it('verifies with the token taken from a pasted registration link', async () => {
+  it('verifies with the code typed in the app and rejects a pasted link', async () => {
     const verify = vi.fn(async () => emptyStatus({ message: 'accepted' }))
     const { rerender } = await mountReady({ verify })
+    click(rerender().tree, 'needAccount')
     click(rerender().tree, 'needVerify')
     const link = 'http://127.0.0.1:8787/v1/auth/verify?token=_vKpIesyKlQTFEDlJ8wdw3BP1cASYOv_6SIfZKlH6qI'
     invoke(field(rerender().tree, 'token'), 'onChange', ` ${link}&extra=1 `)
-    expect(field(rerender().tree, 'token')?.props.label).toBe('verifyLink')
+    expect(field(rerender().tree, 'token')?.props.label).toBe('token')
+    expect(field(rerender().tree, 'token')?.props.autoComplete).toBe('one-time-code')
+    expect(field(rerender().tree, 'token')?.props.error).toBe('codeExpected')
+    expect(primaryDisabled(rerender().tree)).toBe(true)
     submit(rerender().tree)
     await flush()
-    expect(verify).toHaveBeenCalledWith('_vKpIesyKlQTFEDlJ8wdw3BP1cASYOv_6SIfZKlH6qI')
+    expect(verify).not.toHaveBeenCalled()
+    invoke(field(rerender().tree, 'token'), 'onChange', ' 123456 ')
+    expect(field(rerender().tree, 'token')?.props.error).toBe('')
+    submit(rerender().tree)
+    await flush()
+    expect(verify).toHaveBeenCalledWith('123456')
     expect(screenOf(rerender().tree)).toBe('auth')
+  })
+
+  it('shows a rejected code and returns to registration to send another', async () => {
+    const dictionary = dictionaries.zh ?? {}
+    const verify = vi.fn(async () => emptyStatus({ message: 'code_rejected' }))
+    const { view, rerender } = mountAccount(api({ verify }), key => dictionary[key] ?? key)
+    for (const effect of view.effects) effect()
+    await flush()
+    invoke(field(rerender().tree, 'email'), 'onChange', 'a@example.com')
+    click(rerender().tree, dictionary.needAccount ?? '')
+    click(rerender().tree, dictionary.needVerify ?? '')
+    invoke(field(rerender().tree, 'token'), 'onChange', '123456')
+    submit(rerender().tree)
+    await flush()
+    const rejected = rerender().tree
+    expect(fields(rejected)).toEqual(['token'])
+    expect(nodes(rejected, node => node.props.role === 'alert').map(node => node.children)).toEqual([[dictionary.code_rejected]])
+    expect(nodes(rejected, node => node.children.includes(dictionary.unavailable ?? ''))).toHaveLength(0)
+    click(rejected, dictionary.resendCode ?? '')
+    const again = rerender().tree
+    expect(fields(again)).toEqual(['email', 'password', 'confirm'])
+    expect(field(again, 'email')?.props.value).toBe('a@example.com')
+    expect(field(again, 'password')?.props.value).toBe('')
+    expect(verify).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a verification transport failure on the code step', async () => {
+    const verify = vi.fn(async () => { throw new Error('offline') })
+    const { rerender } = await mountReady({ verify })
+    click(rerender().tree, 'needAccount')
+    click(rerender().tree, 'needVerify')
+    invoke(field(rerender().tree, 'token'), 'onChange', '123456')
+    submit(rerender().tree)
+    await flush()
+    const failed = rerender().tree
+    expect(fields(failed)).toEqual(['token'])
+    expect(nodes(failed, node => node.props.role === 'alert').map(node => node.children)).toEqual([['unavailable']])
+  })
+
+  it('sends another reset code without leaving the code step', async () => {
+    const dictionary = dictionaries.zh ?? {}
+    const requestReset = vi.fn(async () => emptyStatus({ message: 'accepted' }))
+    const confirmReset = vi.fn(async () => emptyStatus({ message: 'accepted' }))
+    const { view, rerender } = mountAccount(api({ requestReset, confirmReset }), key => dictionary[key] ?? key)
+    for (const effect of view.effects) effect()
+    await flush()
+    click(rerender().tree, dictionary.needReset ?? '')
+    invoke(field(rerender().tree, 'email'), 'onChange', 'a@example.com')
+    submit(rerender().tree)
+    await flush()
+    invoke(field(rerender().tree, 'token'), 'onChange', '123456')
+    invoke(field(rerender().tree, 'password'), 'onChange', 'onlyletters')
+    invoke(field(rerender().tree, 'confirm'), 'onChange', 'onlyletters')
+    click(rerender().tree, dictionary.resendCode ?? '')
+    await flush()
+    const again = rerender().tree
+    expect(requestReset).toHaveBeenCalledTimes(2)
+    expect(requestReset).toHaveBeenLastCalledWith('a@example.com')
+    expect(confirmReset).not.toHaveBeenCalled()
+    expect(fields(again)).toEqual(['token', 'password', 'confirm'])
+    expect(field(again, 'token')?.props.value).toBe('')
+    expect(field(again, 'password')?.props.value).toBe('onlyletters')
+    expect(nodes(again, node => node.props.role === 'status').map(node => node.children)).toEqual([[dictionary.accepted]])
   })
 
   it('remembers the last email for the next sign-in and registration', async () => {

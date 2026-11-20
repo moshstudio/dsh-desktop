@@ -29,7 +29,7 @@ index f41b2d4..f004613 100644
 +    "dsh-desktop-log-bridge": "0.1.0",
 +    "dsh-desktop-market-installer": "0.1.0",
 +    "dsh-desktop-preset-transfer": "0.1.0",
-+    "dsh-image-generation": "0.1.0",
++    "dsh-taichi-image-generation": "0.1.0",
 +    "react-dom": "18.3.1",
 +    "dsh-desktop-onboarding": "0.1.0",
 +    "dsh-desktop-workbenches": "0.1.0",

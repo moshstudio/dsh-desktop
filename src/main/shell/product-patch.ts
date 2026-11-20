@@ -17,7 +17,7 @@ function hasEnterprisePlugin(): boolean {
  * Desktop profile overlay. Analytics and the official account page stay off.
  * The official sidebar brand is replaced by the product client UI.
  * The normal profile also mounts workbenches, the plugin market installer,
- * Office, and PPT. Safe Mode keeps the account and brand overlay only.
+ * Office, PPT, and Taichi image generation. Safe Mode keeps the account and brand overlay only.
  */
 const DESKTOP_PRODUCT_PATCH_BASE = `- id: desktop-product-telemetry
   disabled: true
@@ -65,11 +65,15 @@ const DESKTOP_PPT_ROW = `    - id: dsh-ppt-composer
         root: !!js dshHomePath('kimi-ppt')
 `
 
+const DESKTOP_IMAGE_ROW = `    - id: dsh-taichi-image-generation
+      name: dsh-taichi-image-generation
+`
+
 export const DESKTOP_SAFE_PRODUCT_PATCH = DESKTOP_PRODUCT_PATCH_BASE
 
 export function buildDesktopProductPatch(): string {
   const enterprise = hasEnterprisePlugin() ? DESKTOP_ENTERPRISE_ROW : ''
-  return `${DESKTOP_PRODUCT_PATCH_BASE}${enterprise}${DESKTOP_WORKBENCH_ROW}${DESKTOP_MARKET_ROW}${DESKTOP_OFFICE_ROW}${DESKTOP_PPT_ROW}`
+  return `${DESKTOP_PRODUCT_PATCH_BASE}${enterprise}${DESKTOP_WORKBENCH_ROW}${DESKTOP_MARKET_ROW}${DESKTOP_OFFICE_ROW}${DESKTOP_PPT_ROW}${DESKTOP_IMAGE_ROW}`
 }
 
 export const DESKTOP_PRODUCT_PATCH = buildDesktopProductPatch()

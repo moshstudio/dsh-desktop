@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
   chunk: 'client.form.js',
   factory: (require) => {
     const React = require('react')
-    const { Input } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const { Button, Input } = require('@deepseek-ai/dsh-client-ui-primitives')
     const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
 
     function validEmail(value) {
@@ -47,30 +47,30 @@ window.__ModuleLoader__.load({
       return mode === 'verify' || mode === 'resetConfirm'
     }
 
-    // Registration mail contains a link such as /v1/auth/verify?token=...
-    // The gateway still verifies the token itself, so a pasted link is reduced
-    // to that query value. A bare token is left unchanged.
-    function verificationToken(value) {
-      const text = value.trim()
-      if (text === '') return ''
+    // Mail carries a code the user types here. A pasted http(s) link is rejected
+    // so an old verification URL is not sent to the gateway as the code.
+    function codeIssue(mode, token) {
+      if (!needsToken(mode)) return ''
+      const code = token.trim()
+      if (code === '') return ''
       try {
-        const token = new URL(text).searchParams.get('token')
-        if (token !== null && token.trim() !== '') return token.trim()
+        const url = new URL(code)
+        if (url.protocol === 'http:' || url.protocol === 'https:') return 'codeExpected'
       } catch {
-        // A bare token is not a URL.
+        // A verification code is not a URL.
       }
-      return text
+      return ''
     }
 
     function canSubmit(mode, email, password, token, confirm) {
       if (needsEmail(mode) && !validEmail(email)) return false
       if (passwordIssue(mode, password, true) !== '') return false
       if (needsConfirm(mode) && confirm !== password) return false
-      if (mode === 'verify' && verificationToken(token) === '') return false
-      if (mode === 'resetConfirm' && token.trim() === '') return false
+      if (needsToken(mode) && (token.trim() === '' || codeIssue(mode, token) !== '')) return false
       return true
     }
 
+    // The primitives icon set has no visibility glyph. This mark only fills Button.
     function EyeIcon({ off }) {
       return React.createElement(
         'svg',
@@ -100,6 +100,7 @@ window.__ModuleLoader__.load({
     }
 
     function TextField({ field, label, type, value, busy, invalid, error, autoComplete, autoFocus, onChange, onBlur }) {
+      const errorId = React.useId()
       return React.createElement(
         'label',
         { className: 'dshDeskAccountField' },
@@ -111,16 +112,18 @@ window.__ModuleLoader__.load({
           autoComplete,
           disabled: busy,
           'aria-invalid': invalid || undefined,
+          'aria-describedby': error ? errorId : undefined,
           'data-modal-autofocus': autoFocus ? 'true' : undefined,
           'data-dsh-account-field': field,
           onBlur,
           onChange: event => { onChange(event.target.value) }
         }),
-        error ? React.createElement('span', { className: 'dshDeskAccountFieldError', role: 'alert' }, error) : null
+        error ? React.createElement('span', { id: errorId, className: 'dshDeskAccountFieldError', role: 'alert' }, error) : null
       )
     }
 
     function PasswordField({ t, field, label, value, shown, busy, invalid, error, autoComplete, autoFocus, onChange, onBlur, onToggle }) {
+      const errorId = React.useId()
       return React.createElement(
         'label',
         { className: 'dshDeskAccountField' },
@@ -135,24 +138,24 @@ window.__ModuleLoader__.load({
             autoComplete,
             disabled: busy,
             'aria-invalid': invalid || undefined,
+            'aria-describedby': error ? errorId : undefined,
             'data-modal-autofocus': autoFocus ? 'true' : undefined,
             'data-dsh-account-field': field,
             onBlur,
             onChange: event => { onChange(event.target.value) }
           }),
-          React.createElement(
-            'button',
-            {
-              type: 'button',
-              className: 'dshDeskAccountReveal',
-              'aria-label': t(shown ? 'hidePassword' : 'showPassword'),
-              disabled: busy,
-              onClick: onToggle
-            },
-            React.createElement(EyeIcon, { off: shown })
-          )
+          React.createElement(Button, {
+            type: 'button',
+            variant: 'ghost',
+            size: 'sm',
+            className: 'dshDeskAccountReveal',
+            'aria-label': t(shown ? 'hidePassword' : 'showPassword'),
+            disabled: busy,
+            icon: React.createElement(EyeIcon, { off: shown }),
+            onClick: onToggle
+          })
         ),
-        error ? React.createElement('span', { className: 'dshDeskAccountFieldError', role: 'alert' }, error) : null
+        error ? React.createElement('span', { id: errorId, className: 'dshDeskAccountFieldError', role: 'alert' }, error) : null
       )
     }
 
@@ -164,7 +167,7 @@ window.__ModuleLoader__.load({
       needsPassword,
       needsConfirm,
       needsToken,
-      verificationToken,
+      codeIssue,
       canSubmit,
       TextField,
       PasswordField

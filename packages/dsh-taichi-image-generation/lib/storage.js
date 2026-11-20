@@ -3,7 +3,7 @@ import { constants } from 'node:fs'
 import { open, link, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { assetDirectory } from './assets.js'
-import { ImageError } from './provider.js'
+import { ImageError } from './errors.js'
 
 export async function materialize(root, data, signal) {
   signal?.throwIfAborted()

@@ -5542,24 +5542,11 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   const desktopRoot = findSidebarRoot()
   assert.equal(desktopRoot?.className, 'xUkysG_root', 'the desktop sidebar surface resolves to the wrapper that owns the shell button')
   const disposeDesktop = mount(controller, 'Session', 'Back to the current conversation', 'Image', 'Open the image studio')
-  const tabs = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
-  assert.ok(tabs !== null, 'the two tabs mount in the desktop shell')
-  assert.equal(tabs.parentElement.className, 'xUkysG_root', 'the tabs land where the shell button sits')
-  assert.equal(tabs.getAttribute('role'), 'tablist')
-  assert.equal(tabs.getAttribute('aria-label'), 'Session / Image', 'the tablist names the switcher, not the image tooltip (#25)')
-  for (const tab of tabs.querySelectorAll('[data-dsh-taichi-imagegen-tab]')) {
-    assert.equal(tab.getAttribute('role'), 'tab', 'each switcher entry is a tab (#25)')
-  }
-  assert.equal(tabs.hasAttribute('data-dsh-taichi-imagegen-tabs-seat'), false, 'the seated switcher carries no fallback marker')
-  assert.deepEqual(
-    [...tabs.querySelectorAll('[data-dsh-taichi-imagegen-tab]')].map(tab => tab.getAttribute('data-dsh-taichi-imagegen-tab')),
-    ['session', 'image'],
-  )
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null, 'the sidebar no longer inserts the session/image switcher')
   const shellButton = jsdomDocument.querySelector('.xUkysG_newSession')
   assert.equal(shellButton.style.display, '', 'the plugin leaves the shell New Session button\'s own inline style alone; the studio stylesheet hides it')
   assert.equal(shellButton.hasAttribute('aria-hidden'), false)
   assert.equal(shellButton.tabIndex, 0)
-  assert.equal(shellButton.previousElementSibling, tabs, 'the switcher sits directly above the shell button')
   const brandButton = jsdomDocument.querySelector('.xUkysG_brandButton')
   assert.equal(brandButton.style.display, '', 'the brand button is never hidden')
   assert.equal(brandButton.hasAttribute('aria-hidden'), false)
@@ -5569,68 +5556,6 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   assert.equal(historyHost.parentElement.className, 'xUkysG_regionArea')
   assert.equal(desktopRoot.getAttribute('data-dsh-taichi-imagegen-sidebar-root'), '', 'the resolved shell root is marked')
 
-  // Tab clicks drive the panel, and the active state follows the panel store.
-  tabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
-  tabs.querySelector('[data-dsh-taichi-imagegen-tab="session"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
-  assert.equal(calls.join(','), 'open,close', 'the image tab opens the studio and the session tab returns to the conversation without starting one')
-  panelOpen = true
-  for (const listener of [...listeners]) listener()
-  assert.equal(tabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').hasAttribute('data-active'), true, 'the open panel marks the image tab')
-  assert.equal(tabs.querySelector('[data-dsh-taichi-imagegen-tab="session"]').hasAttribute('data-active'), false)
-  assert.equal(tabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').getAttribute('aria-selected'), 'true', 'aria-selected follows the open panel (#25)')
-  assert.equal(tabs.querySelector('[data-dsh-taichi-imagegen-tab="session"]').getAttribute('aria-selected'), 'false')
-
-  // The rest of the role="tablist" promise: exactly one tab in the Tab order,
-  // and the arrow keys move between them (#25 follow-up). `aria-selected`
-  // alone left both buttons tabbable, so a keyboard user had to tab through the
-  // switcher twice and the arrows did nothing.
-  //
-  // `tabIndex` is written by the same subscriber that writes `aria-selected`,
-  // so each key press is followed by the notify a real controller would send —
-  // otherwise this would assert against a state the plugin never reaches.
-  const tabOf = name => tabs.querySelector(`[data-dsh-taichi-imagegen-tab="${name}"]`)
-  const notify = () => { for (const listener of [...listeners]) listener() }
-  assert.equal(tabOf('image').getAttribute('tabindex'), '0', 'the selected tab is the one Tab stop')
-  assert.equal(tabOf('session').getAttribute('tabindex'), '-1', 'the unselected tab leaves the Tab order')
-
-  calls.length = 0
-  tabOf('image').dispatchEvent(new jsdomWindow.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
-  assert.equal(calls.join(','), 'close', 'ArrowLeft on the open image tab returns to the conversation')
-  // 比较布尔值而不是把元素交给 assert.equal：失败路径上后者会让进程在没有
-  // 任何 FAIL 行的情况下死掉（退出码 137），原因未查到底，实测记录见 E1 段
-  // 「标注卡无连接桩」用例上方那条注释。布尔版本稳定产出可读失败。
-  assert.ok(
-    jsdomDocument.activeElement === tabOf('session'),
-    `the arrow key moves focus with the selection (focus: ${jsdomDocument.activeElement?.getAttribute?.('data-dsh-taichi-imagegen-tab') ?? jsdomDocument.activeElement?.tagName ?? 'none'})`,
-  )
-  panelOpen = false
-  notify()
-  assert.equal(tabOf('session').getAttribute('tabindex'), '0', 'the newly selected tab becomes the Tab stop')
-  assert.equal(tabOf('image').getAttribute('tabindex'), '-1')
-
-  tabOf('session').dispatchEvent(new jsdomWindow.KeyboardEvent('keydown', { key: 'End', bubbles: true }))
-  assert.equal(calls.join(','), 'close,open', 'End jumps to the last tab')
-  assert.ok(
-    jsdomDocument.activeElement === tabOf('image'),
-    `End puts focus on the last tab (focus: ${jsdomDocument.activeElement?.getAttribute?.('data-dsh-taichi-imagegen-tab') ?? jsdomDocument.activeElement?.tagName ?? 'none'})`,
-  )
-  panelOpen = true
-  notify()
-
-  tabOf('image').dispatchEvent(new jsdomWindow.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-  assert.equal(calls.join(','), 'close,open,close', 'ArrowRight wraps around to the first tab')
-  assert.ok(
-    jsdomDocument.activeElement === tabOf('session'),
-    `ArrowRight wraps focus back to the first tab (focus: ${jsdomDocument.activeElement?.getAttribute?.('data-dsh-taichi-imagegen-tab') ?? jsdomDocument.activeElement?.tagName ?? 'none'})`,
-  )
-
-  // A key the contract does not claim must not steal the press.
-  const ignored = new jsdomWindow.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })
-  tabOf('session').dispatchEvent(ignored)
-  assert.equal(ignored.defaultPrevented, false, 'only the keys the helper handles are prevented')
-  assert.equal(calls.join(','), 'close,open,close', 'an unrelated key activates nothing')
-  panelOpen = false
-  notify()
   jsdomDocument.documentElement.setAttribute('data-dsh-taichi-imagegen-active', '')
   assert.equal(jsdomWindow.getComputedStyle(shellButton).display, 'none', 'the native New Session action is hidden while the studio is open')
   assert.equal(jsdomWindow.getComputedStyle(desktopRoot.querySelector('[data-other-sidebar-plugin]')).display, 'none', 'unrelated sidebar plugin entries remain hidden')
@@ -5755,11 +5680,8 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   const unknownRoot = findSidebarRoot()
   assert.equal(unknownRoot?.className, 'zzzShell', 'a shell without our markers resolves through the brand row and the button name')
   const disposeUnknown = mount(controller, 'Session', 'Back to the current conversation', 'Image', 'Open the image studio')
-  const unknownTabs = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
-  assert.ok(unknownTabs !== null, 'the tabs mount in a shell we have never seen')
-  assert.equal(unknownTabs.parentElement.className, 'zzzShell')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null, 'an unknown shell does not gain the old switcher')
   assert.equal(jsdomDocument.querySelector('.zzzShell > button[aria-label="New session"]').style.display, '', 'the shell button stays visible in an unknown shell too')
-  assert.equal(jsdomDocument.querySelector('.zzzShell > button[aria-label="New session"]').previousElementSibling, unknownTabs)
   assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]').parentElement.className, 'zzz_regionArea')
 
   // React can wrap or replace a native action without retaining its CSS class.
@@ -5769,14 +5691,8 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   unknownRoot.insertBefore(actionWrapper, unknownButton)
   actionWrapper.append(unknownButton)
   await new Promise(resolve => setTimeout(resolve, 20))
-  assert.equal(jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-session-tabs]').length, 1, 'repairing a wrapped action never duplicates the switcher')
-  // The contract is "immediately above the action", not "immediately above the
-  // button": since 0.2.2-rc.3 the shell wraps the button in its own row, and a
-  // switcher inserted inside that row would sit beside the action instead of
-  // over it. The seat is therefore the outermost wrapper that holds only this
-  // action.
-  assert.equal(actionWrapper.previousElementSibling?.hasAttribute('data-dsh-taichi-imagegen-session-tabs'), true, 'the switcher sits above the wrapped action row')
-  assert.equal(unknownButton.previousElementSibling, null, 'the switcher never lands inside the action wrapper')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null, 'wrapping the action does not insert a switcher')
+  assert.equal(jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-history-host]').length, 1, 'wrapping the action does not duplicate the history host')
   jsdomDocument.documentElement.setAttribute('data-dsh-taichi-imagegen-active', '')
   assert.notEqual(jsdomWindow.getComputedStyle(actionWrapper).display, 'none', 'a wrapper around the native action stays visible')
   assert.notEqual(jsdomWindow.getComputedStyle(unknownButton).display, 'none', 'an action found only by its accessible name stays visible')
@@ -5806,15 +5722,10 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   const fallbackPane = jsdomDocument.querySelector('[data-pane="sidebar"]')
   const callsBeforeFallback = calls.length
   const disposeFallback = mount(controller, 'Session', 'Back to the current conversation', 'Image', 'Open the image studio')
-  const fallbackTabs = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
-  assert.ok(fallbackTabs !== null, 'the switcher mounts even when no shell New Session action is reachable')
-  assert.equal(fallbackTabs.parentElement, fallbackPane, 'the sidebar column itself becomes the seat')
-  assert.equal(fallbackTabs.nextElementSibling, jsdomDocument.querySelector('.regionArea'), 'the fallback switcher sits directly above the block that carries the workspace seat')
-  assert.equal(fallbackTabs.getAttribute('data-dsh-taichi-imagegen-tabs-seat'), 'top', 'the fallback seat is marked so only that seat is restyled')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null, 'a shell without New Session still does not grow a switcher')
   assert.equal(jsdomDocument.querySelector('.brandButton').style.display, '', 'the brand button is not mistaken for the new-session control')
   assert.equal(jsdomDocument.querySelector('.brandButton').hasAttribute('data-dsh-taichi-imagegen-new-session'), false, 'no action marker lands on an unrelated control')
-  fallbackTabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
-  assert.equal(calls.slice(callsBeforeFallback).join(','), 'open', 'the fallback switcher opens the studio like the seated one')
+  assert.equal(calls.slice(callsBeforeFallback).join(','), '', 'the history host does not open the studio by itself')
   assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]').parentElement.className, 'regionArea', 'the history host still seats in the region area')
   await new Promise(resolve => setTimeout(resolve, 60))
   assert.equal(warnings.length, 0, `a mounted fallback entry logs nothing: ${warnings.join(' | ')}`)
@@ -5947,18 +5858,11 @@ await check('D3d the switcher still mounts when another plugin hides the shell a
     subscribe: () => () => {},
   }
   const disposeBot = botMount(botController, 'Session', 'Back to the current conversation', 'Image', 'Open the image studio')
-  const botTabs = botDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
-  assert.ok(botTabs !== null, 'the switcher mounts in another plugin\'s sidebar instead of disappearing')
-  assert.equal(botTabs.parentElement, botRoot, 'it seats in the column, not inside a scrolling grid wrapper')
-  assert.notEqual(botTabs.parentElement, botDocument.querySelector('.scrollArea'), 'never in the scroll area (#35)')
-  assert.equal(botTabs.nextElementSibling, botDocument.querySelector('.scrollRegion'), 'it sits directly above the block that carries the workspace seat')
-  assert.notEqual(botTabs, botRoot.firstElementChild, 'it never lands on the macOS traffic-light strip')
-  assert.equal(botTabs.previousElementSibling?.className, 'newSessionRow', 'the hidden action row stays above the switcher, so the order is unchanged when it comes back')
-  assert.equal(botTabs.getAttribute('data-dsh-taichi-imagegen-tabs-seat'), 'top', 'the fallback seat is marked for the stylesheet')
-  // The whole point: 生图 is reachable from that view.
-  botTabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').dispatchEvent(new botWindow.MouseEvent('click', { bubbles: true }))
-  assert.equal(botCalls.join(','), 'open', 'the tab opens the studio from the other plugin\'s sidebar')
-  assert.ok(botDocument.querySelector('[data-dsh-taichi-imagegen-history-host]') !== null, 'the history surface seats too')
+  assert.equal(botDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null, 'a foreign sidebar does not gain the old switcher')
+  const botHistory = botDocument.querySelector('[data-dsh-taichi-imagegen-history-host]')
+  assert.ok(botHistory !== null, 'the history surface seats too')
+  assert.notEqual(botHistory.parentElement, botDocument.querySelector('.scrollArea'), 'the history host is never in the scroll area (#35)')
+  assert.equal(botCalls.join(','), '', 'seating the history host does not open the studio')
   await new Promise(resolve => setTimeout(resolve, 60))
   assert.equal(botWarnings.length, 0, `a mounted entry in a foreign sidebar logs nothing: ${botWarnings.join(' | ')}`)
   disposeBot()
@@ -6056,14 +5960,11 @@ await check('D3b sidebar entry mounts above the shell action when the workspace 
   let drawerToggleClicks = 0
   jsdomDocument.querySelector('[data-sidebar-toggle]').addEventListener('click', () => { drawerToggleClicks += 1 })
   const dispose = mount(controller, '会话', '回到当前对话', '生图', '打开生图工作室')
-  const tabs = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
-  const newSession = jsdomDocument.querySelector('.newSession')
+  const historyHost = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]')
   const scrollArea = jsdomDocument.querySelector('.scrollArea')
-  assert.ok(tabs !== null, 'the switcher mounts in the nested shell')
-  assert.equal(tabs.parentElement, jsdomDocument.querySelector('.shellRoot'), 'the switcher sits in the column, not the grid viewport')
-  assert.equal(newSession.previousElementSibling, tabs, 'the switcher sits directly above the shell action')
-  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]')?.parentElement, jsdomDocument.querySelector('.regionArea'))
-  assert.equal(scrollArea.contains(tabs), false, 'the switcher is not a child of the scrolling grid')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null, 'the nested shell does not gain the old switcher')
+  assert.equal(historyHost?.parentElement, jsdomDocument.querySelector('.regionArea'))
+  assert.equal(scrollArea.contains(historyHost), true, 'the history host stays in the region inside the scrolling grid')
 
   const workspaceRow = jsdomDocument.querySelector('.workspaceRow')
   const workspaceAction = jsdomDocument.querySelector('.workspaceNewSession')
@@ -6074,9 +5975,8 @@ await check('D3b sidebar entry mounts above the shell action when the workspace 
   revealedAction.textContent = '+'
   workspaceRow.append(revealedAction)
   await new Promise(resolve => setTimeout(resolve, 30))
-  assert.equal(jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-session-tabs]').length, 1, 'a revealed workspace action never duplicates the switcher')
-  assert.equal(tabs.parentElement, jsdomDocument.querySelector('.shellRoot'), 'a workspace action cannot steal the switcher into the tree')
-  assert.equal(newSession.previousElementSibling, tabs, 'the switcher stays above the shell action after a workspace row mutation')
+  assert.equal(jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-history-host]').length, 1, 'a revealed workspace action never duplicates the history host')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]')?.parentElement, jsdomDocument.querySelector('.regionArea'), 'a workspace action cannot steal the history host')
 
   const scrollRegion = jsdomDocument.querySelector('.scrollRegion')
   const panelList = jsdomDocument.querySelector('.panelList')
@@ -6088,10 +5988,7 @@ await check('D3b sidebar entry mounts above the shell action when the workspace 
   assert.equal(scrollRegion.hasAttribute('data-dsh-taichi-imagegen-sidebar-block'), true, 'the wrapper carrying the region is spared')
   assert.equal(panelList.hasAttribute('data-dsh-taichi-imagegen-sidebar-hide'), true, 'the panel nav beside the region is marked for hiding')
   assert.equal(jsdomDocument.querySelector('.regionArea').getAttribute('data-dsh-taichi-imagegen-sidebar-region'), '')
-  tabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
-  assert.equal(drawerToggleClicks, 1, 'choosing the image tab closes the mobile drawer so the studio is visible')
-  tabs.querySelector('[data-dsh-taichi-imagegen-tab="session"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
-  assert.equal(drawerToggleClicks, 2, 'choosing the session tab closes it too')
+  assert.equal(drawerToggleClicks, 0, 'seating the history host does not click the drawer toggle')
   dispose()
   assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null)
   assert.equal(scrollRegion.hasAttribute('data-dsh-taichi-imagegen-sidebar-block'), false)
@@ -6187,33 +6084,12 @@ await check('D3c the switcher stays on its own line when the shell wraps the act
     subscribe: () => () => {},
   }
   const dispose = mount(controller, '会话', '回到当前对话', '生图', '打开生图工作室')
-  const tabs = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
   const row = jsdomDocument.querySelector('.newSessionRow')
   const button = jsdomDocument.querySelector('.newSession')
-  const shellRoot = jsdomDocument.querySelector('.shellRoot')
-
-  assert.ok(tabs !== null, 'the switcher mounts against a wrapped action')
-  // The three assertions that pin the reported regression.
-  assert.equal(tabs.parentElement, shellRoot, 'the switcher is a child of the column, NOT of the action row')
-  assert.equal(row.contains(tabs), false, 'the switcher never lands inside the flex row that holds the action')
-  assert.equal(row.previousElementSibling, tabs, 'the switcher sits directly above the action row')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null, 'a wrapped action does not gain the old switcher')
+  assert.equal(row.contains(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]')), false, 'the history host never lands inside the action row')
   assert.equal(button.previousElementSibling.hasAttribute('data-slot'), true, 'the action keeps its slot outlet as its sibling')
-  // The inset is measured off the row (4px), not off the button (which is 0 in
-  // rc.3), so both edges line up with the action row.
-  assert.equal(tabs.style.marginLeft, '4px', 'the switcher copies the inset of the seat it sits above')
-  assert.equal(tabs.style.marginRight, '4px', 'both edges are taken from the same seat')
-
-  // A shell that puts the brand row and the action in one block must keep the
-  // old behaviour: hoisting the switcher above that block would put it above
-  // the logo. Re-query because a re-seat replaces the node.
-  const brandAndAction = jsdomDocument.querySelector('.logoRow')
-  brandAndAction.append(row)
-  await new Promise(resolve => setTimeout(resolve, 30))
-  const reseated = jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-session-tabs]')
-  assert.equal(reseated.length, 1, 're-seating never duplicates the switcher')
-  assert.equal(brandAndAction.firstElementChild.hasAttribute('data-dsh-taichi-imagegen-session-tabs'), false, 'the switcher is never hoisted above the logo')
-  assert.equal(reseated[0].closest('.newSessionRow') !== null, true, 'a shared header block is not treated as the action row')
-
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]')?.parentElement.className, 'regionArea')
   dispose()
   assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null)
   jsdomWindow.setTimeout = realSetTimeout
@@ -7423,8 +7299,15 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     },
     scope: () => ({ sessionId: 'session-smoke' }),
   }
+  let imageStudioService
   const ctx = {
     effect(fn) { return fn() },
+    reflect: {
+      provide(name, value) {
+        if (name === 'taichiImageStudio') imageStudioService = value
+        return () => { if (imageStudioService === value) imageStudioService = undefined }
+      },
+    },
     on() { return () => {} },
     get(name) {
       // A page served through a loopback reverse proxy is NOT a loopback
@@ -7605,29 +7488,30 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
   })
   jsdomDocument.body.append(settingsTrigger)
   jsdomWindow.dispatchEvent(new jsdomWindow.CustomEvent('dsh-taichi-imagegen:open-config'))
-  assert.ok(await waitUntil(() => settingsSectionClicks === 1), 'in-app configure prompts select the settings.section entry')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(settingsSectionClicks, 0, 'the signed-in account path does not open a settings page')
   jsdomDocument.querySelector('[role="dialog"]')?.remove()
   settingsTrigger.remove()
   // Wait for the bridge fetch + scope settle + sidebar entry. The studio is
   // intentionally loaded without history images until the image tab activates.
-  await waitForSelectorCount(jsdomDocument, '[data-dsh-taichi-imagegen-session-tabs]', 1)
+  await waitForSelectorCount(jsdomDocument, '[data-dsh-taichi-imagegen-history-host]', 1)
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null, 'the activity rail replaced the sidebar switcher')
+  assert.ok(imageStudioService, 'the studio service is provided for the activity rail')
   assert.equal(jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-history] img').length, 0, 'inactive studio renders no history images')
   assert.equal(
     requestPaths.some(path => path.endsWith('/history/list') || path.endsWith('/gallery/list')),
     false,
     'inactive studio does not request history or gallery data',
   )
-  jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]')
-    .dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
+  imageStudioService.open()
   await waitForSelectorCount(jsdomDocument, '[data-comparison]', 1)
 
   try {
     // Regression: the scope must settle (a scope that never loads leaves the
-    // UI unmounted forever) and the two session tabs must be inserted.
-    const entry = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
-    assert.ok(entry !== null, 'session tabs were mounted')
-    assert.equal(entry.querySelectorAll('[data-dsh-taichi-imagegen-tab]').length, 2, 'session and image tabs are present')
-    assert.ok(entry.textContent.includes('生图'), 'image tab label localized')
+    // UI unmounted forever). The activity rail opens the studio; the sidebar
+    // switcher is no longer inserted.
+    assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null, 'session tabs are not mounted')
+    assert.equal(imageStudioService.getSnapshot().panelOpen, true, 'the studio service opened the panel')
     assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-entry]') === null, true, 'standalone image entry was removed')
     const view = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-view]')
     assert.ok(view !== null, 'studio view container was mounted')
@@ -7675,8 +7559,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // `!important` sheet rules over inline styles, so the takeover is asserted
     // through selector matching and the placement through the shipped sheet's
     // own declarations.
-    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]')
-      .dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
+    imageStudioService.open()
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.ok(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), 'the image tab opens the studio')
     const historyFilter = jsdomDocument.querySelector('button[data-dsh-select][aria-label="模型筛选"]')
@@ -7774,15 +7657,14 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.ok(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-chat-collapsed'), 'the chat toggle collapses the track again')
     assert.equal(conversationRoot.matches(collapseSelector), true, 'the collapsed chat track drops the conversation root')
-    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="session"]')
-      .dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
+    imageStudioService.close()
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'the studio closes again')
     assert.equal(nativeNewSessionCalls, 0, 'returning to the current conversation never starts a new session')
 
     // The native action must both create a session and close the studio, even
     // when the shell exposes no recognizable newSession CSS class.
-    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]').click()
+    imageStudioService.open()
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true)
     nativeNewSession.className = ''
@@ -7790,7 +7672,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(nativeNewSessionCalls, 1, 'the native New Session handler still runs exactly once')
     assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'the native action returns from the studio to the conversation')
-    assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="session"]').hasAttribute('data-active'), true, 'the switcher follows the native action')
+    assert.equal(imageStudioService.getSnapshot().panelOpen, false, 'the native action closes the studio')
     nativeNewSession.className = 'newSession'
 
     // The account page is a main-slot panel, and the studio hides every
@@ -7810,17 +7692,17 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       studioClosedBeforeAccountClick = jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active') === false
     })
     jsdomDocument.body.append(accountButton)
-    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]').click()
+    imageStudioService.open()
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true, 'the image tab is open before the account click')
     accountButton.click()
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'opening the account page leaves the studio')
-    assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="session"]').hasAttribute('data-active'), true, 'the session tab is selected when the account page opens')
+    assert.equal(imageStudioService.getSnapshot().panelOpen, false, 'the account page opens with the studio closed')
     assert.equal(accountClicks, 1, 'the account button still opens its page after the studio closes')
     assert.equal(studioClosedBeforeAccountClick, true, 'the session tab is restored before the account page opens')
 
-    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]').click()
+    imageStudioService.open()
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true)
     accountButton.setAttribute('aria-pressed', 'true')
@@ -7828,7 +7710,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     accountButton.click()
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'a covered account page is revealed by leaving the studio')
-    assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="session"]').hasAttribute('data-active'), true, 'revealing the account page returns to the session tab')
+    assert.equal(imageStudioService.getSnapshot().panelOpen, false, 'revealing the account page leaves the studio closed')
     assert.equal(accountClicks, 1, 'revealing an already-open account page does not toggle it shut')
     accountButton.setAttribute('aria-pressed', 'false')
     accountButton.setAttribute('data-selected', 'false')
@@ -7952,8 +7834,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // tab strip is visible but the panel is mounted inactive — `active` gates
     // `PptWorkspace`'s `hidden`. Re-open the studio through the image tab the
     // way a user would before switching workspaces.
-    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]')
-      .dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
+    imageStudioService.open()
     assert.ok(
       await waitPpt(() => jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active')),
       'the studio re-opens before the PPT workspace is exercised',
@@ -8952,7 +8833,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // live, so it went on claiming Ctrl+A / Ctrl+Z / Delete for the whole
     // document while the user typed in the chat beside it. This pins the "only
     // while on screen" rule with the panel properly closed.
-    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]').click()
+    imageStudioService.open()
     await new Promise(resolve => setTimeout(resolve, 80))
     const nodeElement = () => view.querySelector('[data-node-id="node-image"]')
     assert.ok(nodeElement() !== null, 'the fixture node is on screen before the panel is closed')
@@ -8963,7 +8844,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.match(nodeElement().className, /nodeSelected/, 'pointerdown selects a node while the canvas is on screen')
 
     // Close the panel through the sidebar switcher, exactly as the user does.
-    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="session"]').click()
+    imageStudioService.close()
     await new Promise(resolve => setTimeout(resolve, 80))
     assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'the panel reports itself closed')
     assert.ok(nodeElement() !== null, 'the canvas stays mounted while the panel is closed -- that is WHY the listeners outlive visibility')
@@ -8978,7 +8859,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.match(nodeElement().className, /nodeSelected/, 'the closed canvas keeps its selection untouched')
 
     // Back to the studio for the checks that follow.
-    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]').click()
+    imageStudioService.open()
     await new Promise(resolve => setTimeout(resolve, 80))
     assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true, 'the studio is active again')
 
@@ -11402,6 +11283,11 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     normalAfterReplica.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
     await new Promise(resolve => setTimeout(resolve, 60))
     assert.equal(view.querySelectorAll('[data-count]').length, 0, 'a replica completion never populates the normal image result board')
+    const studioLease = Reflect.get(jsdomDocument, Symbol.for('dsh-taichi-imagegen.client-ui-lease'))
+    assert.equal(typeof studioLease?.release, 'function', 'the studio keeps one mount lease')
+    studioLease.release()
+    assert.equal(imageStudioService, undefined, 'unmounting the studio revokes taichiImageStudio')
+    assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]'), null, 'unmounting removes the history host')
   } finally {
     // Drain pending React work BEFORE restoring the globals. React DOM reads
     // `window` during commit (getActiveElementDeep), so a flush that lands after

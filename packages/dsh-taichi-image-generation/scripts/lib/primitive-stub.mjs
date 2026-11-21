@@ -12,6 +12,7 @@ export function primitiveControls (react, reactDom) {
       if (!open) return undefined
       const onKey = (event) => {
         if (event.key === 'Escape') {
+          document.querySelector('[data-dsh-select][data-open]')?.focus()
           onClose?.()
           return
         }

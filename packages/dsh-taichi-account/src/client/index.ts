@@ -47,7 +47,7 @@ export function resetStatus(): void {
 export const inject: string[] = []
 
 /**
- * Mount the sidebar account button, the account page, and the quota notice.
+ * Mount the activity-rail account button, the account page, and the quota notice.
  * Screens are TSX components. Host-targeting rules stay in one global sheet;
  * page layout comes from CSS modules compiled into this bundle.
  */
@@ -82,8 +82,8 @@ export function apply(ctx: AccountClient): void {
       if (currentPanel() === PANEL) hideAccount()
       else showAccount()
     }
-    scope.slots.inject('sidebar.settings.action', () => scope.slots.register({
-      name: 'sidebar.settings.action',
+    scope.slots.inject('shell.activity.action', () => scope.slots.register({
+      name: 'shell.activity.action',
       id: 'desktop-account',
       locale: NS,
       inject: () => ({ t, layout: scope.layout, panelId: PANEL, showAccount, toggleAccount })

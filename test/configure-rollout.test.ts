@@ -4,6 +4,7 @@ import {
   DEFAULT_BASE_URL,
   DEFAULT_PERCENTAGE,
   isValidVersion,
+  RELEASES_PATH,
   SUPPORTED_PLATFORMS
 } from '../scripts/release/configure-rollout.mjs'
 
@@ -25,10 +26,10 @@ describe('configureRollout', () => {
       const body = init?.body ? JSON.parse(String(init.body)) : undefined
       calls.push({ url, method, body, headers: init?.headers })
 
-      if (url.endsWith('/admin/api/releases') && method === 'GET') {
+      if (url.endsWith(RELEASES_PATH) && method === 'GET') {
         return new Response(JSON.stringify([]), { status: 200 })
       }
-      if (url.endsWith('/admin/api/releases') && method === 'POST') {
+      if (url.endsWith(RELEASES_PATH) && method === 'POST') {
         return new Response(JSON.stringify({ ...body, id: `rel-${body.platform}`, revision: 1 }), {
           status: 201
         })
@@ -97,13 +98,13 @@ describe('configureRollout', () => {
       const body = init?.body ? JSON.parse(String(init.body)) : undefined
       calls.push({ url, method, body })
 
-      if (url.endsWith('/admin/api/releases') && method === 'GET') {
+      if (url.endsWith(RELEASES_PATH) && method === 'GET') {
         return new Response(JSON.stringify(existing), { status: 200 })
       }
-      if (url.includes('/admin/api/releases/') && method === 'PUT') {
+      if (url.includes(`${RELEASES_PATH}/`) && method === 'PUT') {
         return new Response(JSON.stringify({ ...body, revision: body.revision + 1 }), { status: 200 })
       }
-      if (url.endsWith('/admin/api/releases') && method === 'POST') {
+      if (url.endsWith(RELEASES_PATH) && method === 'POST') {
         return new Response(JSON.stringify({ ...body, id: 'new-id', revision: 1 }), { status: 201 })
       }
       return new Response('Not Found', { status: 404 })
@@ -126,7 +127,7 @@ describe('configureRollout', () => {
     expect(winResult?.action).toBe('updated')
     expect(intelResult?.action).toBe('created')
 
-    const macPut = calls.find((c) => c.url.endsWith('/admin/api/releases/uuid-mac'))
+    const macPut = calls.find((c) => c.url.endsWith(`${RELEASES_PATH}/uuid-mac`))
     expect(macPut?.method).toBe('PUT')
     expect((macPut?.body as { revision: number }).revision).toBe(2)
     expect((macPut?.body as { percentage: number }).percentage).toBe(5)
@@ -142,7 +143,7 @@ describe('configureRollout', () => {
       const body = init?.body ? JSON.parse(String(init.body)) : undefined
       calls.push({ url, method, body })
 
-      if (url.endsWith('/admin/api/releases') && method === 'GET') {
+      if (url.endsWith(RELEASES_PATH) && method === 'GET') {
         listCount += 1
         if (listCount === 1) return new Response(JSON.stringify([]), { status: 200 })
         // On refresh after 409, return newly created items
@@ -155,10 +156,10 @@ describe('configureRollout', () => {
           { status: 200 }
         )
       }
-      if (url.endsWith('/admin/api/releases') && method === 'POST') {
+      if (url.endsWith(RELEASES_PATH) && method === 'POST') {
         return new Response(JSON.stringify({ error: 'Release target already exists' }), { status: 409 })
       }
-      if (url.includes('/admin/api/releases/') && method === 'PUT') {
+      if (url.includes(`${RELEASES_PATH}/`) && method === 'PUT') {
         return new Response(JSON.stringify({ ...body, revision: body.revision + 1 }), { status: 200 })
       }
       return new Response('Error', { status: 500 })
@@ -179,6 +180,8 @@ describe('configureRollout', () => {
   })
 
   it('rejects invalid parameters and missing token', async () => {
+    expect(DEFAULT_BASE_URL).toBe('https://taichi-gateway.moshangwangluo.com')
+    expect(RELEASES_PATH).toBe('/lundan/api/releases')
     await expect(
       configureRollout({ version: 'invalid-version', token: 'token' })
     ).rejects.toThrow('Invalid version')

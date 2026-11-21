@@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the LocaleNamespaceMap merge table.
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { ImageGenApi } from './api.ts'
-import { ImageGenController } from './controller.ts'
+import { ImageGenController, type ImageGenControllerSnapshot } from './controller.ts'
 import { tt, applyHostLocale } from './helpers.ts'
 import { en, ru, zh, type ImageGenKey } from './locales.ts'
 import { mountPanel } from './mount.tsx'
@@ -40,6 +40,20 @@ const UI_MOUNT_LEASE_KEY = Symbol.for('dsh-taichi-imagegen.client-ui-lease')
 
 interface UiMountLease {
   release(): void
+}
+
+/** Face the desktop activity rail calls. Cordis reflect is not on this package's Context type. */
+export interface TaichiImageStudio {
+  open(): void
+  close(): void
+  subscribe(listener: () => void): () => void
+  getSnapshot(): ImageGenControllerSnapshot
+}
+
+interface StudioReflect {
+  reflect?: {
+    provide(name: 'taichiImageStudio', value: TaichiImageStudio): () => void
+  }
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -170,34 +184,16 @@ export function apply(ctx: ClientContext): void {
     const { pickDirectory } = hostDirectoryPicker(ctx)
     const disposers: Array<() => void> = []
     try {
-      disposers.push(mountSidebarEntry(
-        controller,
-        tt('entry.session'),
-        tt('entry.sessionTooltip'),
-        tt('entry.image'),
-        tt('entry.tooltip'),
-      ))
+      const studio: TaichiImageStudio = {
+        open: () => { controller.open() },
+        close: () => { controller.close() },
+        subscribe: listener => controller.subscribe(listener),
+        getSnapshot: () => controller.getSnapshot(),
+      }
+      disposers.push(mountSidebarEntry())
       disposers.push(mountPanel(controller, api, scope, { sessions, conversation, pickDirectory }))
-      // The imperative sidebar tabs render their labels once; relabel them on
-      // every DSH language switch so the entry follows the interface too.
-      disposers.push(ctx.locale.subscribe(() => {
-        const root = document.querySelector('[data-dsh-taichi-imagegen-sidebar-root]')
-        if (root === null) return
-        const labels: Array<[string, string, string]> = [
-          ['session', tt('entry.session'), tt('entry.sessionTooltip')],
-          ['image', tt('entry.image'), tt('entry.tooltip')],
-        ]
-        for (const [tab, label, tooltip] of labels) {
-          const button = root.querySelector<HTMLButtonElement>(`[data-dsh-taichi-imagegen-tab="${tab}"]`)
-          if (button === null) continue
-          button.setAttribute('aria-label', label)
-          button.setAttribute('title', tooltip)
-          const labelSpan = button.querySelector('span:nth-child(2)')
-          if (labelSpan !== null) labelSpan.textContent = label
-        }
-        const tablist = root.querySelector<HTMLDivElement>('[role="tablist"][data-dsh-taichi-imagegen-session-tabs]')
-        tablist?.setAttribute('aria-label', `${tt('entry.session')} / ${tt('entry.image')}`)
-      }))
+      const disposeStudio = (ctx as ClientContext & StudioReflect).reflect?.provide('taichiImageStudio', studio)
+      if (disposeStudio !== undefined) disposers.push(disposeStudio)
     } catch (error) {
       // DOM failures degrade the studio, never the GUI.
       console.warn('[dsh-taichi-imagegen] mount failed:', error)

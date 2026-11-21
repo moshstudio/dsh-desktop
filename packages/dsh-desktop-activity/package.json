@@ -1,0 +1,30 @@
+{
+  "name": "dsh-desktop-activity",
+  "version": "0.1.0",
+  "description": "DSH Desktop icon rail to the left of the Harness sidebar.",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "react"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1 || ^4.0.6-alpha.1 || ^4.1.0",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.2-rc.1",
+    "react": "^18.2.0"
+  }
+}

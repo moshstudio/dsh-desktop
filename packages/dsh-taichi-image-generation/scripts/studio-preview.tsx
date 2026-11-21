@@ -235,13 +235,7 @@ const sessions = {
 } as unknown as ISessions
 
 const controller = new ImageGenController()
-const disposeSidebar = mountSidebarEntry(
-  controller,
-  tt('entry.session'),
-  tt('entry.sessionTooltip'),
-  tt('entry.image'),
-  tt('entry.tooltip'),
-)
+const disposeSidebar = mountSidebarEntry()
 const disposePanel = mountPanel(controller, api, scope, { sessions })
 controller.open()
 

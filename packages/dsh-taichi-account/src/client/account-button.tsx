@@ -46,7 +46,7 @@ export function AccountButton({ t, wide, layout, panelId, showAccount, toggleAcc
   const label = signedIn ? t('signedInName', { email: status.email }) : t('open')
   return (
     <div data-dsh-taichi-account-entry="true" data-wide={wide === false ? 'false' : 'true'}>
-      <Tooltip label={label} side="top" align="end" portal maxWidth={280} delayMs={0} focusDelayMs={0}>
+      <Tooltip label={label} side={wide === false ? 'right' : 'top'} align={wide === false ? 'center' : 'end'} portal maxWidth={280} delayMs={0} focusDelayMs={0}>
         <Button
           type="button"
           variant="ghost"

@@ -16,6 +16,7 @@ function hasEnterprisePlugin(): boolean {
 /**
  * Desktop profile overlay. Analytics and the official account page stay off.
  * The official sidebar brand is replaced by the product client UI.
+ * The activity rail is part of the base overlay, including Safe Mode.
  * The normal profile also mounts workbenches, the plugin market installer,
  * Office, PPT, and the vendored image/video studio. Safe Mode keeps the account and brand overlay only.
  */
@@ -33,6 +34,8 @@ const DESKTOP_PRODUCT_PATCH_BASE = `- id: desktop-product-telemetry
 - insert:
     - id: dsh-desktop-client-ui
       name: dsh-desktop-client-ui
+    - id: dsh-desktop-activity
+      name: dsh-desktop-activity
     - id: dsh-taichi-account
       name: dsh-taichi-account
 `

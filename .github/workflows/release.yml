@@ -1009,7 +1009,7 @@ jobs:
           print("✅ Appended release to releases/versions.json")
           PY
 
-      - name: Configure initial 5% rollout on crash service
+      - name: Configure initial 5% rollout on the update service
         env:
           CRASH_ADMIN_TOKEN: ${{ secrets.CRASH_ADMIN_TOKEN }}
         run: |

@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url'
 
 export const SUPPORTED_PLATFORMS = ['mac', 'mac-intel', 'windows']
-export const DEFAULT_BASE_URL = 'https://dshdesktop.com/crash'
+export const DEFAULT_BASE_URL = 'https://taichi-gateway.moshangwangluo.com'
+export const RELEASES_PATH = '/lundan/api/releases'
 export const DEFAULT_PERCENTAGE = 5
 
 const SEMVER =
@@ -37,7 +38,7 @@ export async function configureRollout(options) {
   }
 
   if (!token || typeof token !== 'string' || token.trim().length === 0) {
-    throw new Error('CRASH_ADMIN_TOKEN is required for configuring rollout on crash service.')
+    throw new Error('CRASH_ADMIN_TOKEN is required for configuring rollout on the update service.')
   }
 
   const cleanBaseUrl = baseUrl.replace(/\/+$/, '')
@@ -48,21 +49,21 @@ export async function configureRollout(options) {
 
   // 1. Fetch existing releases to check for existing targets
   let existingReleases = []
-  const listResponse = await fetchImpl(`${cleanBaseUrl}/admin/api/releases`, {
+  const listResponse = await fetchImpl(`${cleanBaseUrl}${RELEASES_PATH}`, {
     headers,
     signal: AbortSignal.timeout(10_000)
   })
 
   if (!listResponse.ok) {
     throw new Error(
-      `Failed to list existing releases from ${cleanBaseUrl}/admin/api/releases (${listResponse.status})`
+      `Failed to list existing releases from ${cleanBaseUrl}${RELEASES_PATH} (${listResponse.status})`
     )
   }
 
   try {
     existingReleases = await listResponse.json()
   } catch (error) {
-    throw new Error(`Invalid JSON response from ${cleanBaseUrl}/admin/api/releases: ${error.message}`)
+    throw new Error(`Invalid JSON response from ${cleanBaseUrl}${RELEASES_PATH}: ${error.message}`)
   }
 
   const results = []
@@ -86,7 +87,7 @@ export async function configureRollout(options) {
 
     if (existing?.id && typeof existing.revision === 'number') {
       // Update existing release rule
-      const updateResponse = await fetchImpl(`${cleanBaseUrl}/admin/api/releases/${existing.id}`, {
+      const updateResponse = await fetchImpl(`${cleanBaseUrl}${RELEASES_PATH}/${existing.id}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({
@@ -108,7 +109,7 @@ export async function configureRollout(options) {
       results.push({ platform, action: 'updated', data: updated })
     } else {
       // Create new release rule
-      const createResponse = await fetchImpl(`${cleanBaseUrl}/admin/api/releases`, {
+      const createResponse = await fetchImpl(`${cleanBaseUrl}${RELEASES_PATH}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(releasePayload),
@@ -118,7 +119,7 @@ export async function configureRollout(options) {
       if (createResponse.status === 409) {
         // Concurrently created or race condition: re-fetch and update
         warn?.(`⚠️ [${platform}] Conflict (409) while creating release. Retrying via PUT...`)
-        const refreshRes = await fetchImpl(`${cleanBaseUrl}/admin/api/releases`, {
+        const refreshRes = await fetchImpl(`${cleanBaseUrl}${RELEASES_PATH}`, {
           headers,
           signal: AbortSignal.timeout(10_000)
         })
@@ -131,7 +132,7 @@ export async function configureRollout(options) {
           throw new Error(`Conflict reported for ${platform}@${version} but entry could not be retrieved`)
         }
 
-        const putRes = await fetchImpl(`${cleanBaseUrl}/admin/api/releases/${found.id}`, {
+        const putRes = await fetchImpl(`${cleanBaseUrl}${RELEASES_PATH}/${found.id}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({

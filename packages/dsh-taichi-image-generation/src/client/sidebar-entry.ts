@@ -1,11 +1,9 @@
 /**
- * Add a two-tab switcher above the shell's own New Session affordance:
- * Session (the conversation view) and Image Generation. The shell button stays
- * in place underneath, and the Session tab is the way back out of the studio.
- * While the studio is open the stylesheet hides that button together with the
- * workbench switcher and the panel list; closing the studio restores them.
- * The plugin also uses the shell's region area as a dedicated history surface;
- * the original workspace/session tree remains underneath and is restored when
+ * Seat the studio's history list in the shell's workspace region.
+ * The activity rail, not this file, opens and closes the studio. While the
+ * studio is open the stylesheet hides the New Session control together with
+ * the workbench switcher and the panel list; closing the studio restores them.
+ * The original workspace/session tree remains underneath and is restored when
  * the panel closes.
  *
  * ## How the shell is found (no class names)
@@ -28,29 +26,12 @@
  * So the column is resolved from the workspace seat upward, the brand row from
  * the brand slot, and the New Session control by its accessible name — the
  * three things a shell cannot rename without breaking its own accessibility.
- *
- * // NATIVE-GAP: there is no slot ABOVE New Session, so the switcher cannot be
- * registered and is still inserted at the DOM level (`placeTabs`). The official
- * seats this plugin could take instead are `sidebar.panellist` (icon row) +
- * the layout's keyed `main` slot (panel content), which would replace the whole
- * takeover in mount.tsx — but that also rewrites the panel's stylesheet, so it
- * is a separate change, not a query repair.
  */
 
-import type { ImageGenController } from './controller.ts'
 import css from './panel.module.css'
-import { onTablistKeyDown, tabIndexFor } from './tablist.ts'
 
-/** Stable selector for the injected two-tab host. */
-export const ENTRY_SELECTOR = '[data-dsh-taichi-imagegen-session-tabs]'
 /** Stable selector for the history surface in the shell region area. */
 export const HISTORY_HOST_SELECTOR = '[data-dsh-taichi-imagegen-history-host]'
-
-/** Inline picture glyph kept deliberately small for the sidebar rail. */
-const IMAGE_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><circle cx="5.6" cy="5.8" r="1"/><path d="M2.5 12.5l3.6-3.4 2.4 2.2 3-3 2 2.4"/></svg>'
-
-/** Inline conversation glyph for the session-view tab. */
-const SESSION_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3h11v8H7l-3 2.4V11H2.5z"/></svg>'
 
 /**
  * The shell's workspace/session seat. Its anchor is `display: contents`, so the
@@ -113,7 +94,7 @@ const LEGACY_SIDEBAR_PANE = '[data-pane="sidebar"]'
  */
 const WHEEL_CONTAINER_ATTR = 'data-dsh-taichi-imagegen-wheel-owner'
 /** Our own injected nodes, never candidates for the shell's seats. */
-const OWN_NODES = `${ENTRY_SELECTOR}, ${HISTORY_HOST_SELECTOR}, [data-dsh-taichi-imagegen-sidebar-root]`
+const OWN_NODES = `${HISTORY_HOST_SELECTOR}, [data-dsh-taichi-imagegen-sidebar-root]`
 
 /** Accessible names the shell gives its New Session affordance. */
 const NEW_SESSION_LABELS = ['new session', 'new chat', '新会话', '新建会话', '新对话', '新话题']
@@ -232,7 +213,7 @@ function regionSeat(root: HTMLElement): HTMLElement | undefined {
   )
   const quiet = blocks.filter((block) => Array
     .from(block.querySelectorAll('button, a, input, [role="button"]'))
-    .every((control) => control.closest(HISTORY_HOST_SELECTOR) !== null || control.closest(ENTRY_SELECTOR) !== null))
+    .every((control) => control.closest(HISTORY_HOST_SELECTOR) !== null))
   return quiet[quiet.length - 1]
 }
 
@@ -462,220 +443,6 @@ function sidebarRoot(): HTMLElement | undefined {
   return newSessionButton()?.parentElement ?? undefined
 }
 
-function makeTab(
-  label: string,
-  tooltip: string,
-  icon: string,
-  onClick: () => void,
-): HTMLButtonElement {
-  const tab = document.createElement('button')
-  tab.type = 'button'
-  tab.className = css.sessionTab
-  tab.setAttribute('role', 'tab')
-  tab.setAttribute('aria-selected', 'false')
-  tab.setAttribute('aria-label', label)
-  tab.setAttribute('title', tooltip)
-  tab.innerHTML = `<span class="${css.sessionTabIcon}">${icon}</span><span class="${css.sessionTabLabel}">${label}</span>`
-  tab.addEventListener('click', onClick)
-  return tab
-}
-
-/**
- * Close the shell's mobile drawer after a tab activation.
- *
- * DSH renders the sidebar as an off-canvas drawer on narrow viewports. The
- * switcher lives inside that drawer, so switching to the image studio would
- * leave the drawer covering the studio the user just asked for (the same for
- * switching back to the conversation). Only an OPEN drawer is touched: in the
- * desktop layout there is no `data-sidebar-drawer` frame and the sidebar
- * stays exactly where it was.
- */
-function closeSidebarDrawer(): void {
-  const frame = document.querySelector<HTMLElement>('[data-sidebar-drawer="true"]')
-  if (frame === null || frame.hasAttribute('data-sidebar-collapsed')) return
-  const toggle = frame.querySelector<HTMLButtonElement>('[data-sidebar-toggle]')
-    ?? sidebarToggleButton(frame)
-  toggle?.click()
-}
-
-/**
- * Build the two-tab switcher. Detached from any seat: the caller decides where
- * it goes, so both the preferred seat and the fallback below share one builder.
- */
-function createTabs(
-  controller: ImageGenController,
-  sessionLabel: string,
-  sessionTooltip: string,
-  imageLabel: string,
-  imageTooltip: string,
-): HTMLDivElement {
-  const tabs = document.createElement('div')
-  tabs.dataset.dshTaichiImagegenSessionTabs = ''
-  tabs.className = css.sessionTabs
-  tabs.setAttribute('role', 'tablist')
-  // Name the switcher itself, not the image tab: its tooltip is a model list.
-  tabs.setAttribute('aria-label', `${sessionLabel} / ${imageLabel}`)
-
-  // One `activate` per tab, shared by the click and the arrow key that lands on
-  // it: two lambdas meaning the same thing is how a keyboard path drifts away
-  // from the mouse path it is supposed to mirror.
-  const activateSession = (): void => { controller.close(); closeSidebarDrawer() }
-  const activateImage = (): void => { controller.open(); closeSidebarDrawer() }
-
-  const sessionTab = makeTab(sessionLabel, sessionTooltip, SESSION_ICON, activateSession)
-  const imageTab = makeTab(imageLabel, imageTooltip, IMAGE_ICON, activateImage)
-  sessionTab.dataset.dshTaichiImagegenTab = 'session'
-  imageTab.dataset.dshTaichiImagegenTab = 'image'
-
-  // `role="tablist"` plus `role="tab"` is a keyboard promise, not decoration:
-  // only the selected tab stays in the Tab order and the arrow keys move
-  // between them. Declaring the roles without this leaves a keyboard user
-  // pressing arrows that do nothing — the exact defect `tablist.ts` documents.
-  // The switcher is built imperatively (no React), so it wires the shared
-  // helper by hand instead of getting it from `onKeyDown`.
-  const entries: ReadonlyArray<readonly [HTMLButtonElement, () => void]> = [
-    [sessionTab, activateSession],
-    [imageTab, activateImage],
-  ]
-  for (const [index, entry] of entries.entries()) {
-    entry[0].addEventListener('keydown', event => {
-      onTablistKeyDown(event, {
-        count: entries.length,
-        index,
-        select: next => entries[next]?.[1](),
-      })
-    })
-  }
-
-  tabs.append(sessionTab, imageTab)
-  return tabs
-}
-
-/**
- * Copy the shell button's horizontal geometry onto the switcher.
- *
- * The switcher is that button's sibling, inserted with `insertBefore`, so the
- * only correct answer is the button's own used margin — not a token, not a
- * constant. Measured in a live shell (dsh 0.2.1-rc.5): the button carries
- * `margin-inline: 2px` and there is no `--dsh-sidebar-paint-inset` anywhere on
- * its ancestor chain, so the old `calc(var(…, 3px) + 1px)` resolved to 4px and
- * the switcher sat 2px inside the button on both edges (issue #25 reopened).
- *
- * Reading `getComputedStyle` beats reading a custom property here because the
- * shell is free to change the number without telling anyone, and a stylesheet
- * cannot see a sibling's used value. Both edges are taken separately: a shell
- * that insets asymmetrically still lines up.
- *
- * The element measured is the SEAT the switcher was inserted before, not the
- * New Session button: since 0.2.2-rc.3 the inset lives on the row that wraps
- * the button (`newSessionRow` carries `--dsh-sidebar-paint-inset + 1px`, the
- * button's own margin is `0`). Measuring the button would leave the switcher
- * 4px wider than the action row on both edges.
- */
-function alignToSeat(tabs: HTMLElement, seat: HTMLElement): void {
-  if (typeof globalThis.getComputedStyle !== 'function') return
-  const style = getComputedStyle(seat)
-  const left = style.marginLeft
-  const right = style.marginRight
-  // An unparsed value ('auto', '') would break the box; fall back to the
-  // stylesheet's own symmetric margin rather than writing garbage.
-  if (!/^-?[\d.]+px$/.test(left) || !/^-?[\d.]+px$/.test(right)) {
-    tabs.style.removeProperty('margin-left')
-    tabs.style.removeProperty('margin-right')
-    return
-  }
-  tabs.style.marginLeft = left
-  tabs.style.marginRight = right
-}
-
-/** Seat marker for a switcher that had to fall back to the column itself. */
-const FALLBACK_SEAT_ATTR = 'dshTaichiImagegenTabsSeat'
-const FALLBACK_SEAT_VALUE = 'top'
-
-/**
- * The element the switcher is inserted BEFORE.
- *
- * Up to 0.2.2-rc.2 the New Session button was a direct child of the sidebar
- * column, so "the seat" and "the button" were the same element. 0.2.2-rc.3 gave
- * the button a wrapper row (`newSessionRow` — a `display: flex; gap: 6px` row
- * that also hosts the new `sidebar.session.action` slot outlet) and moved the
- * row inset onto it. Inserting before the BUTTON then put the switcher inside
- * that flex row — 会话 / 生图 / 新会话 side by side — which is the layout this
- * rule exists to prevent.
- *
- * So the seat is the root-level block that owns the action ({@link
- * newSessionBlock}, the same block `markBlocks` spares), read from the row
- * instead of guessed from wrappers. The block is only used when it holds
- * nothing but this action: a shell that wraps the brand row and the action in
- * one header must keep the old behaviour (insert before the button itself)
- * rather than get the switcher hoisted above the logo.
- */
-function actionSeat(root: HTMLElement, button: HTMLElement): HTMLElement {
-  const block = newSessionBlock(root, button)
-  if (block === undefined) return button
-  // The brand row is the tell for "this block is a header, not the action row".
-  if (block.querySelector(`${BRAND_MARK_ANCHOR}, ${BRAND_NAME_ANCHOR}`) !== null) return button
-  return block
-}
-
-/**
- * Mount or repair the two-tab switcher.
- *
- * Preferred seat: directly above the shell's New Session button. The switcher
- * only moves between the conversation and the studio; it never creates a
- * session. The stylesheet hides the button while the studio is open.
- *
- * Fallback seat: directly above the block that carries the workspace seat.
- * Another plugin may take over the shell's sidebar, hide that button and hide
- * the brand row with it (`display: none !important`, the way ds-bot's team view
- * does). The column itself always paints, and the workspace block always
- * exists, so the switcher goes above that block instead of vanishing. The
- * marker lets the stylesheet restyle only this seat.
- */
-function placeTabs(
-  root: HTMLElement,
-  button: HTMLButtonElement | undefined,
-  controller: ImageGenController,
-  sessionLabel: string,
-  sessionTooltip: string,
-  imageLabel: string,
-  imageTooltip: string,
-): HTMLDivElement {
-  const existing = root.querySelector<HTMLDivElement>(ENTRY_SELECTOR)
-  const seat = button === undefined ? undefined : actionSeat(root, button)
-
-  if (seat !== undefined) {
-    if (existing !== null && existing.parentElement === seat.parentElement
-      && existing.nextElementSibling === seat) {
-      // Same seat, but the shell may have re-rendered its row with a new
-      // inset; re-measure rather than keep a value that was true once.
-      alignToSeat(existing, seat)
-      return existing
-    }
-    existing?.remove()
-    const tabs = createTabs(controller, sessionLabel, sessionTooltip, imageLabel, imageTooltip)
-    // The shell action keeps its own slot below the switcher, untouched.
-    seat.parentElement?.insertBefore(tabs, seat)
-    alignToSeat(tabs, seat)
-    return tabs
-  }
-
-  // Already seated at the fallback: keep the node (its listeners stay live).
-  if (existing !== null && existing.parentElement === root) return existing
-  existing?.remove()
-  const tabs = createTabs(controller, sessionLabel, sessionTooltip, imageLabel, imageTooltip)
-  tabs.dataset[FALLBACK_SEAT_ATTR] = FALLBACK_SEAT_VALUE
-  // NOT the column's first child: on macOS that is the window-chrome strip that
-  // clears the traffic lights, and the switcher would be painted over the
-  // drag surface. The block that carries the workspace seat is what the studio
-  // paints over anyway, so the switcher goes directly above it — the same
-  // place it takes when the shell's own action row is visible.
-  const anchor = regionSeat(root)
-  const above = anchor === undefined ? undefined : blockHolding(root, anchor)
-  if (above !== undefined) root.insertBefore(tabs, above)
-  else root.append(tabs)
-  return tabs
-}
 
 /**
  * Keep the shell's own wheel handoff out of the history surface.
@@ -724,19 +491,12 @@ function placeHistoryHost(root: HTMLElement, region: HTMLElement | undefined): H
 }
 
 /**
- * Mount the two tabs and self-heal after React rebuilds the sidebar. The
+ * Mount the history host and self-heal after React rebuilds the sidebar. The
  * shell-owned New Session button keeps its native behavior. A temporary marker
  * preserves its visibility and identifies context clicks across shell layouts.
  */
-export function mountSidebarEntry(
-  controller: ImageGenController,
-  sessionLabel: string,
-  sessionTooltip: string,
-  imageLabel: string,
-  imageTooltip: string,
-): () => void {
+export function mountSidebarEntry(): () => void {
   let root: HTMLElement | undefined
-  let tabs: HTMLDivElement | undefined
   let historyHost: HTMLDivElement | undefined
   let markedButton: HTMLButtonElement | undefined
   /** Blocks carrying {@link BLOCK_ATTR}/{@link REGION_ATTR}; released on unload. */
@@ -764,30 +524,13 @@ export function mountSidebarEntry(
   // A shell we have never seen must not fail silently: the reporter of #20 had
   // no console output at all to work from.
   const warnUnmounted = (): void => {
-    if (warnedUnmounted || tabs !== undefined) return
+    if (warnedUnmounted || historyHost !== undefined) return
     warnedUnmounted = true
-    const reason = root === undefined ? 'sidebar root not found' : 'no seat for the switcher'
+    const reason = root === undefined ? 'sidebar root not found' : 'no seat for the history host'
     console.warn(`[dsh-taichi-imagegen] sidebar entry stayed unmounted (${reason}); shell probe: ${describeShell()}`)
   }
 
   const unmountedTimer = window.setTimeout(warnUnmounted, 5000)
-
-  const syncActive = (): void => {
-    if (tabs === undefined) return
-    const sessionTab = tabs.querySelector<HTMLElement>('[data-dsh-taichi-imagegen-tab="session"]')
-    const imageTab = tabs.querySelector<HTMLElement>('[data-dsh-taichi-imagegen-tab="image"]')
-    const panelOpen = controller.getSnapshot().panelOpen
-    for (const [tab, active] of [[sessionTab, !panelOpen], [imageTab, panelOpen]] as const) {
-      if (tab === null) continue
-      if (active) tab.dataset.active = ''
-      else delete tab.dataset.active
-      tab.setAttribute('aria-selected', active ? 'true' : 'false')
-      // The roving half of the contract: exactly one tab is in the Tab order,
-      // and it is the selected one. `aria-selected` alone still leaves both
-      // buttons tabbable, which is the state the keyboard contract forbids.
-      tab.tabIndex = tabIndexFor(active)
-    }
-  }
 
   const ensure = (): void => {
     // A root that stopped painting was resolved against a shell the host has
@@ -805,9 +548,7 @@ export function mountSidebarEntry(
       // The nodes themselves go with the stale root: the next seat is a
       // different container, and leaving a copy behind would either duplicate
       // the switcher or keep the invisible one alive.
-      tabs?.remove()
       historyHost?.remove()
-      tabs = undefined
       historyHost = undefined
       if (root.isConnected) delete root.dataset.dshTaichiImagegenSidebarRoot
       root = undefined
@@ -829,7 +570,6 @@ export function mountSidebarEntry(
       markedButton.removeAttribute('data-dsh-taichi-imagegen-new-session')
       markedButton = undefined
     }
-    tabs = placeTabs(root, button, controller, sessionLabel, sessionTooltip, imageLabel, imageTooltip)
     // The seat is resolved once here and shared: the history host has to sit in
     // it, and the stylesheet has to be able to spare it.
     const region = regionSeat(root)
@@ -842,7 +582,6 @@ export function mountSidebarEntry(
     }
     markedBlocks = nextBlocks
     historyHost = placeHistoryHost(root, region)
-    syncActive()
   }
 
   /**
@@ -918,15 +657,12 @@ export function mountSidebarEntry(
     if (touchesSidebar(records)) schedule()
   })
   bodyObserver.observe(document.body, { childList: true, subtree: true })
-  const unsubscribe = controller.subscribe(syncActive)
   ensure()
 
   return () => {
     window.clearTimeout(unmountedTimer)
     bodyObserver.disconnect()
     if (scheduled !== 0) window.clearTimeout(scheduled)
-    unsubscribe()
-    tabs?.remove()
     historyHost?.remove()
     markedButton?.removeAttribute('data-dsh-taichi-imagegen-new-session')
     for (const block of markedBlocks) {

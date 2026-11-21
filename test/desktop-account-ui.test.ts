@@ -380,7 +380,7 @@ describe('desktop account page', () => {
   } = () => { throw new Error('account page was not registered') }
   beforeAll(async () => {
     await plugin.apply(ctx)
-    const button = registrations.find(item => item.name === 'sidebar.settings.action' && item.id === 'desktop-account')
+    const button = registrations.find(item => item.name === 'shell.activity.action' && item.id === 'desktop-account')
     const panel = registrations.find(item => item.name === 'main' && item.key === 'desktop-account')
     if (button === undefined || panel === undefined) throw new Error('account page was not registered')
     AccountButton = button.component

@@ -29,7 +29,9 @@
 
 ### 2.1 颜色：只用 `--dsw-alias-*`
 
-**禁止**在 `.css` 里写任何 `#rrggbb` / `rgb()` / `rgba()` / `hsl()`。
+**禁止**在 `.css` 里写任何 `#rrggbb` / `rgb()` / `rgba()` / `hsl()`，包括 `var(--dsw-alias-*, #ec1313)` 这种兜底。token 不存在时由 `token-must-exist` 暴露，不靠写死颜色继续显示。
+
+固定深色蒙层、标注色这类 alias 会随主题翻转、表达不了的颜色，用 `--dsw-static-*`，并在规则旁说明原因。
 
 107 个语义 token 按用途分：
 
@@ -122,7 +124,7 @@ z-index 用一个有序阶梯，不允许两个无关层用同一数字（`verif
 
 半像素字号不是字体精度问题，是**缩放的残渣**：`11.5px` 和 `12px` 在 1x 屏上差别不可辨，在 2x 屏上都是清晰的 23/24 物理像素，却让设计者以为自己有更细的层级。实际结果是阶梯变成了噪声。
 
-字体族：`--dsw-font-family`（正文）、`--dsw-font-family-brand`（品牌）。等宽字体用 `--ds-font-family-code`（**注意是 `--ds-` 前缀，比本节其余 token 少一个 `w`**，它不是 `--dsw-*` 一族）：它在 `body` 上合成，`var(--dsh-font-family-code, var(--dsh-font-family-code-default))` 两项串联，前者由「设置 → 代码字体」写入，后者是内置栈，所以用它才跟得上用户改字体。宿主自己 33 处 `font-family` 全部这么写，零处用 `--dsh-font-family-code-default`、零处用裸 `ui-monospace` 栈。裸栈只在 token 缺失时作为 fallback 出现在末尾。
+字体族：`--dsw-font-family`（正文）、`--dsw-font-family-brand`（品牌）。等宽字体是唯一允许的 `--ds-*`：`--ds-font-family-code`。宿主没有对应的 `--dsw-*`，这个变量跟的是「设置 → 代码字体」。除此之外不新增 `--ds-*`（包括 `--ds-transition-duration`、`--ds-ease-in-out`）。
 
 ### 2.5 间距
 
@@ -137,13 +139,9 @@ padding: 同上一套
 
 ### 2.6 主题切换
 
-不要读 `prefers-color-scheme`，不要自己在元素上打 `data-theme`。DSH 用：
+不要读 `prefers-color-scheme`，不要自己在元素上打 `data-theme`，也不要写 `body[data-ds-dark-theme]` 或 `data-ds-theme-source`。alias token 会随宿主主题翻转，两边都能用的颜色不要再写主题分支。
 
-```css
-body[data-ds-dark-theme] .xxx { ... }
-```
-
-绝大多数情况**根本不需要这个选择器** —— 用了 alias token 就自动双向适配。只有在 token 表达不了时才写它。
+token 在浅色和深色下分不开、又必须分开时，由 `theme` 服务把结果写到插件自己的命名空间属性（`data-dsh-imagegen-scheme`）上，并在规则旁说明为什么 alias 不够。不要去读宿主的 body 属性。
 
 若需要 JS 判断主题，注入 `theme` 服务，读 `theme.getTheme()`，订阅 `theme/change` 事件：
 
@@ -160,7 +158,7 @@ ctx.on('theme/change', () => { /* 重新计算 */ })
 
 ## 3. 组件：用 DSH 的，别手搓
 
-DSH 在 `@deepseek-ai/dsh-client-ui-primitives` 里导出了 **146 个组件/工具 + 188 个图标**。当前插件只用了 2 个（`Button`、`Pill`）。
+DSH 在 `@deepseek-ai/dsh-client-ui-primitives` 里导出了按钮、输入、菜单、开关、复选框、分段、弹层和图标。标准控件用这些组件，不在插件 CSS 里再画一套。`peerDependencies` 与 `dsh.client.inject` 都要声明这个包和 `react`，版本对齐宿主锁文件并带上预发布号。不把 `@deepseek-ai/dsh-client-ui-theme` 列为 peer，也不 import 它的样式表。
 
 ### 3.1 可直接替换的
 

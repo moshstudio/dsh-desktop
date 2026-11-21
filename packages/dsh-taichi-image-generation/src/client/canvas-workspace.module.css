@@ -32,9 +32,9 @@
    * told about have to be the same color, and one value is the only way to
    * guarantee that.
    */
-  --canvas-annotation: var(--dsw-static-red-500, #ef4444);
+  --canvas-annotation: var(--dsw-static-red-500);
   /** Ink drawn on top of the marker (the badge number, the inner stroke). */
-  --canvas-annotation-ink: var(--dsw-static-neutral-00, #ffffff);
+  --canvas-annotation-ink: var(--dsw-static-neutral-00);
   /**
    * The node card's own surface, and the ring around it (issue #23).
    *
@@ -80,20 +80,13 @@
 }
 
 /*
- * Dark theme only. This is the one place in this file where the theme has to be
- * read off the host's own attribute — the contract (docs/native-ui-contract.md
- * §2.6) allows `body[data-ds-dark-theme]` exactly for the case a token cannot
- * express, and this is that case: DSH hands out ONE set of layer/border tokens
- * that resolves to #ffffff across all three layers in light and to three
- * near-identical greys in dark. "The card must differ from the canvas" simply
- * cannot be said once for both themes, because in light they are the same colour
- * by design and in dark they are the same colour by accident.
- *
- * The base is `bg-layer-1` because in dark that IS the canvas colour, so the
- * mixes below are literally "the canvas, nudged toward the theme's ink" — the
- * measured ratios in the comment above are about nothing else.
+ * Dark theme only. Layer tokens collapse: light resolves every layer to the
+ * same white, and dark resolves them to near-identical greys, so "the card
+ * must differ from the canvas" cannot be one mix for both themes. The host
+ * theme service writes data-dsh-imagegen-scheme on this root; the mixes below
+ * nudge the dark canvas toward its own ink. Light keeps the unmixed tokens.
  */
-:global(body[data-ds-dark-theme]) .root {
+.root[data-dsh-imagegen-scheme='dark'] {
   --canvas-node-surface: color-mix(in srgb, var(--dsw-alias-label-primary) 12%, var(--dsw-alias-bg-layer-1));
   --canvas-node-border: color-mix(in srgb, var(--dsw-alias-label-primary) 36%, var(--dsw-alias-bg-layer-1));
   /* One step above the resting ring (2.99:1) so hovering is visible at all. */
@@ -187,7 +180,7 @@
   white-space: nowrap;
 }
 
-.saveState[data-state="error"] { color: var(--dsw-alias-state-error-primary, #ec1313); }
+.saveState[data-state="error"] { color: var(--dsw-alias-state-error-primary); }
 .saveState[data-state="saving"] { color: var(--dsw-alias-state-warn-primary, var(--dsw-alias-label-secondary)); }
 /* 草稿和「保存中」同一档：都不是终态，都不该用「已保存」那档普通色念过去。 */
 .saveState[data-state="draft"] { color: var(--dsw-alias-state-warn-primary, var(--dsw-alias-label-secondary)); }
@@ -407,7 +400,7 @@
    用户点过一次就会明白「先放点东西进去」，而消失只会让他以为功能没做。 */
 .topBarMenu button:disabled { color: var(--dsw-alias-label-tertiary); cursor: not-allowed; }
 
-.topBarMenu button[data-danger] { color: var(--dsw-alias-state-error-primary, #ec1313); }
+.topBarMenu button[data-danger] { color: var(--dsw-alias-state-error-primary); }
 
 /* ------------------------------------------------ workflow options menu */
 
@@ -529,7 +522,7 @@
   gap: 6px;
   padding: 5px 6px;
   border: none;
-  border-left: 2px solid var(--dsw-alias-state-error-primary, #ec1313);
+  border-left: 2px solid var(--dsw-alias-state-error-primary);
   border-radius: var(--dsw-radius-xs);
   background: transparent;
   color: var(--dsw-alias-label-primary);
@@ -799,7 +792,7 @@
   pointer-events: auto;
 }
 
-.nodeStateError { color: var(--dsw-alias-state-error-primary, #ec1313); }
+.nodeStateError { color: var(--dsw-alias-state-error-primary); }
 
 /* A second line inside a failed node: the message says what broke, this says
    what the user can do about it (e.g. switch the composer back to a model). */
@@ -1539,7 +1532,7 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.composerHint[data-renderer-warning] { color: var(--dsw-alias-state-warn-primary, #f59e0b); }
+.composerHint[data-renderer-warning] { color: var(--dsw-alias-state-warn-primary); }
 
 .composerControls [data-dsh-select] {
   height: 28px;
@@ -1778,7 +1771,7 @@
   padding: 0;
 }
 
-.promptSetRemove:hover { color: var(--dsw-alias-state-warn-primary, #f59e0b); }
+.promptSetRemove:hover { color: var(--dsw-alias-state-warn-primary); }
 
 .promptSetRemove:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
@@ -2453,7 +2446,7 @@
 }
 
 .contextMenu button:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.contextMenu button[data-danger] { color: var(--dsw-alias-state-error-primary, #ec1313); }
+.contextMenu button[data-danger] { color: var(--dsw-alias-state-error-primary); }
 
 /* 身份锚定角标：贴在图片节点左上角。用星形语义（钉住），不是彩色强调——
    --dsw-alias-brand-primary 是中性反转色，这里只做底片。 */
@@ -2527,9 +2520,9 @@
   max-width: min(680px, 88%);
   padding: 9px 12px;
   border-radius: var(--dsw-radius-md);
-  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 35%, transparent);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 12%, var(--dsw-alias-bg-layer-1));
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   line-height: 1.5;
   box-shadow: var(--dsw-shadow-lv2);
@@ -2726,7 +2719,7 @@
   border: none;
   border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-bg-base, #fff);
+  color: var(--dsw-alias-bg-base);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -3058,7 +3051,7 @@
 }
 
 .skillRunNode[data-status='failed'] {
-  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 42%, var(--dsw-alias-border-l1));
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 42%, var(--dsw-alias-border-l1));
 }
 
 .skillRunNode[data-status='pending'] { opacity: 0.85; }
@@ -3127,7 +3120,7 @@
   margin: 0;
   font-size: 11px;
   line-height: 1.45;
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -3413,7 +3406,7 @@
 /* Why the node skill menu cannot offer this entry (the host renders the copy). */
 .libraryEntryText small.libraryEntryIssue {
   font-size: 11px;
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
   white-space: normal;
   overflow: visible;
 }
@@ -3457,7 +3450,7 @@
 }
 
 .skillConfigRequired {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
   font-style: normal;
   margin-left: 3px;
 }
@@ -3508,7 +3501,7 @@
   flex: none;
   border: 1px solid var(--dsw-alias-border-l1);
   background: transparent;
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
   border-radius: var(--dsw-radius-sm);
   font-size: 11px;
   padding: 4px 9px;
@@ -4169,8 +4162,8 @@
    这个变量在本版主题里并不存在（实测逐个元素扫过 542 个 token），写它等于没写，
    边框会掉回继承色。 */
 .nodeOverlap {
-  border-color: var(--dsw-alias-state-warn-primary, #f59e0b);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 26%, transparent);
+  border-color: var(--dsw-alias-state-warn-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-warn-primary) 26%, transparent);
 }
 
 .nodeRunFailed {
@@ -4182,7 +4175,7 @@
    人以为要重试它，而真正该动的是上面那个失败的。 */
 .nodeRunBlocked {
   border-style: dashed;
-  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 70%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 70%, transparent);
 }
 
 /*
@@ -4228,12 +4221,12 @@
 
 .runMark[data-run-mark="failed"] {
   background: var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-label-primary-foreground, #fff);
+  color: var(--dsw-alias-label-primary-foreground);
 }
 
 .runMark[data-run-mark="blocked"] {
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 18%, var(--dsw-alias-bg-layer-1));
-  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 18%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 /* 「这张被整张盖住了」。它画在 `.world` 覆盖层上（不是卡片内），坐标由
@@ -4250,9 +4243,9 @@
   max-width: 220px;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid var(--dsw-alias-label-primary-foreground, #fff);
-  background: var(--dsw-alias-state-warn-primary, #f59e0b);
-  color: var(--dsw-alias-label-primary-foreground, #fff);
+  border: 1px solid var(--dsw-alias-label-primary-foreground);
+  background: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-label-primary-foreground);
   font-size: 11px;
   line-height: 16px;
   white-space: nowrap;
@@ -4311,7 +4304,7 @@
   border: none;
   border-radius: 999px;
   background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-bg-base, #fff);
+  color: var(--dsw-alias-bg-base);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -4825,7 +4818,7 @@
   margin: -2px 0 0;
   font-size: 11px;
   line-height: 1.35;
-  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 /* 一粒角标而不是整行变色：这一镜仍然能跑、仍然有用，只是少了钉住的脸。
@@ -4836,7 +4829,7 @@
   border-radius: var(--dsw-radius-sm);
   font-size: 10px;
   line-height: 15px;
-  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+  color: var(--dsw-alias-state-warn-primary);
   border: 1px solid currentColor;
   white-space: nowrap;
 }
@@ -4867,11 +4860,11 @@
 }
 
 .storyboardLintHead[data-level='block'] {
-  color: var(--dsw-alias-state-error-primary, #ef4444);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .storyboardLintHead[data-level='warn'] {
-  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 .storyboardLintToggle {
@@ -4897,7 +4890,7 @@
 }
 
 .storyboardLintItem[data-level='block'] {
-  color: var(--dsw-alias-state-error-primary, #ef4444);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 /* 镜号：把结论钉回具体那一行，所以它得比正文更窄、更靠前。 */
@@ -4918,12 +4911,12 @@
   line-height: 15px;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+  color: var(--dsw-alias-state-warn-primary);
   border: 1px solid currentColor;
 }
 
 .storyboardLintChip[data-lint-chip='block'] {
-  color: var(--dsw-alias-state-error-primary, #ef4444);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 /* 下拉：与 `.composerControls [data-dsh-select]` / `.generateForm [data-dsh-select]`
@@ -5052,14 +5045,14 @@
 }
 
 .storyboardShotState[data-state='failed'] {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 12%, transparent);
-  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 28%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 28%, transparent);
 }
 
 /* 失败的那一镜整卡描一层错误色，扫列表时不用逐条读徽标 */
 .storyboardShot[data-state='failed'] {
-  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 32%, var(--dsw-alias-border-l1));
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 32%, var(--dsw-alias-border-l1));
 }
 
 /* 镜号右侧的图标按钮组（上移 / 下移 / 删除）：靠右，尺寸与 `.textTool` 同级 */
@@ -5102,8 +5095,8 @@
 /* 删除镜头的按钮由调用方打上 `data-danger`，悬停转错误色——和 `.contextMenu button[data-danger]`
    同一套语义。文案会随语言变化，所以这里不按 `title` 匹配。 */
 .storyboardIconButton[data-danger]:hover {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 12%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
 }
 
 /* 镜头提示词：与 `.textArea` 同一套字号 / 行高 / 占位符色，但要有自己的描边，
@@ -5155,7 +5148,7 @@
   display: block;
   font-size: 11px;
   line-height: 1.35;
-  color: var(--dsw-alias-state-warn-primary, #f59e0b);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 /* 单镜的「生成这一镜」：低调的描边按钮，主按钮在底部，这一层不该抢主次 */
@@ -5184,9 +5177,9 @@
 }
 
 .storyboardShotRun[data-state='failed'] {
-  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 38%, var(--dsw-alias-border-l1));
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 10%, transparent);
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 38%, var(--dsw-alias-border-l1));
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .storyboardShotRun:disabled {
@@ -5583,7 +5576,7 @@
 }
 
 .proposalError {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .proposalActions {

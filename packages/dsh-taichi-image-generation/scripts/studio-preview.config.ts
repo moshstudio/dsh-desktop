@@ -51,7 +51,7 @@ export default {
     // 子路径也要列：`alwaysBundle` 是按**说明符**匹配的，列了 `three` 不会连带
     // 把它自己的 `three/examples/jsm/...` 也打进包——那些会退化成全局变量，
     // 而页面里没有那个全局，于是整块白屏。
-    alwaysBundle: ['react', 'react-dom', 'lucide-react', '@deepseek-ai/dsh-client-ui-primitives', 'clsx', '@xyflow/react', 'three', 'three/examples/jsm/loaders/GLTFLoader.js'],
+    alwaysBundle: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom', 'react-dom/client', 'lucide-react', '@deepseek-ai/dsh-client-ui-primitives', 'clsx', '@xyflow/react', 'three', 'three/examples/jsm/loaders/GLTFLoader.js'],
   },
   plugins: [
     // Must run BEFORE the shared css-modules plugin: that one only claims

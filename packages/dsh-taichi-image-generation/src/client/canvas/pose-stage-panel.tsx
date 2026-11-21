@@ -2,6 +2,10 @@
  * 导演台的全屏面板：左栏排角色、道具与机位、中间一块可以绕着看（或透过某台
  * 机位看）的视口 + 底部时间轴、右栏按段调关键帧 / 轨迹 / 姿势 / 场景。
  *
+ * NATIVE-GAP: the stage toolbar (pen, step, repeat) has no Icon* match except
+ * play and pause. The panel stays inside the fullscreen element, so it does
+ * not use Modal (a body portal would render behind the fullscreen layer).
+ *
  * 与 `pose-board.tsx` 同一个约定：只接 props、回回调。画布 document、写盘、上传、
  * 逐帧导出都在外面——这里连 `api` 都不拿，于是撤销/重做、自动保存、多窗口版本
  * 检查都看不见它。
@@ -25,8 +29,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { IconPauseOutlineRegular, IconPlayOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  Pause, PenTool, Pencil, Play, Repeat, SkipBack, StepBack, StepForward,
+  PenTool,
+  Pencil,
+  Repeat,
+  SkipBack,
+  StepBack,
+  StepForward,
 } from 'lucide-react'
 import type {
   CanvasPoseActor, CanvasPoseCamera, CanvasPoseScene, CanvasPoseStage,
@@ -1397,8 +1407,8 @@ export function PoseStagePanel(props: PoseStagePanelProps): React.JSX.Element {
                 aria-pressed={playing}
                 onClick={() => setPlaying(current => !current)}
               >{playing
-                ? <Pause size={14} strokeWidth={1.8} aria-hidden />
-                : <Play size={14} strokeWidth={1.8} aria-hidden />}</button>
+                ? <IconPauseOutlineRegular size={14} />
+                : <IconPlayOutlineRegular size={14} />}</button>
               <button
                 type="button"
                 className={css.iconButton}

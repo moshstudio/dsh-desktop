@@ -8,6 +8,9 @@
  *
  * 两条路径都给：宿主装了 workspace UI 就能用系统目录框；没装（headless、
  * 精简外壳）就手输绝对路径。两条都通，功能不在精简外壳上失效。
+ *
+ * NATIVE-GAP: 目录卡挂在全屏画布内。`<Modal>` portal 到 body 后会落到全屏层后面，
+ * 所以这里继续用 `useModalLayer`。
  */
 
 import { useId, useMemo, useRef, useState } from 'react'

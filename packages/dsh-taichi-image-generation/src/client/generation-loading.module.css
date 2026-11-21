@@ -7,7 +7,7 @@
   /* The dot wave is a progress indicator, so it takes the same accent the
      panel's own spinner uses (`state-business-primary`, #4176e6 / #7aaaff)
      instead of a private blue that ignored the theme. */
-  color: var(--dsw-alias-state-business-primary, #4176e6);
+  color: var(--dsw-alias-state-business-primary);
   pointer-events: none;
 }
 

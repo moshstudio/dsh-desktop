@@ -18,9 +18,19 @@
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { IconCheckOutlineRegular, IconCopyOutlineRegular, IconDownloadOutlineRegular, IconPlusOutlineRegular, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  AlertTriangle, Archive, Check, Copy, Download, ExternalLink, FileText, FileSpreadsheet,
-  Film, Image as ImageIcon, Loader2, Minus, Music, Plus, RotateCcw, X,
+  AlertTriangle,
+  Archive,
+  ExternalLink,
+  FileText,
+  FileSpreadsheet,
+  Film,
+  Image as ImageIcon,
+  Loader2,
+  Minus,
+  Music,
+  RotateCcw,
 } from 'lucide-react'
 import type {
   CanvasAssetRef, CanvasDocBlock, CanvasDocRun, CanvasFileKind, CanvasFilePreview, CanvasSlidePreview,
@@ -149,7 +159,7 @@ function DownloadButton({ asset, title, label }: { asset: CanvasAssetRef; title:
       anchor.click()
       anchor.remove()
     }}
-  ><Download size={13} strokeWidth={1.6} aria-hidden="true" /></button>
+  ><IconDownloadOutlineRegular size={13} /></button>
 }
 
 /** CSV / TSV / XLSX grid, shared by the node body and the overlay. */
@@ -468,7 +478,7 @@ function ImageViewer({ src, alt, compact }: { src: string; alt: string; compact:
     {!compact ? <div className={css.imageViewerControls} aria-label={tt('preview.zoomControls')}>
       <button type="button" title={tt('preview.zoomOut')} aria-label={tt('preview.zoomOut')} disabled={scale <= 0.5} onClick={() => { setScale(value => clamp(value - 0.25)) }}><Minus size={14} aria-hidden="true" /></button>
       <button type="button" className={css.imageViewerZoomValue} title={tt('preview.zoomReset')} aria-label={tt('preview.zoomReset')} onClick={() => { setScale(1) }}>{Math.round(scale * 100)}%</button>
-      <button type="button" title={tt('preview.zoomIn')} aria-label={tt('preview.zoomIn')} disabled={scale >= 4} onClick={() => { setScale(value => clamp(value + 0.25)) }}><Plus size={14} aria-hidden="true" /></button>
+      <button type="button" title={tt('preview.zoomIn')} aria-label={tt('preview.zoomIn')} disabled={scale >= 4} onClick={() => { setScale(value => clamp(value + 0.25)) }}><IconPlusOutlineRegular size={14} aria-hidden="true" /></button>
       <button type="button" title={tt('preview.zoomReset')} aria-label={tt('preview.zoomReset')} onClick={() => { setScale(1) }}><RotateCcw size={13} aria-hidden="true" /></button>
     </div> : null}
     <div className={css.imageViewerStage} onDoubleClick={() => { setScale(value => value === 1 ? 2 : 1) }}>
@@ -572,7 +582,7 @@ export function CanvasFileOverlay(props: {
             title={tt(copied ? 'canvas.preview.copied' : 'canvas.preview.copy')}
             aria-label={tt(copied ? 'canvas.preview.copied' : 'canvas.preview.copy')}
             onClick={copy}
-          >{copied ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.6} aria-hidden="true" />}</button> : null}
+          >{copied ? <IconCheckOutlineRegular size={13} /> : <IconCopyOutlineRegular size={13} />}</button> : null}
           {media !== undefined ? <button
             type="button"
             className={css.fileAction}
@@ -587,7 +597,7 @@ export function CanvasFileOverlay(props: {
             title={tt('canvas.preview.close')}
             aria-label={tt('canvas.preview.close')}
             onClick={onClose}
-          ><X size={14} strokeWidth={1.8} aria-hidden="true" /></button>
+          ><IconCloseOutlineRegular size={14} /></button>
         </div>
       </header>
       <div className={css.fileOverlayBody} data-media={media ?? 'document'}>

@@ -6,11 +6,43 @@
  * as a reference, and results land as new image nodes on the right. */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useHostScheme } from './host-theme.ts'
 import { createPortal } from 'react-dom'
+import { IconChevronDownOutlineRegular, IconCopyOutlineRegular, IconDownloadOutlineRegular, IconPlusOutlineRegular, IconTrashOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  Bold, BookOpen, ChevronDown, Copy, Download, Eraser, Expand, FileText as FileTextIcon, Film, FolderX, Hand, Image as ImageIcon,
-  GitBranch, Keyboard, Layers, Magnet, Map as MapIcon, Maximize, Maximize2, MousePointer2, Palette, Pencil, Plus, Redo2, Scissors, SendHorizonal, Share2, Sparkles, Star,
-  Shrink, SquareDashedMousePointer, Trash2, Type, Undo2, Upload, Video, Wand2, Wallpaper,
+  Bold,
+  BookOpen,
+  Eraser,
+  Expand,
+  FileText as FileTextIcon,
+  Film,
+  FolderX,
+  Hand,
+  Image as ImageIcon,
+  GitBranch,
+  Keyboard,
+  Layers,
+  Magnet,
+  Map as MapIcon,
+  Maximize,
+  Maximize2,
+  MousePointer2,
+  Palette,
+  Pencil,
+  Redo2,
+  Scissors,
+  SendHorizonal,
+  Share2,
+  Sparkles,
+  Star,
+  Shrink,
+  SquareDashedMousePointer,
+  Type,
+  Undo2,
+  Upload,
+  Video,
+  Wand2,
+  Wallpaper,
 } from 'lucide-react'
 import type { CanvasAnnotation, CanvasAssetRef, CanvasConnection, CanvasPromptSetItem, CanvasConnectionRole, CanvasDocument, CanvasProposal, CanvasFileKind, CanvasLayerInfo, CanvasLayerPlanItem, CanvasNode, CanvasRect, CanvasStoryboard, CanvasStoryboardSource, CanvasVideoRef, CanvasSkillConfigApplyResult, CanvasSkillConfigField, CanvasSkillConfigSaveResult, CanvasSkillConfigStep, CanvasSkillConfigView, CanvasSkillDescriptor, CanvasSkillLibrary, CanvasSkillOutput, CanvasSkillRunRequest, CanvasSkillTask, CanvasSketchStroke, CanvasPoseStage, CanvasPoseRig, GenerateRequest, GenerationTask, HistoryEntry, VideoGenerateRequest, VideoHistoryEntry, VideoTaskSummary, VideoMode, VideoResolution } from '../protocol.ts'
 import type { CanvasBundleUnresolved } from '../canvas-bundle.ts'
@@ -766,6 +798,7 @@ async function loadStagePano(url: string | null): Promise<HTMLImageElement | nul
 const DROP_IMAGE_MAX_COUNT = 20
 
 export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element {
+  const colorScheme = useHostScheme()
   const { api, workspaceRoot, pickDirectory, modelGroups, defaultChannelId, connected, connectedChannelIds, promptReady = connected, history, gallery, tasks, videoGroups, videoTasks, videoHistory, importRequest, onImportRequestHandled, openCanvasId, onOpenCanvasHandled, onClipStored, onOpenSettings, active } = props
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [document, setDocument] = useState<CanvasDocument | null>(null)
@@ -7429,6 +7462,7 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
     ref={rootRef}
     className={css.root}
     data-canvas-workspace=""
+    data-dsh-imagegen-scheme={colorScheme}
     data-zoom-band={zoomBand}
     style={{
       // 边框补偿是「屏幕像素恒定」语义，交给 CSS 变量传下去：`.node` 的

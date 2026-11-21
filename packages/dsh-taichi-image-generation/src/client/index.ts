@@ -27,6 +27,7 @@ import { mountPanel } from './mount.tsx'
 import { mountSidebarEntry } from './sidebar-entry.ts'
 import { bindImageGenScope, type ImageGenScope } from './settings-scope.ts'
 import { hostDirectoryPicker } from './host-directory.ts'
+import { publishHostScheme, readHostScheme, type HostThemeService } from './host-theme.ts'
 import { registerImageToolviews, type ImageToolViewOwnerProps } from './image-toolview.tsx'
 import type { ConversationService } from './conversation-sync.ts'
 
@@ -54,7 +55,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Required services (fiber inject waiting — the runtime must be up first). */
-export const inject = ['slots', 'locale', 'connection', 'sessions', 'conversation']
+export const inject = ['slots', 'locale', 'connection', 'sessions', 'conversation', 'theme']
 
 // Internals re-exported for the standalone smoke test (the browser bundle is
 // the only place these are reachable from Node); not part of the contract.
@@ -106,6 +107,12 @@ export function apply(ctx: ClientContext): void {
     applyLocale()
     return ctx.locale.subscribe(applyLocale)
   }, 'dsh-imagegen: follow host locale')
+  ctx.effect(() => {
+    const theme = ctx.get('theme') as HostThemeService | undefined
+    const apply = (): void => { publishHostScheme(readHostScheme(theme)) }
+    apply()
+    return ctx.on('theme/change', apply)
+  }, 'dsh-imagegen: follow host theme')
   registerImageToolviews(ctx)
 
   // The host route, not the page origin, decides whether the settings bridge

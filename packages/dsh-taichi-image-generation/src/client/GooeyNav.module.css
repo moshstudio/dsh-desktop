@@ -1,7 +1,8 @@
 /* reactbits.dev "GooeyNav" port, theme-following. The gooey merge uses an SVG
  * alpha-contrast filter (blur + feColorMatrix) instead of the CSS
- * blur+contrast trick, so colored particles survive on any surface: the pill
- * and ink follow the host theme via [data-theme]. */
+ * blur+contrast trick, so colored particles survive on any surface. The pill
+ * and ink are alias tokens, so they flip with the host theme without a
+ * light/dark selector. */
 
 .container {
   --gooey-time: 1500ms;
@@ -39,10 +40,13 @@
      four unrelated literals, so they move with the theme.
      Brand here is NEUTRAL (near-black on light, near-white on dark), so each
      mix keeps the particle legible on both surfaces: warm, white and cool. */
-  --gooey-color-1: var(--dsw-alias-brand-primary, #5227ff);
-  --gooey-color-2: color-mix(in srgb, var(--dsw-alias-brand-primary, #5227ff) 45%, var(--dsw-static-red-400, #f25a5a));
-  --gooey-color-3: color-mix(in srgb, var(--dsw-alias-brand-primary, #5227ff) 55%, var(--dsw-static-neutral-00, #ffffff));
-  --gooey-color-4: color-mix(in srgb, var(--dsw-alias-brand-primary, #5227ff) 40%, var(--dsw-static-blue-400, #60a5fa));
+  --gooey-color-1: var(--dsw-alias-brand-primary);
+  --gooey-color-2: color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, var(--dsw-static-red-400));
+  --gooey-color-3: color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-static-neutral-00));
+  --gooey-color-4: color-mix(in srgb, var(--dsw-alias-brand-primary) 40%, var(--dsw-static-blue-400));
+  --gooey-pill: var(--dsw-alias-label-primary);
+  --gooey-pill-ink: var(--dsw-alias-bg-layer-1);
+  --gooey-ink: var(--dsw-alias-label-secondary);
   position: relative;
   max-width: 100%;
   font-size: 13px;
@@ -53,27 +57,6 @@
    bar?"), so a later reader finds the whole answer in one place instead of
    wondering which rule won. */
 .container::-webkit-scrollbar { display: none; }
-
-/* The pill and its label are the two colors that carry meaning, so they come
-   from the theme rather than from a literal. The per-surface branches exist for
-   the case where the host tokens are NOT defined (a bare shell, or the jsdom
-   harness): `var()` then falls back to the literal that is readable against
-   that surface. With the tokens present both branches resolve to the same theme
-   values, which are already inverses of each other, so the pill reads as a
-   solid chip under either theme without a hardcoded palette.
-   `data-theme` is set from a LIVE surface reading (see the component), so it is
-   still correct after the host switches theme. */
-.container[data-theme='light'] {
-  --gooey-pill: var(--dsw-alias-label-primary, #17171c);
-  --gooey-pill-ink: var(--dsw-alias-bg-layer-1, #ffffff);
-  --gooey-ink: var(--dsw-alias-label-secondary, #5b5e6b);
-}
-
-.container[data-theme='dark'] {
-  --gooey-pill: var(--dsw-alias-label-primary, #ffffff);
-  --gooey-pill-ink: var(--dsw-alias-bg-layer-1, #17171c);
-  --gooey-ink: var(--dsw-alias-label-secondary, #ffffff);
-}
 
 .gooSvg {
   position: absolute;

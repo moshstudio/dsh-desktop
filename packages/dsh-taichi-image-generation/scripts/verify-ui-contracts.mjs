@@ -1693,7 +1693,7 @@ const canvasCss = read('canvas-workspace.module.css')
  * build strips. Dropped into a `<style>` tag verbatim it is an invalid selector,
  * so the whole rule is discarded — silently, with no console error. A fixture
  * that embeds the raw file therefore measures a page missing every `:global`
- * rule, and a `:global(body[data-ds-dark-theme]) .root` override simply does not
+ * rule, and a `.root[data-dsh-imagegen-scheme='dark']` override simply does not
  * exist: the dark theme renders the light values and the check reports a failure
  * that the real build does not have. Worse in the other direction too — a rule
  * that only works because of `:global` would look broken here and be "fixed"
@@ -1703,39 +1703,28 @@ const browserCss = css => css.replace(/:global\(([^)]*)\)/g, '$1')
 const imageOpsSource = read('image-ops.ts')
 const gooeySource = read('GooeyNav.tsx')
 
-// The GooeyNav contract is that the SUBSCRIPTION fires, and that lives in
-// surface-theme.ts. Injecting the stylesheet alone cannot observe it: the
-// `data-theme` attribute is set by the component's own callback, so a
-// CSS-only page reports `undefined` for it and the check passes vacuously.
-// The real module is transpiled and loaded into the page instead, and driven
-// exactly the way GooeyNav wires it.
+// GooeyNav follows the host by reading alias tokens. The page below swaps those
+// tokens the way the host theme does; the pill color has to move with them, and
+// the component must not write its own data-theme flag.
 const projectRoot = fileURLToPath(new URL('..', import.meta.url))
-const themeModuleDir = join(tmpdir(), `dsh-surface-theme-${process.pid}`)
-mkdirSync(themeModuleDir, { recursive: true })
+// The package does not vendor React. A repo-level install hoists it two
+// directories up; a package-local install still wins when it exists.
+const resolvePackageFile = (relativePath) => {
+  const local = join(projectRoot, relativePath)
+  if (existsSync(local)) return local
+  return join(projectRoot, '..', '..', relativePath)
+}
 // `node <tsc's own JS entry>`, never `node_modules/.bin/tsc`. On Windows that
 // .bin entry is a POSIX shell script with `.CMD` and `.ps1` shims beside it, so
-// spawnSync on the extensionless name fails with EACCES or ENOENT -- and the
-// guard then reports "could not transpile surface-theme.ts", which reads like a
-// fault in the source instead of in the way it was invoked.
+// spawnSync on the extensionless name fails with EACCES or ENOENT.
 const TSC = join(projectRoot, 'node_modules/typescript/bin/tsc')
-const tsc = spawnSync(process.execPath, [TSC,
-  join(projectRoot, 'src/client/surface-theme.ts'),
-  '--outDir', themeModuleDir,
-  '--module', 'esnext', '--target', 'es2022', '--skipLibCheck',
-], { cwd: projectRoot, encoding: 'utf8' })
-if (tsc.status !== 0) {
-  console.error('\nFAIL: could not transpile surface-theme.ts for the browser check.')
-  console.error(tsc.stdout ?? '', tsc.stderr ?? '')
-  process.exit(1)
-}
-const themeModuleSource = readSourceText(join(themeModuleDir, 'surface-theme.js'))
 
 // The REAL component, transpiled the same way, for the scroll-drift fixture
 // below. Unlike the theme fixture (which re-implements two lines of the
 // component) this one MOUNTS the component: the bug is in `updateEffectPosition`,
 // which only the real code runs. `--noCheck` because the transpile is a loader,
 // not a type gate -- `tsc --noEmit` above is the type gate. The transpile keeps
-// the import specifiers verbatim (`./surface-theme.ts`, `./GooeyNav.module.css`),
+// the import specifiers verbatim (`./GooeyNav.module.css`),
 // so the server below has to answer those two URLs as well as the React shims.
 const navModuleDir = join(tmpdir(), `dsh-gooey-nav-${process.pid}`)
 mkdirSync(navModuleDir, { recursive: true })
@@ -1754,6 +1743,7 @@ const navModuleSource = readSourceText(join(navModuleDir, 'GooeyNav.js'))
 
 const page = `<!doctype html><html><head><style>
   /* A light surface, then flipped to dark at runtime. */
+  * { transition: none !important; animation: none !important; }
   body { margin: 0; background: #ffffff; color: #17171c; }
   body[data-ds-dark-theme] { background: #0f1115; color: #f9fafb; }
   /* The host tokens the components read, in both themes. */
@@ -1778,15 +1768,7 @@ const page = `<!doctype html><html><head><style>
 </style></head><body>
   <div class="container" id="gooey"><nav><ul><li class="active"><button>One</button></li><li><button>Two</button></li></ul></nav></div>
   <div class="root" id="canvasRoot"><div id="probe"></div></div>
-  <script type="module">
-    import { detectLightSurface, subscribeSurfaceTheme } from '/surface-theme.mjs'
-    // The same two lines GooeyNav's setup effect runs.
-    const container = document.getElementById('gooey')
-    const applyTheme = (light) => { container.dataset.theme = light ? 'light' : 'dark' }
-    applyTheme(detectLightSurface(container))
-    window.__stopThemeWatch = subscribeSurfaceTheme(container, applyTheme)
-    window.__gooeyReady = true
-  </script>
+  <script>window.__gooeyReady = true</script>
 </body></html>`
 
 // --- the nav row scrolls, and the pill has to follow it ---------------------
@@ -1862,11 +1844,6 @@ const navScrollPage = `<!doctype html><html><head><style>
 </body></html>`
 
 const server = (await import('node:http')).createServer((req, res) => {
-  if (req.url?.startsWith('/surface-theme.mjs') === true) {
-    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
-    res.end(themeModuleSource)
-    return
-  }
   // The scroll-drift fixture mounts the real component, so it needs React
   // itself. The UMD development builds are served as plain scripts (they set
   // `window.React` / `window.ReactDOM`), and the three `.mjs` shims below turn
@@ -1875,12 +1852,12 @@ const server = (await import('node:http')).createServer((req, res) => {
   // specifier, which is exactly what the shims avoid.
   if (req.url?.startsWith('/react.js') === true) {
     res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
-    res.end(readFileSync(join(projectRoot, 'node_modules/react/umd/react.development.js')))
+    res.end(readFileSync(resolvePackageFile('node_modules/react/umd/react.development.js')))
     return
   }
   if (req.url?.startsWith('/react-dom.js') === true) {
     res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
-    res.end(readFileSync(join(projectRoot, 'node_modules/react-dom/umd/react-dom.development.js')))
+    res.end(readFileSync(resolvePackageFile('node_modules/react-dom/umd/react-dom.development.js')))
     return
   }
   if (req.url?.startsWith('/react.mjs') === true) {
@@ -1912,13 +1889,6 @@ const server = (await import('node:http')).createServer((req, res) => {
   if (req.url?.startsWith('/GooeyNav.js') === true) {
     res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
     res.end(navModuleSource)
-    return
-  }
-  if (req.url?.startsWith('/surface-theme.ts') === true) {
-    // GooeyNav imports './surface-theme.ts' verbatim, so the transpiled module
-    // asks for that exact URL. Same bytes as the .mjs route above.
-    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
-    res.end(themeModuleSource)
     return
   }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
@@ -1972,51 +1942,40 @@ for (let i = 0; i < 40; i++) {
   await new Promise(r => setTimeout(r, 100))
 }
 if (!gooeyReady) {
-  console.error('\nFAIL: the surface-theme module never loaded in the page, so the')
+  console.error('\nFAIL: the GooeyNav page never became ready, so the')
   console.error('GooeyNav contract was NOT exercised (this is a broken harness, not a pass).')
   process.exit(1)
 }
 
+if (/data-theme/.test(gooeySource) || /data-theme/.test(gooeyCss)) {
+  console.error('\nFAIL: GooeyNav writes data-theme again.')
+  console.error('Alias tokens follow the host theme. A light/dark attribute on the nav is a second theme branch.')
+  process.exit(1)
+}
+if (!/--gooey-pill:\s*var\(--dsw-alias-label-primary\)/.test(gooeyCss)) {
+  console.error('\nFAIL: GooeyNav pill is not the label-primary alias token.')
+  process.exit(1)
+}
+
 // --- 1. GooeyNav follows a runtime theme switch -----------------------------
-// The page flips the host attribute the way DSH does, then reads the computed
-// pill color. A one-shot detector (the original bug) leaves the old value.
-const gooey = await evaluate(`(async () => {
-  const el = document.getElementById('gooey')
-  const read = () => getComputedStyle(el).getPropertyValue('--gooey-pill').trim()
+// The page flips the host tokens the way DSH does, then reads the computed
+// ink. A hardcoded pill or a data-theme branch leaves the old color.
+const gooey = await evaluate(`(() => {
+  const button = document.querySelectorAll('#gooey button')[1]
+  const read = () => getComputedStyle(button).color
   const before = read()
-  const themeBefore = el.dataset.theme
   document.body.setAttribute('data-ds-dark-theme', '')
-  // The subscription is async (MutationObserver): wait for the attribute to
-  // actually move rather than assuming a fixed number of frames is enough.
-  const deadline = Date.now() + 2000
-  while (el.dataset.theme === themeBefore && Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 20))
-  }
-  return { before, after: read(), themeBefore, themeAttr: el.dataset.theme }
+  const token = getComputedStyle(document.body).getPropertyValue('--dsw-alias-label-secondary').trim()
+  return { before, after: read(), token, themeAttr: document.getElementById('gooey').getAttribute('data-theme') }
 })()`)
-console.log(`GooeyNav pill: light=${gooey.before} (${gooey.themeBefore}) -> dark=${gooey.after} (${gooey.themeAttr})`)
-if (gooey.themeAttr !== 'dark') {
-  console.error(`\nFAIL: the container's data-theme is still "${gooey.themeAttr}" after the host switched to dark.`)
-  console.error('The subscription did not fire, so the nav keeps the ink it was built with')
-  console.error('and stays unreadable against the new surface.')
+console.log(`GooeyNav ink: light=${gooey.before} -> dark=${gooey.after} token=${gooey.token}`)
+if (gooey.themeAttr !== null) {
+  console.error(`\nFAIL: the nav still carries data-theme="${gooey.themeAttr}".`)
   process.exit(1)
 }
 if (gooey.before === gooey.after || gooey.after === '') {
   console.error(`\nFAIL: the GooeyNav palette did not move with the theme (light=${gooey.before}, dark=${gooey.after}).`)
-  console.error('Either the palette is hardcoded again, or the per-surface branches')
-  console.error('resolved to the same value and the nav is painted blind to the surface.')
-  process.exit(1)
-}
-// The subscription must also be DISPOSED -- a nav that keeps observing after
-// it unmounts is the same leak class the panel takeover bug came from.
-if (!/stopThemeWatch\(\)/.test(gooeySource)) {
-  console.error('\nFAIL: GooeyNav no longer disposes its theme subscription.')
-  process.exit(1)
-}
-// And the wiring itself: the module being correct is useless if the component
-// never subscribes to it.
-if (!/subscribeSurfaceTheme\(/.test(gooeySource)) {
-  console.error('\nFAIL: GooeyNav no longer calls subscribeSurfaceTheme -- it reads the surface once again.')
+  console.error('Either the palette is hardcoded again, or the alias token is not what the label paints.')
   process.exit(1)
 }
 
@@ -3806,8 +3765,8 @@ if (rootVars.get('--canvas-node-surface') !== 'var(--dsw-alias-bg-layer-1)') {
 if (rootVars.get('--canvas-node-border') !== 'var(--dsw-alias-border-l1)') {
   nodeProblems.push(`\`--canvas-node-border\` is ${String(rootVars.get('--canvas-node-border'))}, not \`var(--dsw-alias-border-l1)\` — the LIGHT theme's resting ring has to stay what it shipped with`)
 }
-if (!/:global\(body\[data-ds-dark-theme\]\) \.root\s*\{[\s\S]{0,400}?--canvas-node-surface:/.test(canvasCss)) {
-  nodeProblems.push('no `body[data-ds-dark-theme] .root { --canvas-node-surface }` override — the dark card would be the canvas colour again')
+if (!/\.root\[data-dsh-imagegen-scheme='dark'\]\s*\{[\s\S]{0,500}?--canvas-node-surface:/.test(canvasCss)) {
+  nodeProblems.push('no `.root[data-dsh-imagegen-scheme=dark] { --canvas-node-surface }` override — the dark card would be the canvas colour again')
 }
 if (selectedBorder === null) {
   nodeProblems.push('`.nodeSelected` no longer sets its own border-color, so selection cannot read above the default')
@@ -3819,7 +3778,7 @@ if (nodeProblems.length > 0) {
   for (const entry of nodeProblems) console.error(`  - ${entry}`)
   console.error('A dark card and the canvas it floats on must be two surfaces, and the light')
   console.error('theme must keep the one it had. Split the value at `.root` — the light theme')
-  console.error('keeps `bg-layer-1` exactly, and `body[data-ds-dark-theme] .root` overrides it.')
+  console.error('keeps `bg-layer-1` exactly, and `.root[data-dsh-imagegen-scheme=dark]` overrides it.')
   process.exit(1)
 }
 
@@ -3861,7 +3820,7 @@ body { ${palette.tokens} }
 html, body { margin: 0; height: 100%; }
 ${browserCss(canvasCss)}
 </style></head><body${palette.bodyAttr}>
-<div class="root" id="probeRoot" style="height:320px">
+<div class="root" id="probeRoot" ${palette.name === 'dark' ? 'data-dsh-imagegen-scheme="dark"' : ''} style="height:320px">
   <div class="viewport" id="probeViewport">
     <div class="node" id="probeNode" style="left:40px;top:40px;width:200px;height:120px"></div>
   </div>
@@ -3930,6 +3889,5 @@ ws3.close()
 ws2.close()
 ws5.close()
 ws.close(); launched.close(); server.close()
-rmSync(themeModuleDir, { recursive: true, force: true })
 rmSync(navModuleDir, { recursive: true, force: true })
 console.log('\nUI CONTRACTS VERIFIED')

@@ -3,7 +3,7 @@
  * receives pointer events, so every listener observes the viewport element. */
 
 import { useEffect, useRef } from 'react'
-import { detectLightSurface } from './surface-theme.ts'
+import { getHostScheme, subscribeHostScheme } from './host-theme.ts'
 import css from './canvas-workspace.module.css'
 
 /** Interactive flowmap-style dot field ("fluid distortion"): the pointer's
@@ -689,10 +689,11 @@ function startShaderCanvas(
     const state: ShaderFrameState = {
       gl, program, uniforms,
       time: 0, width: 1, height: 1, dpr: 1,
-      light: detectLightSurface(viewport),
+      light: getHostScheme() === 'light',
       pointer: { x: 0, y: 0, active: 0 },
       draw: () => { gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4) },
     }
+    const stopTheme = subscribeHostScheme(next => { state.light = next === 'light' })
     const pointerTarget = { x: 0, y: 0, active: 0 }
     const resize = (): void => {
       const rect = viewport.getBoundingClientRect()
@@ -729,6 +730,7 @@ function startShaderCanvas(
       frame(state)
       gl.deleteBuffer(quad)
       gl.deleteProgram(program)
+      stopTheme()
       return null
     }
     const start = performance.now()
@@ -749,6 +751,7 @@ function startShaderCanvas(
     return {
       light: state.light,
       dispose: () => {
+        stopTheme()
         window.cancelAnimationFrame(frameHandle)
         observer.disconnect()
         viewport.removeEventListener('pointermove', onPointerMove)
@@ -867,8 +870,12 @@ export function FloatingLinesBackground(): React.JSX.Element {
     if (handle === null) return
     // The glowing ink only reads correctly over a dark surface; the lightMode
     // branch paints its own light backdrop, so blending must be off there.
-    canvas.style.mixBlendMode = handle.light ? 'normal' : 'screen'
-    return () => { handle.dispose() }
+    const applyBlend = (next: 'light' | 'dark'): void => {
+      canvas.style.mixBlendMode = next === 'light' ? 'normal' : 'screen'
+    }
+    applyBlend(getHostScheme())
+    const stopBlend = subscribeHostScheme(applyBlend)
+    return () => { stopBlend(); handle.dispose() }
   }, [])
   return <canvas ref={canvasRef} className={css.sceneCanvas} aria-hidden="true" />
 }
@@ -1423,9 +1430,10 @@ export function DotFieldBackground(): React.JSX.Element {
     const ctx = canvas.getContext('2d', { alpha: true })
     if (ctx === null) return
     const FIELD = { radius: 1.5, spacing: 14, cursorRadius: 500, bulgeStrength: 67, glowRadius: 160 }
-    const light = detectLightSurface(viewport)
-    const glowInner = light ? 'rgba(82, 39, 255, 0.16)' : 'rgba(18, 15, 23, 1)'
-    const glowOuter = light ? 'rgba(82, 39, 255, 0)' : 'rgba(18, 15, 23, 0)'
+    let light = getHostScheme() === 'light'
+    const stopTheme = subscribeHostScheme(next => { light = next === 'light' })
+    const glowInner = (): string => light ? 'rgba(82, 39, 255, 0.16)' : 'rgba(18, 15, 23, 1)'
+    const glowOuter = (): string => light ? 'rgba(82, 39, 255, 0)' : 'rgba(18, 15, 23, 0)'
     type FieldDot = { ax: number, ay: number, sx: number, sy: number }
     let dots: FieldDot[] = []
     let width = 0
@@ -1480,8 +1488,8 @@ export function DotFieldBackground(): React.JSX.Element {
       ctx.clearRect(0, 0, width, height)
       if (glowOpacity > 0.01 && mouse.seen) {
         const glow = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, FIELD.glowRadius)
-        glow.addColorStop(0, glowInner)
-        glow.addColorStop(1, glowOuter)
+        glow.addColorStop(0, glowInner())
+        glow.addColorStop(1, glowOuter())
         ctx.globalAlpha = glowOpacity
         ctx.fillStyle = glow
         ctx.beginPath()
@@ -1531,6 +1539,7 @@ export function DotFieldBackground(): React.JSX.Element {
     const observer = new ResizeObserver(rebuild)
     observer.observe(viewport)
     return () => {
+      stopTheme()
       window.cancelAnimationFrame(frame)
       observer.disconnect()
       viewport.removeEventListener('pointermove', onPointerMove)

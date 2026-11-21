@@ -39,6 +39,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import { createCheckHarness } from './lib/check-harness.mjs'
+import { primitiveControls, withPrimitiveIcons } from './lib/primitive-stub.mjs'
 
 const results = []
 
@@ -839,7 +840,8 @@ await check('W1-W3 a finished studio clip lands a referenced node and states are
     },
     'react-dom': await import('react-dom'),
     'react-dom/client': await import('react-dom/client'),
-    '@deepseek-ai/dsh-client-ui-primitives': {
+    '@deepseek-ai/dsh-client-ui-primitives': withPrimitiveIcons({
+      ...primitiveControls(react, await import('react-dom')),
       Button: ({ variant, size, className, children, ...rest }) => react.createElement('button', { type: 'button', className, ...rest }, children),
       Pill: ({ active, className, children, onClick, ...rest }) => react.createElement(onClick ? 'button' : 'span', { type: 'button', className, ...(onClick !== undefined ? { onClick } : {}), ...rest }, children),
       SegmentedControl: ({ id, value, options, onChange, label, disabled = false, className }) =>
@@ -856,7 +858,7 @@ await check('W1-W3 a finished studio clip lands a referenced node and states are
             onClick: () => { if (option.value !== value) onChange(option.value) },
           }, option.label))),
       IconListPenOutlineRegular: () => null,
-    },
+    }),
     '@deepseek-ai/dsh-client-store': {
       createSnapshotStore: (initial) => {
         let snapshot = initial
@@ -2673,7 +2675,7 @@ await check('D4 a run that finishes on another canvas lands when its own canvas 
     assert.ok(trigger !== null, 'D4: the canvas picker is on screen')
     trigger.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
     await waitForSelector(jsdomDocument, '[data-dsh-select-menu]')
-    const option = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="option"]')]
+    const option = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="menuitem"]')]
       .find(row => (row.textContent ?? '').includes(label))
     assert.ok(option !== undefined, `D4: the picker lists "${label}"`)
     option.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))

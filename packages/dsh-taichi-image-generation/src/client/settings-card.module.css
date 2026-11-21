@@ -191,6 +191,9 @@
   opacity: 0.5;
 }
 
+.control { display: flex; width: 100%; min-width: 0; }
+.manualModelRow .control { flex: 1; }
+
 .input,
 .select {
   height: 34px;
@@ -217,16 +220,8 @@
 }
 
 .inputInvalid {
-  height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--dsw-alias-state-error-primary, #ec1313);
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-error-primary);
   border-radius: var(--dsw-radius-sm);
-  background: var(--dsw-alias-bg-layer-3);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-primary);
-  outline: none;
 }
 
 .textarea,
@@ -244,7 +239,7 @@
 }
 
 .textarea { border: 1px solid var(--dsw-alias-border-l2); }
-.textareaInvalid { border: 1px solid var(--dsw-alias-state-error-primary, #ec1313); }
+.textareaInvalid { border: 1px solid var(--dsw-alias-state-error-primary); }
 .textarea:focus-visible { border-color: var(--dsw-alias-brand-primary); }
 .textarea:disabled { color: var(--dsw-alias-label-tertiary); cursor: default; }
 
@@ -260,7 +255,7 @@
 }
 
 .invalid {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .readOnly,
@@ -491,7 +486,7 @@
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .discard,
@@ -660,7 +655,7 @@
 }
 
 .channelBadge[data-warn] {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .channelBadge[data-default] {
@@ -674,8 +669,8 @@
 }
 
 .channelBadge[data-kind='video'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 7%, var(--dsw-alias-bg-module-platform));
-  color: var(--dsw-alias-state-success-primary, #22c55e);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 7%, var(--dsw-alias-bg-module-platform));
+  color: var(--dsw-alias-state-success-primary);
 }
 
 .channelAction {
@@ -698,7 +693,7 @@
 }
 
 .channelAction[data-danger] {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .channelAction:disabled {
@@ -709,18 +704,18 @@
 .channelDanger {
   appearance: none;
   flex: none;
-  border: 1px solid var(--dsw-alias-state-error-primary, #ec1313);
+  border: 1px solid var(--dsw-alias-state-error-primary);
   border-radius: var(--dsw-radius-sm);
   padding: 3px 10px;
   background: none;
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
 .channelDanger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 12%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
 }
 
 .channelDanger:disabled {
@@ -733,7 +728,7 @@
   min-width: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .defaultModelRow {
@@ -829,7 +824,7 @@
   align-items: flex-start;
   justify-content: center;
   padding: 9vh 16px 16px;
-  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1, #000) 45%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 45%, transparent);
 }
 
 .editorPanel {
@@ -1075,7 +1070,7 @@
 
 .keyState[data-set] {
   color: var(--dsw-alias-state-success-primary, var(--dsw-alias-label-secondary));
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 10%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
 }
 
 .keyInputRow {
@@ -1084,7 +1079,7 @@
   gap: 8px;
 }
 
-.keyInputRow .input {
+.keyInputRow .control {
   min-width: 0;
   flex: 1;
 }
@@ -1145,12 +1140,17 @@
   margin-top: 10px;
 }
 
+.editorBody {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .editorFooter {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--dsw-alias-border-l2);
+  width: 100%;
 }
 
 .detectOk {
@@ -1315,7 +1315,7 @@
 }
 
 .modelBadge[data-warn] {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .modelRowRemove {
@@ -1334,7 +1334,7 @@
 }
 
 .modelRowRemove:hover:not(:disabled) {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
   background: var(--dsw-alias-bg-module-platform);
 }
 
@@ -1505,8 +1505,8 @@
 }
 
 .presetBadges > span[data-mode='video'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 8%, var(--dsw-alias-bg-module-platform));
-  color: var(--dsw-alias-state-success-primary, #22c55e);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 8%, var(--dsw-alias-bg-module-platform));
+  color: var(--dsw-alias-state-success-primary);
 }
 
 .presetHint {
@@ -1567,8 +1567,8 @@
 }
 
 .modeMark[data-mode='video'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 10%, transparent);
-  color: var(--dsw-alias-state-success-primary, #22c55e);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
+  color: var(--dsw-alias-state-success-primary);
 }
 
 .quickSetup {
@@ -1693,7 +1693,7 @@
 }
 
 .stepStatus[data-ready] {
-  color: var(--dsw-alias-state-success-primary, #22c55e);
+  color: var(--dsw-alias-state-success-primary);
 }
 
 .stepStatus[data-ready]::before {
@@ -1757,8 +1757,8 @@
 }
 
 .modeCard[data-ready] {
-  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 30%, var(--dsw-alias-border-l2));
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 4%, var(--dsw-alias-bg-layer-3));
+  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 30%, var(--dsw-alias-border-l2));
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 4%, var(--dsw-alias-bg-layer-3));
 }
 
 .modeCardHead {
@@ -1787,7 +1787,7 @@
 }
 
 .modeStatus[data-ready] {
-  color: var(--dsw-alias-state-success-primary, #22c55e);
+  color: var(--dsw-alias-state-success-primary);
 }
 
 .modeHint {
@@ -1967,7 +1967,7 @@
 
 .healthBadge[data-state='attention'],
 .sectionSummary[data-tone='attention'] {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .summaryGrid {
@@ -2007,7 +2007,7 @@
 }
 
 .summaryCard[data-tone='attention'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 6%, var(--dsw-alias-bg-layer-2));
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 6%, var(--dsw-alias-bg-layer-2));
 }
 
 .summaryLabel {
@@ -2164,22 +2164,17 @@
   line-height: 1.5;
 }
 
-.pickerSearch {
-  flex: none;
-  height: 34px;
-  margin: 12px 0 10px;
-  padding: 0 11px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-sm);
-  background: var(--dsw-alias-bg-layer-3);
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
-  font-size: 13px;
-  outline: none;
+.pickerBody {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 10px;
 }
 
-.pickerSearch:focus-visible {
-  border-color: var(--dsw-alias-brand-primary);
+.pickerSearch {
+  display: flex;
+  width: 100%;
+  min-width: 0;
 }
 
 .pickerList {
@@ -2280,14 +2275,14 @@
 }
 
 .subscriptionDot[data-state='logged-out'] {
-  background: var(--dsw-alias-state-error-primary, #ec1313);
+  background: var(--dsw-alias-state-error-primary);
 }
 
 .subscriptionWarning {
   margin: 9px 0 0;
   padding: 7px 9px;
   border-radius: var(--dsw-radius-sm);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 7%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 7%, transparent);
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 1.5;
@@ -2351,7 +2346,7 @@
   margin: 2px 0 0;
   font-size: 11px;
   line-height: 1.4;
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 

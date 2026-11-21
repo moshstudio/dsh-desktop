@@ -7,7 +7,12 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { Eraser, Image as ImageIcon, Trash2, Undo2, X } from 'lucide-react'
+import { IconTrashOutlineRegular, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Eraser,
+  Image as ImageIcon,
+  Undo2,
+} from 'lucide-react'
 import type { CanvasAssetRef, CanvasNode, CanvasSketchStroke, GenerationTask, HistoryEntry } from '../../protocol.ts'
 import type { ImageGenApi } from '../api.ts'
 import { ModelPicker, resolveModelChoice } from '../ModelPicker.tsx'

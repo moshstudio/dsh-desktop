@@ -8,6 +8,8 @@
  *
  * 卡片只负责「说清楚 + 收两个选择」，算账在 `drama-writeback.ts`，写盘在
  * 宿主。这样这一层可以整块换掉而不用碰规则。
+ *
+ * NATIVE-GAP: 确认卡挂在全屏画布内，不用会 portal 到 body 的 `<Modal>`。
  */
 
 import { useMemo, useRef, useState } from 'react'

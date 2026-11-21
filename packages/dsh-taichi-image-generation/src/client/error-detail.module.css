@@ -20,7 +20,7 @@
   /* `state-danger-primary` never existed in DSH's token set; an undefined custom
      property drops the whole declaration, so this text had NO colour at all.
      `state-error-primary` is the real token. */
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
   font-size: inherit;
   overflow-wrap: anywhere;
 }

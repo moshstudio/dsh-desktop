@@ -50,6 +50,7 @@
 import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 import { createCheckHarness } from './lib/check-harness.mjs'
+import { primitiveControls, withPrimitiveIcons } from './lib/primitive-stub.mjs'
 
 const results = []
 
@@ -398,7 +399,8 @@ await check('C1 the dock menu offers 添加视频 and the picker opens with thre
     },
     'react-dom': await import('react-dom'),
     'react-dom/client': await import('react-dom/client'),
-    '@deepseek-ai/dsh-client-ui-primitives': {
+    '@deepseek-ai/dsh-client-ui-primitives': withPrimitiveIcons({
+      ...primitiveControls(react, await import('react-dom')),
       Button: ({ variant, size, className, children, ...rest }) => react.createElement('button', { type: 'button', className, ...rest }, children),
       Pill: ({ active, className, children, onClick, ...rest }) => react.createElement(onClick ? 'button' : 'span', { type: 'button', className, ...(onClick !== undefined ? { onClick } : {}), ...rest }, children),
       SegmentedControl: ({ id, value, options, onChange, label, disabled = false, className }) =>
@@ -415,7 +417,7 @@ await check('C1 the dock menu offers 添加视频 and the picker opens with thre
             onClick: () => { if (option.value !== value) onChange(option.value) },
           }, option.label))),
       IconListPenOutlineRegular: () => null,
-    },
+    }),
     '@deepseek-ai/dsh-client-store': {
       createSnapshotStore: (initial) => {
         let snapshot = initial

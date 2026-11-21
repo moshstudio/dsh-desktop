@@ -21,7 +21,7 @@
  */
 
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
-import { X } from 'lucide-react'
+import { IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CanvasAssetRef, CanvasDocument, CanvasLayerKind, CanvasNode, CanvasPoseRig, CanvasPromptSetItem, CanvasRect, CanvasSketchStroke } from '../../protocol.ts'
 import type { ImageGenApi } from '../api.ts'
 import { tt } from '../helpers.ts'
@@ -433,7 +433,7 @@ return <>
       title={color === '' ? tt('canvas.colorDefault') : color}
       aria-label={color === '' ? tt('canvas.colorDefault') : color}
       onClick={() => { A.patchNode(node.id, { color: color === '' ? undefined : color }); A.setColorPickerNodeId(null) }}
-    >{color === '' ? <X size={11} strokeWidth={2.4} aria-hidden="true" /> : null}</button>)}
+    >{color === '' ? <IconCloseOutlineRegular size={11} /> : null}</button>)}
   </div> : null}
   {isConfig && configReady !== null ? <div className={css.configLinks} data-config-links={node.id}>
     <span className={css.composerChip}>{tt('canvas.composerLinked', { count: configInputCount })}</span>

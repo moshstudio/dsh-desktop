@@ -1,7 +1,10 @@
 /** Compact edit-reference thumbnails; the generation form owns the images. */
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, X, ChevronLeft, ChevronRight, ImagePlus } from 'lucide-react'
+import { IconPlusOutlineRegular, IconCloseOutlineRegular, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  ImagePlus,
+} from 'lucide-react'
 import { tt } from './helpers.ts'
 import { clipboardImageFiles, EDIT_REFERENCE_LIMIT, type EditReference } from './reference-images.ts'
 import css from './reference-images.module.css'
@@ -64,9 +67,9 @@ export function ReferenceImages(props: {
       {props.images.length === 0 ? <button type="button" className={css.empty} onClick={() => input.current?.click()}><ImagePlus size={22} aria-hidden="true" /><span>{tt('edit.uploadMultiple')}</span></button> : <div className={css.grid}>
         {props.images.map((image, index) => <div className={css.item} key={image.id} data-edit-reference="">
           <button type="button" className={css.thumbnail} aria-label={tt('edit.previewReference', { index: index + 1, name: image.name })} title={image.name} onClick={() => { previousFocus.current = document.activeElement as HTMLElement; setPreviewId(image.id) }}><img src={image.dataUrl} alt={image.name} /><span className={css.number}>{index + 1}</span></button>
-          <button type="button" className={css.remove} aria-label={tt('edit.removeReference', { index: index + 1, name: image.name })} onClick={() => props.onRemove(image.id)}><X size={12} aria-hidden="true" /></button>
+          <button type="button" className={css.remove} aria-label={tt('edit.removeReference', { index: index + 1, name: image.name })} onClick={() => props.onRemove(image.id)}><IconCloseOutlineRegular size={12} aria-hidden="true" /></button>
         </div>)}
-        {props.images.length < limit ? <button type="button" className={css.add} aria-label={tt('edit.addMore')} onClick={() => input.current?.click()}><Plus size={19} aria-hidden="true" /><span>{tt('edit.add')}</span></button> : null}
+        {props.images.length < limit ? <button type="button" className={css.add} aria-label={tt('edit.addMore')} onClick={() => input.current?.click()}><IconPlusOutlineRegular size={19} aria-hidden="true" /><span>{tt('edit.add')}</span></button> : null}
       </div>}
       <p className={css.hint} role={props.reading ? 'status' : undefined}>{props.reading ? tt('edit.reading') : tt('edit.multiHint')}</p>
       <p className={css.limits}>{tt('edit.limits', { count: limit })}</p>
@@ -75,9 +78,9 @@ export function ReferenceImages(props: {
     </section>
     {preview ? createPortal(<div className={css.overlay} data-edit-reference-preview="" onClick={close} onKeyDown={event => event.stopPropagation()}>
       <section ref={dialog} className={css.preview} tabIndex={-1} role="dialog" aria-modal="true" aria-label={tt('edit.referencePreview')} onClick={event => event.stopPropagation()}>
-        <header className={css.previewHeader}><span>{index + 1} / {props.images.length} · {preview.name}</span><button type="button" className={css.close} aria-label={tt('preview.close')} onClick={close}><X size={19} /></button></header>
+        <header className={css.previewHeader}><span>{index + 1} / {props.images.length} · {preview.name}</span><button type="button" className={css.close} aria-label={tt('preview.close')} onClick={close}><IconCloseOutlineRegular size={19} /></button></header>
         <img className={css.previewImage} src={preview.dataUrl} alt={preview.name} />
-        {props.images.length > 1 ? <footer className={css.previewFooter}><button type="button" className={css.close} aria-label={tt('edit.previousReference')} onClick={() => move(-1)}><ChevronLeft size={20} /></button><span>{index + 1} / {props.images.length}</span><button type="button" className={css.close} aria-label={tt('edit.nextReference')} onClick={() => move(1)}><ChevronRight size={20} /></button></footer> : null}
+        {props.images.length > 1 ? <footer className={css.previewFooter}><button type="button" className={css.close} aria-label={tt('edit.previousReference')} onClick={() => move(-1)}><IconChevronLeftOutlineRegular size={20} /></button><span>{index + 1} / {props.images.length}</span><button type="button" className={css.close} aria-label={tt('edit.nextReference')} onClick={() => move(1)}><IconChevronRightOutlineRegular size={20} /></button></footer> : null}
       </section>
     </div>, document.body) : null}
   </>

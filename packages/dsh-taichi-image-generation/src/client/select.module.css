@@ -1,36 +1,14 @@
-.trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  min-height: 30px;
-  padding: 6px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-sm);
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-bg-base);
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.35;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
+.host { display: inline-flex; max-width: 100%; min-width: 0; }
+.field { display: flex; width: 100%; }
 
-.trigger:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.trigger:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
-.trigger[data-open] { border-color: var(--dsw-alias-brand-primary); }
-.trigger:disabled { opacity: 0.55; cursor: default; }
-.trigger svg { flex: none; opacity: 0.65; }
+/* Layout only. Color, border and radius come from the host Button. */
+.trigger { width: 100%; min-width: 0; justify-content: space-between; }
+.trigger[data-variant='toolbar'],
+.trigger[data-variant='composer'],
+.trigger[data-variant='compact'] { width: auto; max-width: 138px; }
 .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.trigger[data-variant='compact'],
-.trigger[data-variant='toolbar'] { min-height: 26px; padding: 4px 8px; font-size: 11px; }
-.trigger[data-variant='toolbar'] { width: auto; max-width: 138px; }
-.trigger[data-variant='composer'] { width: auto; min-height: 28px; max-width: 138px; padding: 4px 8px 4px 11px; border-radius: 999px; background: transparent; font-size: 12px; }
+.menuMark { border-radius: var(--dsw-radius-md); }
 
 .menu {
   position: fixed;

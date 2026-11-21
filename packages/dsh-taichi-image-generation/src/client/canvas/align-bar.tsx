@@ -1,6 +1,10 @@
 /**
  * 多选时的对齐条：一条浮在底栏上方的 8 枚按钮。
  *
+ * NATIVE-GAP: the eight align glyphs have no Icon* equivalent, so this bar
+ * keeps lucide for those marks. The buttons are a custom toolbar, not a
+ * host Button row.
+ *
  * WHY 单独一条、而不是塞进底栏：底栏已经 14 格，再加 8 格在任何面板宽度下都
  * 放不下；而且对齐只在**选中两个以上**时才是一个动作——没有选择的时候它是
  * 八枚按不出效果的灰按钮。跟着选择出现、选择变了就消失，比一个常驻入口更

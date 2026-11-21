@@ -7,13 +7,64 @@
  */
 
 import type React from 'react'
+// NATIVE-GAP: align, layer and canvas-tool glyphs have no Icon* equivalent.
+// Close, plus, chevron, trash, copy, download, search, play and pause use primitives.
+import { IconChevronDownOutlineRegular, IconCopyOutlineRegular, IconDownloadOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, IconTrashOutlineRegular, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalSpaceAround,
-  AlignStartHorizontal, AlignStartVertical, AlignVerticalSpaceAround,
-  ArrowDownToLine, ArrowUpToLine,
-  Bold, BookOpen, BringToFront, ChevronDown, Copy, Download, Eraser, Eye, EyeOff, Expand, FileText as FileTextIcon, Film, FolderX, Hand, Image as ImageIcon,
-  Ellipsis, GitBranch, History, Keyboard, Layers, LayoutGrid, ListChecks, Lock, LockOpen, Magnet, Map as MapIcon, Maximize, Maximize2, MousePointer2, Palette, Pencil, Plus, Redo2, Scissors, Search, SendHorizonal, SendToBack, Share2, Sparkles, Star, TextSearch,
-  Shrink, SquareDashedMousePointer, Trash2, Type, Undo2, Upload, Video, Wand2, Wallpaper, X,
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignEndVertical,
+  AlignHorizontalSpaceAround,
+  AlignStartHorizontal,
+  AlignStartVertical,
+  AlignVerticalSpaceAround,
+  ArrowDownToLine,
+  ArrowUpToLine,
+  Bold,
+  BookOpen,
+  BringToFront,
+  Eraser,
+  Eye,
+  EyeOff,
+  Expand,
+  FileText as FileTextIcon,
+  Film,
+  FolderX,
+  Hand,
+  Image as ImageIcon,
+  Ellipsis,
+  GitBranch,
+  History,
+  Keyboard,
+  Layers,
+  LayoutGrid,
+  ListChecks,
+  Lock,
+  LockOpen,
+  Magnet,
+  Map as MapIcon,
+  Maximize,
+  Maximize2,
+  MousePointer2,
+  Palette,
+  Pencil,
+  Redo2,
+  Scissors,
+  SendHorizonal,
+  SendToBack,
+  Share2,
+  Sparkles,
+  Star,
+  TextSearch,
+  Shrink,
+  SquareDashedMousePointer,
+  Type,
+  Undo2,
+  Upload,
+  Video,
+  Wand2,
+  Wallpaper,
 } from 'lucide-react'
 import { tt } from '../helpers.ts'
 import type { ImageGenKey } from '../locales.ts'
@@ -29,7 +80,7 @@ export type ToolbarIconName = 'new' | 'select' | 'pan' | 'image' | 'text' | 'fil
 export function ToolbarIcon({ name, size = 16 }: { name: ToolbarIconName; size?: number }): React.JSX.Element {
   const common = { size, strokeWidth: 1.6, 'aria-hidden': true as const }
   switch (name) {
-    case 'new': return <Plus {...common} />
+    case 'new': return <IconPlusOutlineRegular {...common} />
     case 'select': return <MousePointer2 {...common} />
     case 'pan': return <Hand {...common} />
     case 'image': return <ImageIcon {...common} />
@@ -37,7 +88,7 @@ export function ToolbarIcon({ name, size = 16 }: { name: ToolbarIconName; size?:
     case 'file': return <FileTextIcon {...common} />
     case 'sketch': return <Pencil {...common} />
     case 'eraser': return <Eraser {...common} />
-    case 'trash': return <Trash2 {...common} />
+    case 'trash': return <IconTrashOutlineRegular {...common} />
     case 'undo': return <Undo2 {...common} />
     case 'redo': return <Redo2 {...common} />
     case 'fit': return <Maximize {...common} />
@@ -47,11 +98,11 @@ export function ToolbarIcon({ name, size = 16 }: { name: ToolbarIconName; size?:
     case 'minimap': return <MapIcon {...common} />
     case 'background': return <Wallpaper {...common} />
     case 'template': return <BookOpen {...common} />
-    case 'download': return <Download {...common} />
-    case 'duplicate': return <Copy {...common} />
+    case 'download': return <IconDownloadOutlineRegular {...common} />
+    case 'duplicate': return <IconCopyOutlineRegular {...common} />
     case 'sparkle': return <Sparkles {...common} />
     case 'send': return <SendHorizonal {...common} />
-    case 'close': return <X {...common} />
+    case 'close': return <IconCloseOutlineRegular {...common} />
     case 'deleteProject': return <FolderX {...common} />
     case 'annotate': return <SquareDashedMousePointer {...common} />
     case 'removeBg': return <Scissors {...common} />
@@ -78,10 +129,10 @@ export function ToolbarIcon({ name, size = 16 }: { name: ToolbarIconName; size?:
     case 'snap': return <Magnet {...common} />
     case 'connections': return <Share2 {...common} />
     // 一个「展开还有别的」的箭头，挂在主按钮旁边：主按钮做主动作，箭头只开菜单。
-    case 'chevronDown': return <ChevronDown {...common} />
+    case 'chevronDown': return <IconChevronDownOutlineRegular {...common} />
     // 放大镜 = 「查找某个动作」。这是唯一一枚不代表某个具体动作的图标：它代表
     // 「我不知道动作在哪」。用在这排里是对的，因为按下它什么都不会被改动。
-    case 'catalog': return <Search {...common} />
+    case 'catalog': return <IconSearchOutlineRegular {...common} />
     // 「找一张卡」与「找一个动作」是两件事，图标也必须分开：一个是方框里的
     // 文字，一个是裸放大镜。互换的后果是用户在两枚入口之间反复点错。
     case 'search': return <TextSearch {...common} />

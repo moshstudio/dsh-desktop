@@ -136,36 +136,28 @@ for (const file of CSS_FILES) {
   const raw = readFileSync(file, 'utf8')
   const text = stripCssComments(raw)
 
-  // 1. No bare literal colors. Tokens carry light AND dark; a literal carries one.
-  //
-  //    A fallback INSIDE var(--token, #hex) is allowed and is a different
-  //    thing: if the token resolves (it does on every supported DSH) the
-  //    literal never reaches the layout, and if a future DSH renames the token
-  //    the fallback keeps the element visible instead of transparent. 89 of the
-  //    259 literals in this tree are that idiom.
-  //
-  //    What is banned is a literal the cascade actually USES: `box-shadow:
-  //    0 18px 60px rgba(0,0,0,.28)` and `background: rgb(0 0 0/35%)` are a
-  //    fixed appearance that cannot follow the theme at all.
-  //    The substitution is LENGTH-PRESERVING on purpose. `match.index` below
-  //    addresses the substituted string, and every reported line number is
-  //    resolved against the original one; a shorter marker shifts each later
-  //    index and reports the violation on the line above its real home.
-  const withoutFallbacks = text.replace(/var\([^()]*,[^()]*\)/g, fallback => {
-    // Keep the newlines as well as the width: a padding of plain spaces would
-    // also have to survive a fallback that spans lines, and dropping those
-    // newlines shifts every violation below by the number of lines lost.
-    const pad = fallback.slice('VAR_FALLBACK'.length)
-    return 'VAR_FALLBACK' + pad.replace(/[^\n]/g, ' ')
-  })
-  for (const match of withoutFallbacks.matchAll(/#[0-9a-fA-F]{3,8}\b|(?<![-\w])(?:rgb|rgba|hsl|hsla|oklch|lab)\(/g)) {
-    const lineStart = withoutFallbacks.lastIndexOf('\n', match.index) + 1
-    const lineEnd = withoutFallbacks.indexOf('\n', match.index)
-    const line = withoutFallbacks.slice(lineStart, lineEnd === -1 ? undefined : lineEnd)
-    // A shadow is a different repair from a fill: --dsw-shadow-lv1..3 and
-    // --dsw-elevation-* replace it outright, while a fill maps to an alias.
+  // 1. No literal colors, including a hex/rgb fallback inside var().
+  //    A missing token must fail token-must-exist, not keep painting a fixed
+  //    swatch. Shadows and fills are the same ban: both are a single theme.
+  for (const match of text.matchAll(/#[0-9a-fA-F]{3,8}\b|(?<![-\w])(?:rgb|rgba|hsl|hsla|oklch|lab)\(/g)) {
+    const lineStart = text.lastIndexOf('\n', match.index) + 1
+    const lineEnd = text.indexOf('\n', match.index)
+    const line = text.slice(lineStart, lineEnd === -1 ? undefined : lineEnd)
     const rule = /box-shadow|(?:linear|radial)-gradient/.test(line) ? 'no-literal-shadow' : 'no-literal-color'
     violate(rule, file, lineOf(text, match.index), match[0])
+  }
+
+  // 1b. No new --ds-* custom properties. The one seam is the host code font:
+  //     there is no --dsw-* equivalent, and it follows Settings → code font.
+  for (const match of text.matchAll(/--ds-[a-z0-9-]+/g)) {
+    if (match[0] === '--ds-font-family-code') continue
+    violate('no-ds-prefix', file, lineOf(text, match.index), match[0])
+  }
+
+  // 1c. No host theme attribute selectors. Alias tokens follow the theme;
+  //     a split that tokens cannot express is data-dsh-imagegen-scheme.
+  for (const match of text.matchAll(/body\[data-ds-dark-theme\]|data-ds-theme-source|data-theme\s*=\s*['"](?:light|dark)['"]/g)) {
+    violate('no-host-theme-branch', file, lineOf(text, match.index), match[0])
   }
 
   // 2. Radius must come from the token scale, except the capsule idiom and
@@ -255,9 +247,12 @@ for (const file of TS_FILES) {
     violate('no-dom-class-guessing', file, lineOf(text, match.index), match[0])
   }
 
-  // 6. No reading the theme off the DOM.
-  for (const match of text.matchAll(/dataset\.theme|body\.dataset\.ds|matchMedia\(/g)) {
+  // 6. No reading the theme off the DOM, and no private light/dark flag.
+  for (const match of text.matchAll(/dataset\.theme|body\.dataset\.ds|matchMedia\(|data-ds-dark-theme|data-ds-theme-source|setAttribute\(\s*['"]data-theme['"]/g)) {
     violate('theme-from-service', file, lineOf(text, match.index), match[0])
+  }
+  for (const match of text.matchAll(/--ds-(?!font-family-code\b)[a-z0-9-]+/g)) {
+    violate('no-ds-prefix', file, lineOf(text, match.index), match[0])
   }
 }
 
@@ -283,7 +278,9 @@ if (definedTokens.size > 0) {
 /* --------------------------------------------------------------------- report */
 
 const RULE_TEXT = {
-  'no-literal-color': 'literal color — use a --dsw-alias-* token so both themes follow',
+  'no-literal-color': 'literal color — use a --dsw-alias-* or documented --dsw-static-* token, with no hex fallback',
+  'no-ds-prefix': 'new --ds-* variable — only --ds-font-family-code is allowed (host code font; no --dsw equivalent)',
+  'no-host-theme-branch': 'host theme selector — alias tokens follow the theme; use data-dsh-imagegen-scheme when a token cannot',
   'no-literal-shadow': 'literal shadow — use --dsw-shadow-lv1|lv2|lv3 or --dsw-elevation-soft|panel|prominent',
   'radius-from-token': 'hardcoded radius — use --dsw-radius-xs|sm|md|lg|xl|panel (999px allowed)',
   'font-size-on-scale': 'font-size not on the host scale — use 10|11|12|13|14|15|16|18|20|22|24|26|28px, or var(--dsh-content-font-size)',

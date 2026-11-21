@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, IconListPenOutlineRegular, Pill, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconListPenOutlineRegular, Modal, Pill, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -4912,15 +4912,18 @@ export function ImageGenPanel(props: {
       ) : null}
 
       {configGuide !== null ? (
-        <div className={css.configGuide} role="dialog" aria-modal="true" aria-label={tt(`config.${configGuide}Title` as never)}>
-          <div className={css.configGuideBody}>
-            <strong>{tt(`config.${configGuide}Title` as never)}</strong>
-            <span>{tt(`config.${configGuide}Hint` as never)}</span>
-            <button type="button" onClick={() => { setConfigGuide(null) }}>{tt('preview.close')}</button>
-          </div>
-        </div>
+        <Modal
+          open
+          onClose={() => { setConfigGuide(null) }}
+          title={tt(`config.${configGuide}Title` as never)}
+          closeLabel={tt('preview.close')}
+        >
+          <span>{tt(`config.${configGuide}Hint` as never)}</span>
+        </Modal>
       ) : null}
 
+      {/* NATIVE-GAP: this preview is a fixed dark mask with prev/next and zoom.
+          ImageLightbox is a single image portaled to body and cannot host that chrome. */}
       {comparisonFullscreen && comparison !== null ? createPortal(
         <div ref={comparisonFullscreenRef} tabIndex={-1} className={css.comparisonFullscreen} role="dialog" aria-modal="true" aria-label={tt('compare.title')} onClick={() => { setComparisonFullscreen(false) }}>
           <button type="button" className={css.lightboxClose} aria-label={tt('preview.close')} onClick={() => { setComparisonFullscreen(false) }}>×</button>

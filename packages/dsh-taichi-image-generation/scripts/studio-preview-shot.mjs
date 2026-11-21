@@ -219,6 +219,7 @@ const PAGE = `<!doctype html>
   </div>
 
 </div>
+<script>window.__bootErrors = []; window.addEventListener('error', (event) => { window.__bootErrors.push(String(event.error?.stack || event.message)) })</script>
 <script src="/preview.js"></script>
 </body>
 </html>`
@@ -277,7 +278,16 @@ try {
       if ((await page.evaluate(expression)) === true) return
       await new Promise(resolve => setTimeout(resolve, 100))
     }
-    throw new Error(`timed out waiting for ${label}`)
+    const detail = await page.evaluate(`(() => {
+      const view = document.querySelector('[data-dsh-imagegen-view]')
+      return JSON.stringify({
+        view: view !== null,
+        buttons: document.querySelectorAll('[data-dsh-imagegen-view] button').length,
+        text: (document.body?.innerText ?? '').slice(0, 500),
+        errors: (window.__bootErrors || []).slice(0, 3),
+      })
+    })()`).catch(error => String(error))
+    throw new Error(`timed out waiting for ${label}: ${detail}`)
   }
 
   await waitFor('document.readyState === "complete"', 'the page to load')

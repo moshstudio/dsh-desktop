@@ -6,6 +6,8 @@
  *
  * `composeGlyphs` 与 `tierLabel` 是它们私有的小工具（①②③ 序号与三档标签），
  * 一并搬来、不导出：它们只服务于这里的展示。
+ *
+ * NATIVE-GAP: 这些弹层挂在全屏画布内。`<Modal>` portal 到 body 后会落到全屏层后面。
  */
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react'

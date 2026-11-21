@@ -23,6 +23,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 // 这个聚合读取，重构搬文件时断言才不会静静失配。
 import { canvasSourceText } from './lib/canvas-source.mjs'
 import { assertRules, createCheckHarness } from './lib/check-harness.mjs'
+import { primitiveControls, withPrimitiveIcons } from './lib/primitive-stub.mjs'
 
 const root = new URL('../', import.meta.url)
 const results = []
@@ -5179,7 +5180,7 @@ await check('D1 client bundle registers via __ModuleLoader__ and exposes the can
   assert.equal([...new Set(required)].sort().join(','), Object.keys(stubs).sort().join(','))
   assert.equal(typeof exportsOf.apply, 'function')
   // Cross-realm array (VM context): compare contents, not identity.
-  assert.equal([...exportsOf.inject].join(','), 'slots,locale,connection,sessions,conversation')
+  assert.equal([...exportsOf.inject].join(','), 'slots,locale,connection,sessions,conversation,theme')
 
   // --- canvas raster helpers (image-ops.ts), reachable only through the bundle
   // Cross-realm values (VM context): spread into local objects before comparing.
@@ -7428,14 +7429,16 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
   globalThis.window = jsdomWindow
   globalThis.document = jsdomDocument
   const react = await import('react')
+  const reactDom = await import('react-dom')
   const moduleStubs = {
     'react': react,
     'react/jsx-runtime': await import('react/jsx-runtime'),
-    'react-dom': await import('react-dom'),
+    'react-dom': reactDom,
     'react-dom/client': await import('react-dom/client'),
     // Minimal functional stubs for the system primitives (the real GUI loads
     // the genuine platform module from the module table).
-    '@deepseek-ai/dsh-client-ui-primitives': {
+    '@deepseek-ai/dsh-client-ui-primitives': withPrimitiveIcons({
+      ...primitiveControls(react, reactDom),
       Button: ({ variant, size, className, children, ...rest }) =>
         react.createElement('button', { type: 'button', className, ...rest }, children),
       Pill: ({ active, className, children, onClick, ...rest }) =>
@@ -7461,7 +7464,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       useModalLayer: () => {},
       IconListPenOutlineRegular: () => null,
       IconCloseOutlineRegular: () => null,
-    },
+    }),
     // The real runtime module touches `window` at import time and cannot load
     // in a bare Node realm; this minimal store mirrors the snapshot-store
     // contract (mutable-draft update, wholesale set, subscriber fan-out) that
@@ -7647,9 +7650,11 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // (radius-md = 12px, docs/native-ui-contract.md), so asserting the token is
     // both stricter and honest: a hardcoded px would fail here even at 12px.
     assert.equal(jsdomWindow.getComputedStyle(historyFilterMenu).borderRadius, 'var(--dsw-radius-md)', 'filters use the same rounded menu as channel selection, through the native radius token')
+    const historyFilterOptions = [...historyFilterMenu.querySelectorAll('[role="menuitem"]')]
+    historyFilterOptions[0]?.focus()
     historyFilterMenu.dispatchEvent(new jsdomWindow.KeyboardEvent('keydown', { key: 'End', bubbles: true }))
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(historyFilterMenu.getAttribute('aria-activedescendant'), historyFilterMenu.querySelector('[role="option"]:last-child').id, 'End moves keyboard focus to the last option')
+    assert.equal(jsdomDocument.activeElement, historyFilterOptions[historyFilterOptions.length - 1], 'End moves keyboard focus to the last option')
     historyFilterMenu.dispatchEvent(new jsdomWindow.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(jsdomDocument.querySelector('[data-dsh-select-menu]') === null, true, 'Escape closes the menu')
@@ -7814,7 +7819,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.ok(ecommerceLanguage !== null, 'ecommerce copy language selector is rendered')
     ecommerceLanguage.click()
     await waitForSelector(jsdomDocument, '[data-dsh-select-menu]')
-    const customLanguageOption = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="option"]')].find(option => option.textContent === '自定义…')
+    const customLanguageOption = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="menuitem"]')].find(option => option.textContent === '自定义…')
     assert.ok(customLanguageOption !== undefined, 'the rounded language menu offers custom languages')
     customLanguageOption.click()
     await new Promise(resolve => setTimeout(resolve, 20))
@@ -7845,7 +7850,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.equal(refSelects.length, 4, 'every enabled slot exposes a reference-role selector')
     refSelects[2].click()
     await waitForSelector(jsdomDocument, '[data-dsh-select-menu]')
-    const noReferenceOption = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="option"]')].find(option => option.textContent === '不使用参考图')
+    const noReferenceOption = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="menuitem"]')].find(option => option.textContent === '不使用参考图')
     assert.ok(noReferenceOption !== undefined, 'the rounded reference menu offers reference-free generation')
     noReferenceOption.click()
     await new Promise(resolve => setTimeout(resolve, 20))
@@ -7856,7 +7861,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       const probe = [...view.querySelectorAll('button[data-ecommerce-ref-select]')][0]
       probe.click()
       await waitForSelector(jsdomDocument, '[data-dsh-select-menu]')
-      const options = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="option"]')]
+      const options = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="menuitem"]')]
       const layoutOption = options.find(option => option.textContent === '版式参考')
       assert.ok(layoutOption !== undefined, 'the reference menu offers the layout role')
       const productOption = options.find(option => option.textContent === '商品主体')
@@ -9725,7 +9730,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.equal(rendererTrigger.textContent, '模型生成', 'the historical model path stays the default')
     rendererTrigger.click()
     await waitForSelector(jsdomDocument, '[data-dsh-select-menu]')
-    const codeOption = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="option"]')].find(option => option.textContent === '代码生成')
+    const codeOption = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="menuitem"]')].find(option => option.textContent === '代码生成')
     assert.ok(codeOption !== undefined, 'the menu offers the code path next to model generation')
     codeOption.click()
     await new Promise(resolve => setTimeout(resolve, 60))
@@ -9787,7 +9792,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // Switching back restores the model picker with the configured model.
     view.querySelector('button[data-dsh-select][aria-label="生成方式"]').click()
     await waitForSelector(jsdomDocument, '[data-dsh-select-menu]')
-    const modelOption = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="option"]')].find(option => option.textContent === '模型生成')
+    const modelOption = [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="menuitem"]')].find(option => option.textContent === '模型生成')
     assert.ok(modelOption !== undefined, 'the menu still offers the model path')
     modelOption.click()
     await new Promise(resolve => setTimeout(resolve, 60))

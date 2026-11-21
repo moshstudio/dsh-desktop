@@ -687,9 +687,9 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
 }
 
 .updateButton[data-kind='failed'] {
-  border-color: var(--dsw-alias-state-error-primary, #ec1313);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 8%, transparent);
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  border-color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .updatePopover {
@@ -767,8 +767,8 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
 }
 
 .updateStatus[data-kind='failed'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ec1313) 9%, transparent);
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, transparent);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 /* The manual-install block: a command the user has to copy verbatim, so it
@@ -1042,7 +1042,7 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
 .taskRow:first-of-type { border-top: 0; }
 .taskStatus { color: var(--dsw-alias-label-tertiary); font-size: 11px; white-space: nowrap; }
 .taskRow[data-status='running'] .taskStatus { color: var(--dsw-alias-brand-primary); }
-.taskRow[data-status='failed'] .taskStatus { color: var(--dsw-alias-state-error-primary, #ec1313); }
+.taskRow[data-status='failed'] .taskStatus { color: var(--dsw-alias-state-error-primary); }
 .taskPrompt { overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .taskRow button { padding: 2px 7px; border: 0; border-radius: var(--dsw-radius-xs); color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2); cursor: pointer; font: inherit; font-size: 11px; }
 
@@ -1054,7 +1054,7 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
   grid-column: 1 / -1;
   margin: 6px 0 0;
   padding: 6px 8px;
-  border-left: 2px solid var(--dsw-alias-state-error-primary, #ec1313);
+  border-left: 2px solid var(--dsw-alias-state-error-primary);
   border-radius: 0 var(--dsw-radius-xs) var(--dsw-radius-xs) 0;
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-layer-2);
@@ -1155,8 +1155,8 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
 
 .diagnosticsMeta { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 .diagnosticsPhase { color: var(--dsw-alias-brand-primary); font-weight: 600; }
-.diagnosticsMeta [data-status] { color: var(--dsw-alias-state-error-primary, #ec1313); font-weight: 600; }
-.diagnosticsMeta [data-error-code] { color: var(--dsw-alias-state-error-primary, #ec1313); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.diagnosticsMeta [data-status] { color: var(--dsw-alias-state-error-primary); font-weight: 600; }
+.diagnosticsMeta [data-error-code] { color: var(--dsw-alias-state-error-primary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .diagnosticsUrl {
   padding: 4px 7px;
@@ -1204,8 +1204,8 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.signalsFinding[data-severity='warn'] { border-left-color: var(--dsw-alias-state-error-primary, #ec1313); }
-.signalsFinding[data-severity='watch'] { border-left-color: var(--dsw-alias-state-warn-primary, #e08b00); }
+.signalsFinding[data-severity='warn'] { border-left-color: var(--dsw-alias-state-error-primary); }
+.signalsFinding[data-severity='watch'] { border-left-color: var(--dsw-alias-state-warn-primary); }
 
 .signalsRates {
   display: flex;
@@ -1216,12 +1216,12 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
   font-variant-numeric: tabular-nums;
 }
 .signalsRates b { color: var(--dsw-alias-label-tertiary); font-weight: 400; }
-.signalsRates [data-metric='failure'] { color: var(--dsw-alias-state-error-primary, #ec1313); }
-.signalsRates [data-metric='rating'] { color: var(--dsw-alias-state-warn-primary, #e08b00); }
+.signalsRates [data-metric='failure'] { color: var(--dsw-alias-state-error-primary); }
+.signalsRates [data-metric='rating'] { color: var(--dsw-alias-state-warn-primary); }
 
 /* A verdict on the row's outer edge, so the eye can scan the left margin. */
-.diagnosticsRow[data-verdict='warn'] { box-shadow: inset 2px 0 0 var(--dsw-alias-state-error-primary, #ec1313); }
-.diagnosticsRow[data-verdict='watch'] { box-shadow: inset 2px 0 0 var(--dsw-alias-state-warn-primary, #e08b00); }
+.diagnosticsRow[data-verdict='warn'] { box-shadow: inset 2px 0 0 var(--dsw-alias-state-error-primary); }
+.diagnosticsRow[data-verdict='watch'] { box-shadow: inset 2px 0 0 var(--dsw-alias-state-warn-primary); }
 .diagnosticsRow[data-verdict='unknown'] { opacity: .85; }
 
 
@@ -1343,8 +1343,8 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
 }
 
 .historyClear:hover {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
-  border-color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
+  border-color: var(--dsw-alias-state-error-primary);
 }
 
 .historyList {
@@ -2613,7 +2613,7 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
 /* Over the model's documented prompt limit: red + bold so the locked generate
    button is self-explanatory (the tooltip repeats the exact limit). */
 .promptCount[data-over] {
-  color: var(--dsw-alias-state-error-primary, #e5484d);
+  color: var(--dsw-alias-state-error-primary);
   font-weight: 600;
 }
 
@@ -2855,9 +2855,9 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
   padding: 10px 14px;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
   background: var(--dsw-alias-bg-layer-2);
-  border: 1px solid var(--dsw-alias-state-error-primary, #ec1313);
+  border: 1px solid var(--dsw-alias-state-error-primary);
   border-radius: var(--dsw-radius-md);
   overflow-wrap: anywhere;
   flex: none;
@@ -4125,7 +4125,7 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
 
 .videoError {
   margin: 0;
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   line-height: 1.6;
   word-break: break-word;
@@ -4238,7 +4238,7 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
 }
 
 .videoTask[data-status='failed'] .videoTaskStatus {
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .videoTaskElapsed {

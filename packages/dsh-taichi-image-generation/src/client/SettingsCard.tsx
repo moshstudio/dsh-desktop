@@ -27,6 +27,7 @@ import { tt, type TranslateValues } from './helpers.ts'
 import { useImageGenLanguageTick } from './use-language.ts'
 import { OPEN_IMAGE_GEN_CONFIG_EVENT, takeImageGenConfigSection } from './config-entry.tsx'
 import { PptSetup } from './PptSetup.tsx'
+import { Button, Checkbox, Input, Modal, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Select } from './Select.tsx'
 import { onTablistKeyDown, tabIndexFor } from './tablist.ts'
 import css from './settings-card.module.css'
@@ -822,9 +823,9 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
                             : t('settings.stepSaveWaiting')}
                     </span>
                     {!pluginEnabled
-                      ? <button type="button" className={css.stepPrimary} onClick={() => { setAdvancedOpen(true); setActiveSection('general') }}>{t('settings.enablePlugin')}</button>
+                      ? <Button type="button" variant="primary" onClick={() => { setAdvancedOpen(true); setActiveSection('general') }}>{t('settings.enablePlugin')}</Button>
                       : state.dirty
-                        ? <button type="button" className={css.stepPrimary} disabled={blocked} onClick={() => { void saveAll() }} data-quick-save="">{t('settings.save')}</button>
+                        ? <Button type="button" variant="primary" disabled={blocked} onClick={() => { void saveAll() }} data-quick-save="">{t('settings.save')}</Button>
                         : null}
                   </div>
                 </li>
@@ -1004,7 +1005,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
             </div>
             {manualPromptModelOpen ? (
               <div className={css.manualModelRow}>
-                <input className={css.input} value={manualPromptModel} placeholder={t('settings.addPromptModelPlaceholder')} disabled={disabled} onChange={event => { setManualPromptModel(event.target.value) }} />
+                <Input className={css.control} value={manualPromptModel} placeholder={t('settings.addPromptModelPlaceholder')} disabled={disabled} onChange={event => { setManualPromptModel(event.target.value) }} />
                 <button type="button" className={css.addModel} disabled={disabled || manualPromptModel.trim() === ''} onClick={() => { props.edit('promptModel', manualPromptModel); setManualPromptModel('') }}>{t('settings.addModelConfirm')}</button>
               </div>
             ) : null}
@@ -1498,19 +1499,14 @@ function PresetPicker(props: {
     return preset.models.length > 0 && (preset.videoModels ?? []).length > 0 ? 'all' : preset.models.length > 0 ? 'image' : 'video'
   }
   return (
-    <div
-      className={css.pickerOverlay}
-      role="presentation"
-      onMouseDown={event => { if (event.target === event.currentTarget) props.onClose() }}
+    <Modal
+      open
+      onClose={props.onClose}
+      title={t('channels.presetPickerTitle')}
+      description={t(tab === 'subscription' ? 'channels.presetPickerSubscriptionHint' : 'channels.providerPickerHint')}
+      closeLabel={t('preview.close')}
+      contentClassName={css.pickerBody}
     >
-      <section className={css.pickerDialog} role="dialog" aria-modal="true" aria-label={t('channels.presetPickerTitle')}>
-        <header className={css.pickerHeader}>
-          <div>
-            <h3 className={css.pickerTitle}>{t('channels.presetPickerTitle')}</h3>
-            <p className={css.pickerHint}>{t(tab === 'subscription' ? 'channels.presetPickerSubscriptionHint' : 'channels.providerPickerHint')}</p>
-          </div>
-          <button type="button" className={css.editorClose} aria-label={t('preview.close')} onClick={props.onClose}>×</button>
-        </header>
         <div className={css.pickerTabs} role="tablist" aria-label={t('channels.presetPickerTitle')}>
           {([['api-key', 'channels.presetTabApiKey'], ['subscription', 'channels.presetTabSubscription']] as const).map(([value, labelKey], index) => (
             <button
@@ -1525,7 +1521,7 @@ function PresetPicker(props: {
             >{t(labelKey)}</button>
           ))}
         </div>
-        <input
+        <Input
           className={css.pickerSearch}
           type="search"
           value={query}
@@ -1578,8 +1574,7 @@ function PresetPicker(props: {
           </button> : null}
           {props.error !== null ? <p className={css.failed} role="status">{t('channels.presetLoadFailed', { error: props.error })}</p> : null}
         </div>
-      </section>
-    </div>
+    </Modal>
   )
 }
 
@@ -1744,16 +1739,42 @@ function ChannelEditor(props: {
   }
 
   return (
-    <div className={css.editorBackdrop} role="dialog" aria-modal="true" aria-label={`${t('channels.editorTitle')} · ${channel.name || t('channels.untitled')}`} onClick={props.onClose}>
-      <div className={css.editorPanel} onClick={event => { event.stopPropagation() }}>
-        <header className={css.editorHeader}>
-          <div>
-            <h3 className={css.sectionTitle}>{t('channels.editorTitle')} · {channel.name || t('channels.untitled')}</h3>
-            <p className={css.sectionHint}>{t('channels.editorIntro')}</p>
-          </div>
-          <button type="button" className={css.editorClose} aria-label={t('preview.close')} onClick={props.onClose}>×</button>
-        </header>
-
+    <Modal
+      open
+      onClose={props.onClose}
+      title={`${t('channels.editorTitle')} · ${channel.name || t('channels.untitled')}`}
+      description={t('channels.editorIntro')}
+      closeLabel={t('preview.close')}
+      contentClassName={css.editorBody}
+      footer={(
+        <div className={css.editorFooter}>
+          {props.isDefault ? <span className={css.channelBadge} data-default>{t('channels.defaultLabel')}</span> : (
+            <Button type="button" variant="ghost" size="sm" disabled={!props.writable} onClick={props.onSetDefault}>{t('channels.setDefault')}</Button>
+          )}
+          {removeOpen
+            ? (
+              <>
+                <Button type="button" variant="ghost" size="sm" disabled={!props.writable} onClick={props.onRemove}>{t('channels.confirm')}</Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => { setRemoveOpen(false) }}>{t('channels.cancel')}</Button>
+              </>
+            )
+            : (
+              <Button type="button" variant="ghost" size="sm" onClick={() => { setRemoveOpen(true) }}>{t('channels.deleteThisChannel')}</Button>
+            )}
+          <span className={css.spacer} />
+          <Button type="button" variant="ghost" onClick={props.onClose}>{t('preview.close')}</Button>
+          <Button
+            type="button"
+            variant="primary"
+            data-editor-save=""
+            disabled={!props.dirty || props.saving || !props.writable}
+            onClick={() => { void props.onSaveAndClose() }}
+          >
+            {props.saving ? t('settings.saving') : t('channels.saveAndClose')}
+          </Button>
+        </div>
+      )}
+    >
         {subscriptionMode ? (
           <div className={css.subscriptionBox}>
             <div className={css.subscriptionAccount}>
@@ -1797,7 +1818,7 @@ function ChannelEditor(props: {
             </label>
             <label className={css.editorField}>
               <span className={css.label}>{t('channels.modelCatalogTitle')}</span>
-              <input className={css.input} value={DEFAULT_SUBSCRIPTION_MODELS[subscription]} readOnly disabled />
+              <Input className={css.control} value={DEFAULT_SUBSCRIPTION_MODELS[subscription]} readOnly disabled />
             </label>
             <div className={css.modelSummary}>
               {props.subscriptionStatus?.state === 'logged-in'
@@ -1808,7 +1829,7 @@ function ChannelEditor(props: {
             {props.subscriptionStatus?.state !== 'logged-in' ? <div className={css.subscriptionManual}>
               <p className={css.fieldHint}>{t('settings.subscriptionManualHint')}</p>
               <div className={css.manualModelRow}>
-                <input className={css.input} value={manualAuthInput} placeholder={t('settings.subscriptionManualPlaceholder')} disabled={!props.writable || props.subscriptionBusy !== undefined} onChange={event => { setManualAuthInput(event.target.value) }} />
+                <Input className={css.control} value={manualAuthInput} placeholder={t('settings.subscriptionManualPlaceholder')} disabled={!props.writable || props.subscriptionBusy !== undefined} onChange={event => { setManualAuthInput(event.target.value) }} />
                 <button type="button" className={css.addModel} disabled={!props.writable || manualAuthInput.trim() === '' || props.subscriptionBusy !== undefined} onClick={() => { props.onSubscriptionComplete(subscription, manualAuthInput.trim()) }}>{t('settings.subscriptionManualComplete')}</button>
               </div>
             </div> : null}
@@ -1847,9 +1868,9 @@ function ChannelEditor(props: {
             </div>
           </div>
           <div className={css.keyInputRow}>
-            <input
+            <Input
               id="dsh-imagegen-channel-key"
-              className={css.input}
+              className={css.control}
               type={showKey ? 'text' : 'password'}
               autoComplete="off"
               value={keyDraft}
@@ -1919,21 +1940,12 @@ function ChannelEditor(props: {
             </div>
           </div>
           <p className={css.fieldHint}>{t('channels.protocolHint')}</p>
-          <label className={css.checkboxRow}>
-            <input type="checkbox" checked={channel.apiUrlFull} disabled={!props.writable} onChange={event => { props.onPatch({ apiUrlFull: event.target.checked }) }} />
-            <span>{t('channels.apiUrlFull')}</span>
-          </label>
+          <Checkbox className={css.checkboxRow} checked={channel.apiUrlFull} disabled={!props.writable} label={t('channels.apiUrlFull')} onChange={next => { props.onPatch({ apiUrlFull: next }) }} />
           {channel.apiUrlFull ? <p className={css.fieldHint}>{t('channels.apiUrlFullHint')}</p> : null}
-          <label className={css.checkboxRow}>
-            <input type="checkbox" checked={channel.autoReferenceLimit !== false} disabled={!props.writable} onChange={event => { props.onPatch({ autoReferenceLimit: event.target.checked }) }} />
-            <span>{t('channels.autoReferenceLimit')}</span>
-          </label>
+          <Checkbox className={css.checkboxRow} checked={channel.autoReferenceLimit !== false} disabled={!props.writable} label={t('channels.autoReferenceLimit')} onChange={next => { props.onPatch({ autoReferenceLimit: next }) }} />
           <p className={css.fieldHint}>{t('channels.autoReferenceLimitHint')}</p>
           {catalogHasSeedream(channel.models) ? <>
-            <label className={css.checkboxRow}>
-              <input type="checkbox" checked={channel.watermark !== false} disabled={!props.writable} onChange={event => { props.onPatch({ watermark: event.target.checked }) }} />
-              <span>{t('channels.watermark')}</span>
-            </label>
+            <Checkbox className={css.checkboxRow} checked={channel.watermark !== false} disabled={!props.writable} label={t('channels.watermark')} onChange={next => { props.onPatch({ watermark: next }) }} />
             <p className={css.fieldHint}>{t('channels.watermarkHint')}</p>
           </> : null}
         </div> : null}
@@ -2025,13 +2037,13 @@ function ChannelEditor(props: {
                     {editingModelIndex === index ? (
                       <div className={css.modelRowEditor}>
                         <div className={css.modelRowInputs}>
-                          <input className={css.input} value={model.alias} aria-label={t('channels.modelAliasLabel')} disabled={!props.writable} onChange={event => {
+                          <Input className={css.control} value={model.alias} aria-label={t('channels.modelAliasLabel')} disabled={!props.writable} onChange={event => {
                             const next = [...channel.models]
                             next[index] = { ...model, alias: event.target.value }
                             props.onSetModels(next)
                           }} />
                           <span className={css.modelArrow}>→</span>
-                          <input className={css.input} value={model.id} aria-label={t('channels.modelIdLabel')} disabled={!props.writable} onChange={event => {
+                          <Input className={css.control} value={model.id} aria-label={t('channels.modelIdLabel')} disabled={!props.writable} onChange={event => {
                             const next = [...channel.models]
                             next[index] = { ...model, id: event.target.value }
                             props.onSetModels(next)
@@ -2070,23 +2082,22 @@ function ChannelEditor(props: {
               const selected = channel.models.some(model => model.alias === candidate)
               const entry = describeModel(candidate)
               return (
-                <label key={candidate} className={css.modelCandidate} data-selected={selected ? '' : undefined}>
-                  <input type="checkbox" checked={selected} disabled={!props.writable} onChange={() => {
+                <div key={candidate} className={css.modelCandidate} data-selected={selected ? '' : undefined}>
+                  <Checkbox checked={selected} disabled={!props.writable} label={candidate} onChange={() => {
                     const merged = selected
                       ? channel.models.filter(model => model.alias !== candidate)
                       : [...channel.models, { alias: candidate, id: candidate }]
                     props.onSetModels(merged)
                   }} />
-                  <span>{candidate}</span>
                   {!entry.known ? <span className={css.modelBadge} data-warn>{t('channels.unknownProtocol')}</span> : <span className={css.modelBadge}>{entry.labelZh}</span>}
-                </label>
+                </div>
               )
             })}
           </div>
         ) : null}
         <div className={css.editorTools}>
           <div className={css.manualModelRow}>
-            <input className={css.input} value={manualId} placeholder={t('channels.manualAddPlaceholder')} disabled={!props.writable} onChange={event => { setManualId(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addManual() } }} />
+            <Input className={css.control} value={manualId} placeholder={t('channels.manualAddPlaceholder')} disabled={!props.writable} onChange={event => { setManualId(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addManual() } }} />
             <button type="button" className={css.addModel} disabled={!props.writable || manualId.trim() === ''} onClick={addManual}>{t('channels.addModelConfirm')}</button>
           </div>
           {props.otherChannels.length > 0 ? (
@@ -2129,13 +2140,13 @@ function ChannelEditor(props: {
                       {editingVideoIndex === index ? (
                         <div className={css.modelRowEditor}>
                           <div className={css.modelRowInputs}>
-                            <input className={css.input} value={model.alias} aria-label={t('channels.modelAliasLabel')} disabled={!props.writable} onChange={event => {
+                            <Input className={css.control} value={model.alias} aria-label={t('channels.modelAliasLabel')} disabled={!props.writable} onChange={event => {
                               const next = [...(channel.videoModels ?? [])]
                               next[index] = { ...model, alias: event.target.value }
                               props.onSetVideoModels(next)
                             }} />
                             <span className={css.modelArrow}>→</span>
-                            <input className={css.input} value={model.id} aria-label={t('channels.modelIdLabel')} disabled={!props.writable} onChange={event => {
+                            <Input className={css.control} value={model.id} aria-label={t('channels.modelIdLabel')} disabled={!props.writable} onChange={event => {
                               const next = [...(channel.videoModels ?? [])]
                               next[index] = { ...model, id: event.target.value }
                               props.onSetVideoModels(next)
@@ -2164,7 +2175,7 @@ function ChannelEditor(props: {
               </ul>
             )}
           <div className={css.manualModelRow}>
-            <input className={css.input} value={manualVideoId} placeholder={t('channels.videoAddPlaceholder')} disabled={!props.writable} onChange={event => { setManualVideoId(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addManualVideo() } }} />
+            <Input className={css.control} value={manualVideoId} placeholder={t('channels.videoAddPlaceholder')} disabled={!props.writable} onChange={event => { setManualVideoId(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addManualVideo() } }} />
             <button type="button" className={css.addModel} disabled={!props.writable || manualVideoId.trim() === ''} onClick={addManualVideo}>{t('channels.addModelConfirm')}</button>
           </div>
           {channel.apiUrl.toLowerCase().includes('agnes') ? <button type="button" className={css.addModel} disabled={!props.writable} onClick={() => {
@@ -2176,36 +2187,7 @@ function ChannelEditor(props: {
         )}
         </>}
 
-        <div className={css.editorDivider} />
-
-        <div className={css.editorFooter}>
-          {props.isDefault ? <span className={css.channelBadge} data-default>{t('channels.defaultLabel')}</span> : (
-            <button type="button" className={css.inlineDisclosure} disabled={!props.writable} onClick={props.onSetDefault}>{t('channels.setDefault')}</button>
-          )}
-          {removeOpen
-            ? (
-              <>
-                <button type="button" className={css.channelDanger} disabled={!props.writable} onClick={props.onRemove}>{t('channels.confirm')}</button>
-                <button type="button" className={css.channelAction} onClick={() => { setRemoveOpen(false) }}>{t('channels.cancel')}</button>
-              </>
-            )
-            : (
-              <button type="button" className={css.channelAction} data-danger onClick={() => { setRemoveOpen(true) }}>{t('channels.deleteThisChannel')}</button>
-            )}
-          <span className={css.spacer} />
-          <button type="button" className={css.discard} onClick={props.onClose}>{t('preview.close')}</button>
-          <button
-            type="button"
-            className={css.save}
-            data-editor-save=""
-            disabled={!props.dirty || props.saving || !props.writable}
-            onClick={() => { void props.onSaveAndClose() }}
-          >
-            {props.saving ? t('settings.saving') : t('channels.saveAndClose')}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -2282,12 +2264,12 @@ function ValueField(props: FieldProps & {
           )
           : null}
       </div>
-      <input
+      <Input
         id={props.id}
-        className={props.invalid ? css.inputInvalid : css.input}
+        className={props.invalid ? `${css.control} ${css.inputInvalid}` : css.control}
         type={props.secret === true ? 'password' : 'text'}
         autoComplete={props.secret === true ? 'off' : undefined}
-        {...props.invalid ? { 'aria-invalid': true } : {}}
+        aria-invalid={props.invalid || undefined}
         value={props.text}
         placeholder={props.placeholder ?? ''}
         disabled={props.disabled}
@@ -2329,17 +2311,19 @@ function BooleanField(props: FieldProps & {
           )
           : null}
       </div>
-      <Select
+      <SegmentedControl
         id={props.id}
-        className={css.select}
+        label={props.label}
+        className={css.control}
         value={props.text}
         disabled={props.disabled}
+        options={[
+          { value: '', label: props.inheritLabel },
+          { value: 'true', label: props.onLabel },
+          { value: 'false', label: props.offLabel },
+        ]}
         onChange={(value) => { props.onEdit(value) }}
-      >
-        <option value="">{props.inheritLabel}</option>
-        <option value="true">{props.onLabel}</option>
-        <option value="false">{props.offLabel}</option>
-      </Select>
+      />
       <p className={css.hint}>{props.hint}</p>
     </div>
   )

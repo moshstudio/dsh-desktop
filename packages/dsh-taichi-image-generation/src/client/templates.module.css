@@ -30,9 +30,9 @@
   --templates-radius-flat: 0;
   /* Content layer: the favourite star sits ON a thumbnail, so its scrim/ink are
      static values that stay readable over any artwork, not theme colours. */
-  --templates-thumb-scrim: var(--dsw-static-neutral-1000, #000000);
-  --templates-thumb-ink: var(--dsw-static-neutral-00, #ffffff);
-  --templates-thumb-accent: var(--dsw-static-amber-400, #f7ad31);
+  --templates-thumb-scrim: var(--dsw-static-neutral-1000);
+  --templates-thumb-ink: var(--dsw-static-neutral-00);
+  --templates-thumb-accent: var(--dsw-static-amber-400);
 }
 
 .shell {

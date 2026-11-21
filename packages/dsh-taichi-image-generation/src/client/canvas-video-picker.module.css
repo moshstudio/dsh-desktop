@@ -121,7 +121,7 @@
   border-radius: var(--dsw-radius-sm);
   /* Content layer: a video needs a black letterbox behind it whatever the theme
      is, otherwise an unloaded/transparent frame shows the card through. */
-  background: var(--dsw-static-neutral-1000, #000);
+  background: var(--dsw-static-neutral-1000);
 }
 
 .cardTitle {
@@ -175,7 +175,7 @@
 .errorLine {
   margin: 10px 0 0;
   text-align: center;
-  color: var(--dsw-alias-state-error-primary, #ec1313);
+  color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   overflow-wrap: anywhere;
 }

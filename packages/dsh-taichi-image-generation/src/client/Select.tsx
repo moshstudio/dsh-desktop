@@ -1,6 +1,8 @@
-/** Theme-aware select shared by filters, forms and canvas controls. */
-import { Children, Fragment, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+/** Theme-aware select shared by filters, forms and canvas controls.
+ *  The trigger, filter field and rows are host primitives. The list is a Menu
+ *  so placement, outside-click and Escape stay with the host. */
+import { Children, Fragment, isValidElement, useId, useLayoutEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { Button, IconChevronDownOutlineRegular, Input, Menu, MenuItemButton, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './select.module.css'
 
 export interface SelectOption {
@@ -42,8 +44,7 @@ export interface SelectProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
    * Add a filter box inside the menu.
    *
    * Only visibility changes: every option keeps its original index, so
-   * `aria-activedescendant` and `data-option-index` still point at the right
-   * entry and existing keyboard/typeahead behaviour is unchanged.
+   * keyboard order still matches the unfiltered list.
    */
   searchable?: boolean
   /** Per-value second line, e.g. the node count and timestamp of a canvas. */
@@ -55,228 +56,117 @@ export interface SelectProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   /**
    * Text for the closed trigger when the selected option's own label is the
    * wrong thing to show there.
-   *
-   * The default — `selected.label` — is right when the picker's value IS the
-   * answer ("gpt-image-2.5", "16:9"). It is wrong when the picker's job is an
-   * action rather than a value: the canvas picker was printing the current
-   * canvas's name, which the title button two elements to the right already
-   * shows, so the toolbar read the same name twice and neither read as
-   * "switch canvas". The accessible name still comes from `aria-label`.
    */
   label?: string
   onChange: (value: string) => void
 }
 
+function optionLabel(option: SelectOption, hint: string | undefined): ReactNode {
+  if (hint === undefined) return option.label
+  return <span className={css.optionLabel}>{option.label}<span className={css.optionHint}>{hint}</span></span>
+}
+
 export function Select({ value, options: suppliedOptions, children, variant = 'field', searchable = false, optionHint, emptyText, searchPlaceholder, label, onChange, className, disabled, id, onKeyDown, onClick, ...buttonProps }: SelectProps): React.JSX.Element {
   const options = suppliedOptions ?? optionsFromChildren(children)
-  /** Menu-only filter; an empty query shows every option. */
   const [query, setQuery] = useState('')
-  const visible = query.trim() === ''
-    ? options.map((option, index) => ({ option, index }))
-    : options.map((option, index) => ({ option, index }))
-      .filter(({ option }) => `${option.label} ${option.group ?? ''} ${optionHint?.(option) ?? ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-  const selectedIndex = options.findIndex(option => option.value === value)
-  const selected = options[selectedIndex] ?? options[0]
+  const [open, setOpen] = useState(false)
   const generatedId = useId()
   const triggerId = id ?? `dsh-select-${generatedId}`
-  const menuId = `${triggerId}-listbox`
-  const [open, setOpen] = useState(false)
-  const [activeIndex, setActiveIndex] = useState(0)
-  const [position, setPosition] = useState<{ left: number; top: number; width: number; maxHeight: number; above: boolean } | null>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const searchRef = useRef({ text: '', time: 0 })
+  const visible = query.trim() === ''
+    ? options
+    : options.filter(option => `${option.label} ${option.group ?? ''} ${optionHint?.(option) ?? ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+  const selected = options.find(option => option.value === value) ?? options[0]
   const unavailable = disabled === true || options.every(option => option.disabled === true)
 
-  const dismiss = (): void => { setOpen(false); setQuery(''); triggerRef.current?.focus() }
-  const show = (last = false): void => {
-    if (unavailable) return
-    const rect = triggerRef.current?.getBoundingClientRect()
-    if (rect === undefined) return
-    // The hint line is what tells same-named canvases apart, so it counts toward the width.
-    const widest = options.reduce((max, option) => {
-      const hint = optionHint?.(option)
-      const hintWidth = hint === undefined ? 0 : hint.length * 6.4
-      return Math.max(max, Math.max(option.label.length * 7 + 28, hintWidth + 20))
-    }, 0)
-    const width = Math.min(Math.max(rect.width, 168, Math.min(360, widest)), window.innerWidth - 16)
-    const below = window.innerHeight - rect.bottom - 14
-    const above = below < 160 && rect.top - 14 > below
-    setPosition({
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
-      top: above ? rect.top - 6 : rect.bottom + 6,
-      width,
-      maxHeight: Math.max(36, Math.min(278, above ? rect.top - 14 : below)),
-      above,
+  const close = (): void => { setOpen(false); setQuery('') }
+  const choose = (next: string): void => {
+    onChange(next)
+    close()
+  }
+
+  const entries: MenuEntry[] = []
+  visible.forEach((option, index) => {
+    if (option.group !== undefined && option.group !== visible[index - 1]?.group) {
+      entries.push({ type: 'label', id: `group-${option.group}-${index}`, text: option.group })
+    }
+    entries.push({
+      id: option.value,
+      label: optionLabel(option, optionHint?.(option)),
+      disabled: option.disabled,
     })
-    const enabled = options.map((option, index) => option.disabled ? -1 : index).filter(index => index >= 0)
-    setActiveIndex(selectedIndex >= 0 && !selected?.disabled ? selectedIndex : enabled[last ? enabled.length - 1 : 0] ?? 0)
-    searchRef.current = { text: '', time: 0 }
-    setQuery('')
-    setOpen(true)
-  }
+  })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return
-    // With a filter box the caret belongs there; otherwise the listbox itself takes focus.
-    const box = menuRef.current?.querySelector<HTMLInputElement>('input[data-dsh-select-search]')
-    if (box !== null && box !== undefined) box.focus()
-    else menuRef.current?.focus()
-    const outside = (event: PointerEvent): void => {
-      const target = event.target as Node | null
-      if (target !== null && (triggerRef.current?.contains(target) || menuRef.current?.contains(target))) return
-      setOpen(false)
+    const list = document.querySelector(`.${css.menuMark}`)
+    if (list instanceof HTMLElement) {
+      list.setAttribute('data-dsh-select-menu', '')
+      list.style.borderRadius = 'var(--dsw-radius-md)'
     }
-    const viewportChanged = (event: Event): void => {
-      if (event.target instanceof Element && menuRef.current?.contains(event.target)) return
-      setOpen(false)
-    }
-    window.addEventListener('pointerdown', outside, true)
-    window.addEventListener('resize', viewportChanged)
-    window.addEventListener('scroll', viewportChanged, true)
-    return () => {
-      window.removeEventListener('pointerdown', outside, true)
-      window.removeEventListener('resize', viewportChanged)
-      window.removeEventListener('scroll', viewportChanged, true)
-    }
-  }, [open])
+  }, [open, query, value, visible.length])
 
-  useEffect(() => {
-    if (unavailable) setOpen(false)
-  }, [unavailable])
+  const searchLabel = searchPlaceholder ?? buttonProps['aria-label'] ?? ''
 
-  useEffect(() => {
-    if (open) menuRef.current?.querySelector<HTMLElement>(`[data-option-index="${activeIndex}"]`)?.scrollIntoView?.({ block: 'nearest' })
-  }, [open, activeIndex])
-
-  /** Optgroups are hidden when their first visible member is not the array's first, so the
-   *  header is rendered from the previous *original* index, not the previous visible one. */
-  const visibleIndices = visible.map(({ index }) => index)
-  const stepIndices = visibleIndices.filter(index => options[index]?.disabled !== true)
-
-  const choose = (index: number): void => {
-    const option = options[index]
-    if (option === undefined || option.disabled) return
-    onChange(option.value)
-    dismiss()
-  }
-  const menuKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    event.stopPropagation()
-    const enabled = stepIndices
-    if (event.key === 'Escape' || event.key === 'Tab') {
-      if (event.key === 'Escape') event.preventDefault()
-      dismiss()
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      // With a filter on, the highlighted row may have just been filtered away.
-      const target = enabled.includes(activeIndex) ? activeIndex : enabled[0]
-      if (target !== undefined) choose(target)
-    } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault()
-      const current = enabled.indexOf(activeIndex)
-      const next = event.key === 'Home' ? 0 : event.key === 'End' ? enabled.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length
-      setActiveIndex(enabled[next] ?? 0)
-    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing) {
-      const now = Date.now()
-      const text = (now - searchRef.current.time < 700 ? searchRef.current.text : '') + event.key.toLocaleLowerCase()
-      searchRef.current = { text, time: now }
-      const next = [...enabled.filter(index => index > activeIndex), ...enabled.filter(index => index <= activeIndex)]
-        .find(index => options[index]?.label.toLocaleLowerCase().startsWith(text))
-      if (next !== undefined) setActiveIndex(next)
-    }
-  }
-
-  return <>
-    <button
+  return <Menu
+    open={open}
+    portal
+    compact
+    autoFocus={!searchable}
+    minWidthFromAnchor
+    className={`${css.host}${variant === 'field' ? ` ${css.field}` : ''}`}
+    listClassName={css.menuMark}
+    selectedId={value}
+    items={searchable ? [] : entries}
+    onSelect={choose}
+    onClose={close}
+    anchor={<Button
       {...buttonProps}
-      ref={triggerRef}
       id={triggerId}
       type="button"
+      size={variant === 'field' ? 'md' : 'sm'}
+      variant={variant === 'composer' ? 'toolbar' : 'outline'}
       className={`${css.trigger}${className ? ` ${className}` : ''}`}
       data-dsh-select=""
       data-variant={variant}
       data-open={open ? '' : undefined}
       disabled={unavailable}
-      aria-haspopup="listbox"
+      aria-haspopup="menu"
       aria-expanded={open}
-      aria-controls={open ? menuId : undefined}
       title={buttonProps.title ?? (label === undefined ? selected?.label : `${label} · ${selected?.label ?? ''}`.trim())}
-      onClick={event => { onClick?.(event); if (!event.defaultPrevented) { if (open) dismiss(); else show() } }}
+      onClick={event => {
+        onClick?.(event)
+        if (!event.defaultPrevented) setOpen(current => !current)
+      }}
       onKeyDown={event => {
         onKeyDown?.(event)
-        if (!event.defaultPrevented && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); show(event.key === 'ArrowUp') }
+        if (!event.defaultPrevented && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+          event.preventDefault()
+          if (!unavailable) setOpen(true)
+        }
       }}
     >
       <span className={css.value}>{label ?? selected?.label ?? value}</span>
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
-    </button>
-    {open && position !== null ? createPortal(<div
-      ref={menuRef}
-      id={menuId}
-      className={css.menu}
-      style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight, transform: position.above ? 'translateY(-100%)' : undefined }}
-      role="listbox"
-      tabIndex={-1}
-      aria-labelledby={triggerId}
-      aria-activedescendant={options[activeIndex] === undefined ? undefined : `${menuId}-${activeIndex}`}
-      data-dsh-select-menu=""
-      data-canvas-no-zoom=""
-      onKeyDown={menuKeyDown}
-      onPointerDown={event => { event.stopPropagation() }}
-    >
-      {searchable ? (
-        <input
-          className={css.search}
-          data-dsh-select-search=""
-          role="combobox"
-          aria-expanded={true}
-          aria-controls={menuId}
-          aria-autocomplete="list"
-          aria-activedescendant={options[activeIndex] === undefined ? undefined : `${menuId}-${activeIndex}`}
-          value={query}
-          placeholder={searchPlaceholder ?? buttonProps['aria-label'] ?? ''}
-          aria-label={searchPlaceholder ?? buttonProps['aria-label'] ?? ''}
-          onChange={event => {
-            const next = event.target.value
-            setQuery(next)
-            // Follow the filter so Enter never picks a row that is no longer shown.
-            const lowered = next.trim().toLocaleLowerCase()
-            const first = lowered === '' ? undefined : options
-              .map((option, index) => ({ option, index }))
-              .find(({ option }) => option.disabled !== true
-                && `${option.label} ${option.group ?? ''} ${optionHint?.(option) ?? ''}`.toLocaleLowerCase().includes(lowered))
-            if (first !== undefined) setActiveIndex(first.index)
-          }}
-          onMouseDown={event => { event.stopPropagation() }}
-          onKeyDown={event => {
-            // The box owns typing; only Arrow/Enter/Escape still drive the list.
-            if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) event.stopPropagation()
-          }}
-        />
-      ) : null}
+      <IconChevronDownOutlineRegular size={12} />
+    </Button>}
+  >
+    {searchable ? <>
+      <Input
+        data-dsh-select-search=""
+        value={query}
+        placeholder={searchLabel}
+        aria-label={searchLabel}
+        onChange={event => { setQuery(event.target.value) }}
+        onMouseDown={event => { event.stopPropagation() }}
+      />
       {visible.length === 0 && emptyText !== undefined ? <span className={css.empty} role="status">{emptyText}</span> : null}
-      {visible.map(({ option, index }) => <Fragment key={`${option.value}-${index}`}>
-        {option.group !== undefined && option.group !== options[index - 1]?.group ? <span className={css.group}>{option.group}</span> : null}
-        <button
-          id={`${menuId}-${index}`}
-          type="button"
-          role="option"
-          tabIndex={-1}
-          aria-selected={index === Math.max(0, selectedIndex)}
-          disabled={option.disabled}
-          className={css.option}
-          data-selected={index === Math.max(0, selectedIndex) ? '' : undefined}
-          data-highlighted={index === activeIndex ? '' : undefined}
-          data-option-index={index}
-          title={optionHint?.(option) === undefined ? option.label : `${option.label} · ${optionHint(option)}`}
-          onPointerEnter={() => { if (!option.disabled) setActiveIndex(index) }}
-          onMouseDown={event => { event.preventDefault() }}
-          onClick={() => { choose(index) }}
-        >
-          <span className={css.optionLabel}>{option.label}</span>
-          {optionHint?.(option) === undefined ? null : <span className={css.optionHint}>{optionHint(option)}</span>}
-        </button>
-      </Fragment>)}
-    </div>, document.body) : null}
-  </>
+      {visible.map(option => <MenuItemButton
+        key={option.value}
+        current={option.value === value}
+        disabled={option.disabled}
+        onSelect={() => { choose(option.value) }}
+      >
+        {optionLabel(option, optionHint?.(option))}
+      </MenuItemButton>)}
+    </> : null}
+  </Menu>
 }

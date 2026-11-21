@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConversationSessionTarget } from './session-target.ts'
-import css from './panel.module.css'
+import { Select } from './Select.tsx'
 
 export interface ConversationSessionPickerLabels {
   title: string
@@ -15,9 +16,9 @@ export interface ConversationSessionPickerLabels {
 /**
  * Require a deliberate target choice when DSH has no current session id.
  *
- * 这里刻意不预选任何一项：`<option value="">` 是唯一初始状态，确认按钮在
- * 用户真正选过之前保持 disabled。一旦预选「最近的那个会话」，用户点确认
- * 就等于让程序替他决定了目的地——那正是本次移植要消灭的行为。
+ * 这里刻意不预选任何一项：空值是唯一初始状态，确认按钮在用户真正选过之前
+ * 保持 disabled。一旦预选「最近的那个会话」，用户点确认就等于让程序替他
+ * 决定了目的地。
  */
 export function ConversationSessionPicker(props: {
   options: readonly ConversationSessionTarget[]
@@ -27,27 +28,27 @@ export function ConversationSessionPicker(props: {
 }): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<SessionId | ''>('')
   return (
-    <div className={css.conversationPicker} role="dialog" aria-modal="true" aria-label={props.labels.title} data-dsh-imagegen-session-picker>
-      <section className={css.conversationPickerBody}>
-        <h2>{props.labels.title}</h2>
-        <p>{props.labels.hint}</p>
-        <label>
-          <span>{props.labels.target}</span>
-          <select
-            autoFocus
-            aria-label={props.labels.target}
-            value={selectedId}
-            onChange={event => { setSelectedId(event.target.value as SessionId | '') }}
-          >
-            <option value="">{props.labels.placeholder}</option>
-            {props.options.map(option => <option key={option.id} value={option.id}>{option.title}</option>)}
-          </select>
-        </label>
-        <footer>
-          <button type="button" onClick={props.onCancel}>{props.labels.cancel}</button>
-          <button type="button" disabled={selectedId === ''} onClick={() => { if (selectedId !== '') props.onSelect(selectedId) }}>{props.labels.confirm}</button>
-        </footer>
-      </section>
-    </div>
+    <Modal
+      open
+      onClose={props.onCancel}
+      title={props.labels.title}
+      description={props.labels.hint}
+      closeLabel={props.labels.cancel}
+      footer={<>
+        <Button type="button" variant="ghost" onClick={props.onCancel}>{props.labels.cancel}</Button>
+        <Button type="button" variant="primary" disabled={selectedId === ''} onClick={() => { if (selectedId !== '') props.onSelect(selectedId) }}>{props.labels.confirm}</Button>
+      </>}
+    >
+      <Select
+        variant="field"
+        aria-label={props.labels.target}
+        value={selectedId}
+        options={[
+          { value: '', label: props.labels.placeholder },
+          ...props.options.map(option => ({ value: option.id, label: option.title })),
+        ]}
+        onChange={value => { setSelectedId(value as SessionId | '') }}
+      />
+    </Modal>
   )
 }

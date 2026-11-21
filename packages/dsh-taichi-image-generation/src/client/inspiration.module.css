@@ -17,8 +17,8 @@
   margin: auto;
   padding: 24px;
   font-family: var(--dsw-font-family);
-  --inspiration-scrim-ink: var(--dsw-static-neutral-00, #ffffff);
-  --inspiration-scrim: var(--dsw-static-neutral-1000, #000000);
+  --inspiration-scrim-ink: var(--dsw-static-neutral-00);
+  --inspiration-scrim: var(--dsw-static-neutral-1000);
 }
 
 .title {

@@ -326,7 +326,7 @@ async function buildPromptSignal() {
     'x.hann7712.generated.json',
   ]
   const dataCode = (await fetchText(`${base}/data.js`)).replaceAll('import.meta.env.BASE_URL', "'/'")
-  const tempModule = resolve(tmpdir(), `dsh-imagegen-prompt-signal-${process.pid}-${Date.now()}.mjs`)
+  const tempModule = resolve(tmpdir(), `dsh-taichi-imagegen-prompt-signal-${process.pid}-${Date.now()}.mjs`)
   await writeFile(tempModule, dataCode, 'utf8')
   let featuredPrompts = []
   try {

@@ -79,11 +79,11 @@ function nodes (extra = []) {
   return [
     {
       id: 'vid-1', type: 'video', title: '第 1 镜视频', x: 0, y: 0, width: 100, height: 100,
-      metadata: { video: { url: '/api/dsh-imagegen/video/file/a-1.mp4', mime: 'video/mp4' }, shot: { storyboardId: 'board-1', shotId: 'SHOT-EP001-001', index: 1 } },
+      metadata: { video: { url: '/api/dsh-taichi-imagegen/video/file/a-1.mp4', mime: 'video/mp4' }, shot: { storyboardId: 'board-1', shotId: 'SHOT-EP001-001', index: 1 } },
     },
     {
       id: 'vid-2', type: 'video', title: '第 2 镜视频', x: 0, y: 0, width: 100, height: 100,
-      metadata: { video: { url: '/api/dsh-imagegen/video/file/a-2.mp4', mime: 'video/mp4' }, shot: { storyboardId: 'board-1', shotId: 'SHOT-EP001-002', index: 2 } },
+      metadata: { video: { url: '/api/dsh-taichi-imagegen/video/file/a-2.mp4', mime: 'video/mp4' }, shot: { storyboardId: 'board-1', shotId: 'SHOT-EP001-002', index: 2 } },
     },
     ...extra,
   ]

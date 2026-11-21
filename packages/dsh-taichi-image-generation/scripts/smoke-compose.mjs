@@ -118,7 +118,7 @@ host.setSkillLanguage(() => 'en')
 const copy = (key, params) => hostLocale.interpolate(key, params, 'en')
 
 /** The served-URL prefix the video store uses (`${VIDEO_API.file}/<file>`). */
-const VIDEO_FILE_API = '/api/dsh-imagegen/video/file'
+const VIDEO_FILE_API = '/api/dsh-taichi-imagegen/video/file'
 
 // ---------------------------------------------------------------- fixtures
 
@@ -1013,11 +1013,11 @@ await check('V8 one unresolvable clip fails the whole run instead of stitching t
  * file, so a few fake bytes in a real file exercise the whole path (name
  * validation, store directory, existence).
  */
-const GALLERY_VIDEO_FILE_API = '/api/dsh-imagegen/gallery/video-file'
+const GALLERY_VIDEO_FILE_API = '/api/dsh-taichi-imagegen/gallery/video-file'
 
 await check('V22 the real composer resolves clips from BOTH stores and still refuses the rest', async () => {
-  const storeFilesDir = join(root, 'dsh-imagegen', 'videos', 'files')
-  const galleryVideosDir = join(root, 'dsh-imagegen', 'gallery', 'videos')
+  const storeFilesDir = join(root, 'dsh-taichi-imagegen', 'videos', 'files')
+  const galleryVideosDir = join(root, 'dsh-taichi-imagegen', 'gallery', 'videos')
   mkdirSync(storeFilesDir, { recursive: true })
   mkdirSync(galleryVideosDir, { recursive: true })
 
@@ -1047,11 +1047,11 @@ await check('V22 the real composer resolves clips from BOTH stores and still ref
   // 3. the gallery prefix that is NOT a clip: a lookalike route, a strict
   // prefix of the video-file route, and an image entry must all be refused —
   // an exact `prefix + '/'` match is what keeps them out.
-  assert.equal(await composer.resolve('/api/dsh-imagegen/gallery/video-file-x/x-0.mp4'), undefined,
+  assert.equal(await composer.resolve('/api/dsh-taichi-imagegen/gallery/video-file-x/x-0.mp4'), undefined,
     'a lookalike route (gallery/video-file-x) is not a clip')
-  assert.equal(await composer.resolve('/api/dsh-imagegen/gallery/video/da599d10-2111-4e05-9f50-728b286fd7fa-0.mp4'), undefined,
+  assert.equal(await composer.resolve('/api/dsh-taichi-imagegen/gallery/video/da599d10-2111-4e05-9f50-728b286fd7fa-0.mp4'), undefined,
     'the favorite ROUTE is not a serve route')
-  assert.equal(await composer.resolve('/api/dsh-imagegen/gallery/image/a-0.png'), undefined,
+  assert.equal(await composer.resolve('/api/dsh-taichi-imagegen/gallery/image/a-0.png'), undefined,
     'a gallery image is not a clip')
   assert.equal(await composer.resolve('https://evil.example/x.mp4'), undefined,
     'a foreign URL is not a clip')
@@ -1171,7 +1171,7 @@ await check('E1 (real ffmpeg) two synthetic clips stitch to roughly twice the le
   // Two synthetic clips in the video store: the first has real audio, the second
   // is SILENT — which is the branch where the pipeline must synthesize a
   // length-bounded silent track (an unbounded one would be OOM-killed).
-  const filesDir = join(root, 'dsh-imagegen', 'videos', 'files')
+  const filesDir = join(root, 'dsh-taichi-imagegen', 'videos', 'files')
   mkdirSync(filesDir, { recursive: true })
   const encode = (name, args) => {
     const target = join(filesDir, name)

@@ -1,5 +1,5 @@
 /**
- * The /api/dsh-imagegen route family: a loopback-only settings bridge for the
+ * The /api/dsh-taichi-imagegen route family: a loopback-only settings bridge for the
  * plugin's own namespace (describe/mutate, mirroring the dsh-web-ui family
  * bridge wire) and the generate proxy that forwards to the configured
  * OpenAI-compatible endpoint with the API key held host-side.
@@ -192,7 +192,7 @@ export interface ImageGenRoutesDeps {
     readImage: (ref: ImageAttachmentRef) => Promise<{ ref: ImageAttachmentRef; data: Uint8Array }>
     saveImage?: (input: SaveImageAttachment) => Promise<ImageAttachmentRef>
   }
-  /** Latest composer image staged for the direct edit_image command. */
+  /** Latest composer image staged for the direct taichi_edit_image command. */
   pendingConversationImages?: {
     set: (sessionId: string, ref: ImageAttachmentRef) => void
   }
@@ -918,7 +918,7 @@ function failureOf(error: unknown): { ok: false; code: string; message: string }
 }
 
 /**
- * Build every /api/dsh-imagegen route.
+ * Build every /api/dsh-taichi-imagegen route.
  * @param deps - settings seam + config resolver.
  * @returns the route registrations.
  */
@@ -1134,7 +1134,7 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
   return [
     ...modelRoutes,
     ...makeOutfitRoutes({ guard, readJsonBody, writeJson }),
-    // ---------------------------- composer image for /edit_image (exact)
+    // ---------------------------- composer image for /taichi_edit_image (exact)
     ...(deps.attachments?.saveImage === undefined || deps.pendingConversationImages === undefined ? [] : [{
       kind: 'exact' as const,
       path: CONVERSATION_IMAGE_API,
@@ -1329,7 +1329,7 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
     },
     // ----------------------------------------------- ecommerce link fetch
     {
-      kind: 'exact', path: '/api/dsh-imagegen/ecommerce/fetch-link',
+      kind: 'exact', path: '/api/dsh-taichi-imagegen/ecommerce/fetch-link',
       handler: async (req, res) => {
         if (!guard(req, res, 'POST')) return
         const body = await readJsonBody(req)

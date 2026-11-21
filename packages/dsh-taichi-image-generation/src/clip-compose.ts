@@ -309,7 +309,7 @@ const CLIP_SOURCES: readonly ClipSource[] = [
  * Decode a served clip URL into the file name and the store that owns it.
  *
  * The prefix is matched EXACTLY, as `prefix + '/'`, so a lookalike route such as
- * `/api/dsh-imagegen/gallery/video-file-x/…` cannot be mistaken for a clip. The
+ * `/api/dsh-taichi-imagegen/gallery/video-file-x/…` cannot be mistaken for a clip. The
  * `URL` parse normalizes `..` segments away and the store's own name pattern
  * rejects whatever survives, so `../../etc/passwd` is still refused.
  *

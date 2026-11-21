@@ -1,4 +1,4 @@
-/** Direct `/edit_image` command for editing the latest image in the session. */
+/** Direct `/taichi_edit_image` command for editing the latest image in the session. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
@@ -75,14 +75,14 @@ export function registerEditImageCommand(
   },
 ): () => void {
   return ctx.commands.register({
-    name: 'edit_image',
+    name: 'taichi_edit_image',
     description: 'Edit the latest image in this conversation with the plugin image model',
     // `images` is understood by the newer host command protocol. Keep the
     // source compatible with older development-only command typings.
     input: { hint: 'Describe how to modify the latest image', images: true } as { hint: string; images: boolean },
     async handler(invocation): Promise<CommandResult> {
       const prompt = invocation.rawInput.trim()
-      if (prompt === '') return { kind: 'error', text: '请提供图片修改描述，例如：/edit_image 把背景改成夜景' }
+      if (prompt === '') return { kind: 'error', text: '请提供图片修改描述，例如：/taichi_edit_image 把背景改成夜景' }
       const invocationImage = imageInInvocation((invocation as typeof invocation & { attachments?: readonly unknown[] }).attachments)
       // A staged composer image is newer than anything already committed to
       // the session, so it must win when the user explicitly adds a preview

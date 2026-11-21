@@ -31,7 +31,8 @@ import {
   archiveFeedUrl,
   compareVersions,
   fetchAvailableReleases,
-  STABLE_FEED_URL,
+  setDesktopUpdateOrigin,
+  stableFeedUrl,
   type VersionIndexRequest
 } from './version-catalog'
 
@@ -127,6 +128,8 @@ export async function rollbackApplication(): Promise<UpdateStatus> {
   })()
   try { return await rollbackPromise } finally { rollbackPromise = undefined }
 }
+
+export { setDesktopUpdateOrigin }
 
 export function getUpdateStatus(): UpdateStatus {
   return { ...status, locale: updateLocale?.() }
@@ -360,7 +363,7 @@ async function installSpecificVersionOwned(version: unknown, owner?: symbol): Pr
       transition({ type: 'error', message: errorMessage(error) })
     } finally {
       checkPromise = undefined
-      autoUpdater.setFeedURL({ provider: 'generic', url: STABLE_FEED_URL })
+      autoUpdater.setFeedURL({ provider: 'generic', url: stableFeedUrl() })
       autoUpdater.allowDowngrade = false
       pendingDowngrade = false
       autoUpdater.allowPrerelease = false

@@ -4,7 +4,7 @@ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 
 /** Document event used to bridge chat tool results into the image workspace. */
-export const CHAT_IMAGE_EVENT = 'dsh-imagegen:chat-images'
+export const CHAT_IMAGE_EVENT = 'dsh-taichi-imagegen:chat-images'
 
 export interface ChatImageEventDetail {
   sessionId: SessionId
@@ -59,7 +59,7 @@ export interface ConversationInput {
  * Register an image through the host's complete composer and durable-edit path.
  *
  * 顺序是有约束的，不能调换：先建草稿 → 再交给 composer 附件栏 → 再落盘
- * （`attachImage` 让 `/edit_image` 之后还能找回这张图）→ 最后补提示词。任何
+ * （`attachImage` 让 `/taichi_edit_image` 之后还能找回这张图）→ 最后补提示词。任何
  * 一步失败都要把前面的痕迹撤掉，否则会话里会留下一条指向已失败图片的
  * 附件 chip，用户点发送才炸。
  *

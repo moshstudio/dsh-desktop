@@ -789,7 +789,7 @@
   .body { grid-template-rows: max-content minmax(240px, 1fr); }
 }
 
-/* dsh-imagegen-mobile-7 (phone intro): the model-limit hint wraps to four
+/* dsh-taichi-imagegen-mobile-7 (phone intro): the model-limit hint wraps to four
  * lines on a ~400px viewport and eats ~80px of the content area. Clamp it to
  * two lines on a phone — the load-bearing numbers (人物 1 张 / 服装最多 4 张 /
  * 姿势 1 张 / 共 6 张) all sit in the first half of the sentence, so what gets

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -123,8 +123,8 @@ function createReact() {
 }
 
 function loadPlugin(React: ReturnType<typeof createReact>['React']) {
-  const directory = path.join(projectRoot, 'packages', 'dsh-taichi-account')
-  const files = ['client.locale.js', 'client.style.js', 'client.form.js', 'client.dialog.js', 'client.js']
+  const clientPath = path.join(projectRoot, 'packages', 'dsh-taichi-account', 'lib', 'client.js')
+  if (!existsSync(clientPath)) throw new Error('dsh-taichi-account client bundle is missing; run npm run account:build')
   const registrations = new Map<string, {
     id: string
     chunk?: string
@@ -134,6 +134,7 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
   const stored = new Map<string, string>()
   const document = {
     getElementById: vi.fn(() => null),
+    querySelector: vi.fn(() => null),
     createElement: vi.fn(() => ({ id: '', dataset: {}, textContent: '' })),
     head: { appendChild: (node: { textContent?: string }) => { styles.push(node) } }
   }
@@ -167,19 +168,23 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
     },
     dshDesktop: {} as { account?: AccountApi, restartHarness?: () => Promise<{ ok: boolean }> }
   }
-  for (const file of files) {
-    vm.runInNewContext(readFileSync(path.join(directory, file), 'utf8'), {
-      URL,
-      document,
-      window: sandboxWindow
-    })
-  }
+  vm.runInNewContext(readFileSync(clientPath, 'utf8'), {
+    URL,
+    document,
+    window: sandboxWindow
+  }, { filename: 'client.js' })
   const definition = registrations.get('')
-  if (!definition) throw new Error('client.js did not register a plugin definition')
+  if (!definition) throw new Error('account client did not register a plugin definition')
   const primitiveNames = ['Button', 'Input', 'Modal', 'RiskConfirmation', 'SegmentedControl', 'SegmentedTabs', 'Tooltip', 'IconChevronLeftOutlineRegular', 'IconInfoOutlineRegular', 'IconUserOutlineRegular']
   const primitives = Object.fromEntries(primitiveNames.map(name => [name, () => null]))
+  const jsx = (type: unknown, props: { children?: unknown } | null, key?: unknown) => {
+    const { children, ...rest } = props ?? {}
+    const list = children == null ? [] : Array.isArray(children) ? children : [children]
+    return React.createElement(type, key === undefined ? rest : { ...rest, key }, ...list)
+  }
   const require = (id: string): unknown => {
     if (id === 'react') return React
+    if (id === 'react/jsx-runtime' || id === 'react/jsx-dev-runtime') return { jsx, jsxs: jsx, Fragment: React.Fragment }
     if (id === '@deepseek-ai/dsh-client-ui-primitives') return new Proxy(primitives, {
       get: (target, key) => {
         if (!(key in target)) throw new Error(`UI primitives does not export ${String(key)}`)
@@ -232,7 +237,7 @@ function nodes(tree: unknown, predicate: (node: Node) => boolean): Node[] {
 }
 
 function linkLabels(tree: unknown): string[] {
-  const row = nodes(tree, node => String(node.props.className ?? '').includes('dshDeskAccountLinkRow'))[0]
+  const row = nodes(tree, node => node.props['data-dsh-account-link-row'] === 'true')[0]
   const labels: string[] = []
   walk(row?.children, node => {
     for (const child of node.children) {
@@ -500,61 +505,27 @@ describe('desktop account page', () => {
     for (const language of expected) expect(Object.keys(dictionaries[language] ?? {}).sort()).toEqual(keys)
     expect(dictionaries.zh?.needVerify).toBe('已收到验证码')
     expect(dictionaries.en?.needVerify).toBe('Already have a code')
-    const css = loaded.styles.map(style => style.textContent ?? '').join('\n')
-    expect(css).toContain('[data-dsh-sidebar-settings-actions]{display:flex;flex-direction:row;align-items:center}')
-    expect(css).toContain('.dshDeskAccountPanel{box-sizing:border-box;display:flex;flex:1;flex-direction:column;width:100%;height:100%')
-    expect(css).toContain('.dshDeskAccountContent{box-sizing:border-box;display:flex;flex-direction:column;flex:1;width:100%;min-width:0')
-    expect(css).toContain('.dshDeskAccountContent>:not(.dshDeskAccountBody),.dshDeskAccountStage{box-sizing:border-box;min-width:0;padding-inline:32px}')
-    expect(css).toContain('.dshDeskAccountBody{flex:1;min-height:0;margin-top:16px;overflow-y:auto}')
-    expect(css).not.toContain('width:min(960px,100%)')
-    expect(css).toContain('.dshDeskAccountBack{')
-    expect(css).not.toContain('.dshDeskAccountDialog')
-    expect(css).not.toContain('width:min(520px,100%)')
   })
 
   it('keeps account motion short and optional', async () => {
     const css = loaded.styles.map(style => style.textContent ?? '').join('\n')
-    expect(css).toContain('@keyframes dshDeskAccountRise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}')
-    expect(css).toContain('@keyframes dshDeskAccountFade{from{opacity:0}to{opacity:1}}')
-    expect(css).toContain('@keyframes dshDeskAccountPresenceIn{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}')
-    const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce)'))
-    for (const selector of [
-      '.dshDeskAccountPack',
-      '.dshDeskAccountModel',
-      '.dshDeskAccountTitle',
-      '.dshDeskAccountDescription',
-      '.dshDeskAccountStage',
-      '.dshDeskAccountFieldError',
-      '.dshDeskAccountAlert',
-      '.dshDeskAccountStatus',
-      '.dshDeskAccountNotice',
-      '.dshDeskAccountPresence',
-      '.dshDeskAccountSlot',
-      '.dshDeskAccountSlotBody',
-      '.dshDeskAccountCross',
-      '.dshDeskAccountAuthColumn'
-    ]) expect(reduced).toContain(selector)
-    expect(reduced).toContain('transition:none')
-    expect(reduced).toContain('animation:none')
-    expect(css).toContain('.dshDeskAccountContent[data-auth=true]{justify-content:center;overflow-y:auto;overflow-anchor:none;padding-bottom:120px}')
-    expect(css).toContain('.dshDeskAccountFooter[data-align="stretch"] [data-dsh-account-primary]{flex:1 1 0;width:auto;min-width:0;margin-inline:4px;box-sizing:border-box}')
-    expect(css).toContain('.dshDeskAccountLinks{display:flex;flex-direction:column;gap:4px;margin-top:4px;margin-inline:4px}')
-    expect(css).toContain('.dshDeskAccountLinkRow{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0}')
-    expect(css).toContain('.dshDeskAccountLinkRow[data-align="end"]{justify-content:flex-end}')
-    expect(css).toContain('@keyframes dshDeskAccountFieldIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}')
-    expect(css).toContain('@keyframes dshDeskAccountFieldOut{from{opacity:1;transform:none}to{opacity:0;transform:translateY(8px)}}')
-    expect(css).toContain('@media (height<=720px),(width<=560px){.dshDeskAccountContent[data-auth=true]{justify-content:flex-start;padding-bottom:32px}}')
+    expect(css).toContain('--dsw-alias-')
+    expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    expect(css).not.toContain('--ds-')
+    const reduced = css.slice(css.toLowerCase().indexOf('prefers-reduced-motion'))
+    expect(reduced).toMatch(/animation:\s*none/)
+    expect(reduced).toMatch(/transition:\s*none/)
 
     const { rerender } = await mountReady()
-    const stageKey = () => nodes(rerender().tree, node => node.props.className === 'dshDeskAccountStage')[0]?.props.key
+    const stageKey = () => nodes(rerender().tree, node => node.props['data-dsh-account-stage'] === 'true')[0]?.props.key
     const emailSlot = () => nodes(rerender().tree, node => node.props['data-dsh-account-slot'] === 'email')[0]
     expect(stageKey()).toBe('auth')
     expect(emailSlot()?.props.key).toBe('email')
-    expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountCross').some(node => node.children.includes('titleLogin'))).toBe(true)
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-cross'] === 'true').some(node => node.children.includes('titleLogin'))).toBe(true)
     click(rerender().tree, 'needAccount')
     expect(stageKey()).toBe('auth')
     expect(emailSlot()?.props.key).toBe('email')
-    expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountCross').some(node => node.children.includes('titleRegister'))).toBe(true)
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-cross'] === 'true').some(node => node.children.includes('titleRegister'))).toBe(true)
     expect(nodes(rerender().tree, node => node.props['data-dsh-account-slot'] === 'confirm')[0]?.props['data-motion']).toBeUndefined()
     expect(nodes(rerender().tree, node => node.props['aria-live'] === 'polite')[0]?.props['aria-atomic']).toBe('true')
   })
@@ -574,7 +545,7 @@ describe('desktop account page', () => {
     expect(field(rerender().tree, 'password')?.props.value).toBe('secret-pass')
     click(rerender().tree, 'needReset')
     expect(linkLabels(rerender().tree)).toEqual(['haveAccount'])
-    expect(nodes(rerender().tree, node => String(node.props.className ?? '').includes('dshDeskAccountLinkRow'))[0]?.props['data-align']).toBe('end')
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-link-row'] === 'true')[0]?.props['data-align']).toBe('end')
     expect(fields(rerender().tree)).toEqual(['email'])
     click(rerender().tree, 'haveAccount')
     invoke(field(rerender().tree, 'password'), 'onChange', 'secret-pass')
@@ -691,10 +662,10 @@ describe('desktop account page', () => {
     expect(fields(signedOut.tree)).toEqual(['email', 'password'])
     expect(primaryDisabled(signedOut.tree)).toBe(true)
     const primary = nodes(signedOut.tree, node => node.props['data-dsh-account-primary'] === 'true')[0]
-    expect(primary?.props.className).toBe('dshDeskAccountPrimary')
-    expect(nodes(signedOut.tree, node => node.props.className === 'dshDeskAccountFooter')[0]?.props['data-align']).toBe('stretch')
+    expect(primary?.props['data-dsh-account-primary']).toBe('true')
+    expect(nodes(signedOut.tree, node => node.props['data-dsh-account-footer'] === 'true')[0]?.props['data-align']).toBe('stretch')
     expect(linkLabels(signedOut.tree)).toEqual(['needReset', 'needAccount'])
-    expect(nodes(signedOut.tree, node => String(node.props.className ?? '').includes('dshDeskAccountLinkRow'))[0]?.props['data-align']).toBe('between')
+    expect(nodes(signedOut.tree, node => node.props['data-dsh-account-link-row'] === 'true')[0]?.props['data-align']).toBe('between')
     const reset = nodes(signedOut.tree, node => node.children.includes('needReset'))[0]
     const onClick = reset?.props.onClick
     if (typeof onClick !== 'function') throw new Error('reset link is missing')
@@ -758,7 +729,7 @@ describe('desktop account page', () => {
     expect(text).not.toContain('signedIn')
     expect(text).not.toContain('descAccount')
     expect(nodes(home.tree, node => node.type === 'form')).toHaveLength(0)
-    expect(nodes(home.tree, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children)).toEqual([['demo-chat'], ['long-model']])
+    expect(nodes(home.tree, node => node.props['data-dsh-account-model-name'] === 'true').map(node => node.children)).toEqual([['demo-chat'], ['long-model']])
     expect(nodes(home.tree, node => node.type === 'article')).toHaveLength(2)
     expect(nodes(home.tree, node => node.children.includes('priceUnavailable'))).toHaveLength(2)
     expect(nodes(home.tree, node => node.children.includes('creditsUnread'))).toHaveLength(1)
@@ -780,18 +751,18 @@ describe('desktop account page', () => {
       })
     })
     const chat = rerender().tree
-    expect(nodes(chat, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children)).toEqual([['demo-chat']])
+    expect(nodes(chat, node => node.props['data-dsh-account-model-name'] === 'true').map(node => node.children)).toEqual([['demo-chat']])
     choose(chat, 'catalogImage')
     const images = rerender().tree
-    expect(nodes(images, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children)).toEqual([['Sooner'], ['Later'], ['Unpriced']])
-    expect(nodes(images, node => node.props.className === 'dshDeskAccountRateNow').map(node => node.children)).toEqual([['12'], ['80']])
+    expect(nodes(images, node => node.props['data-dsh-account-model-name'] === 'true').map(node => node.children)).toEqual([['Sooner'], ['Later'], ['Unpriced']])
+    expect(nodes(images, node => node.props['data-dsh-account-rate'] === 'true').map(node => node.children)).toEqual([['12'], ['80']])
     expect(nodes(images, node => node.children.includes('pricePerImage'))).toHaveLength(2)
     expect(nodes(images, node => node.children.includes('priceUnavailable'))).toHaveLength(1)
     expect(nodes(images, node => node.children.includes('demo-chat'))).toHaveLength(0)
     choose(images, 'catalogVideo')
     const videos = rerender().tree
-    expect(nodes(videos, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children)).toEqual([['Veo']])
-    expect(nodes(videos, node => node.props.className === 'dshDeskAccountRateNow').map(node => node.children)).toEqual([['2,600']])
+    expect(nodes(videos, node => node.props['data-dsh-account-model-name'] === 'true').map(node => node.children)).toEqual([['Veo']])
+    expect(nodes(videos, node => node.props['data-dsh-account-rate'] === 'true').map(node => node.children)).toEqual([['2,600']])
     expect(nodes(videos, node => node.children.includes('pricePerVideo'))).toHaveLength(1)
     expect(nodes(videos, node => node.children.includes('imagesEmpty'))).toHaveLength(0)
   })
@@ -815,8 +786,8 @@ describe('desktop account page', () => {
     })
     choose(rerender().tree, 'catalogImage')
     const images = rerender().tree
-    expect(nodes(images, node => node.props.className === 'dshDeskAccountRateLabel').map(node => node.children)).toEqual([['1K'], ['2K / 4K']])
-    expect(nodes(images, node => node.props.className === 'dshDeskAccountRateNow').map(node => node.children)).toEqual([['150'], ['400']])
+    expect(nodes(images, node => node.props['data-dsh-account-rate-label'] === 'true').map(node => node.children)).toEqual([['1K'], ['2K / 4K']])
+    expect(nodes(images, node => node.props['data-dsh-account-rate'] === 'true').map(node => node.children)).toEqual([['150'], ['400']])
     expect(nodes(images, node => node.children.includes('pricePerImage'))).toHaveLength(2)
     expect(JSON.stringify(images)).not.toContain('vip')
   })
@@ -865,7 +836,7 @@ describe('desktop account page', () => {
     for (const effect of rerender().effects) effect()
     await flush()
     expect(refresh).toHaveBeenCalledTimes(1)
-    expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children)).toEqual([['Fresh']])
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-model-name'] === 'true').map(node => node.children)).toEqual([['Fresh']])
     layout.selectPanel(null)
     for (const effect of rerender().effects) effect()
     layout.selectPanel('desktop-account')
@@ -918,12 +889,12 @@ describe('desktop account page', () => {
     const open = rerender().tree
     expect(tabs(open).props.value).toBe('models')
     expect(nodes(open, node => node.type === 'article')).toHaveLength(2)
-    expect(nodes(open, node => node.props.className === 'dshDeskAccountRateNow').flatMap(node => node.children)).toEqual(['2,500', '10,000'])
-    expect(nodes(open, node => node.props.className === 'dshDeskAccountRateList').flatMap(node => node.children)).toEqual(['14,000', '70,000'])
-    expect(nodes(open, node => node.props.className === 'dshDeskAccountSave').flatMap(node => node.children)).toEqual(['priceSave 98%'])
-    expect(nodes(open, node => node.props.className === 'dshDeskAccountBill')).toHaveLength(1)
+    expect(nodes(open, node => node.props['data-dsh-account-rate'] === 'true').flatMap(node => node.children)).toEqual(['2,500', '10,000'])
+    expect(nodes(open, node => node.props['data-dsh-account-rate-list'] === 'true').flatMap(node => node.children)).toEqual(['14,000', '70,000'])
+    expect(nodes(open, node => node.props['data-dsh-account-save'] === 'true').flatMap(node => node.children)).toEqual(['priceSave 98%'])
+    expect(nodes(open, node => node.props['data-dsh-account-bill'] === 'true')).toHaveLength(1)
     const cacheText: unknown[] = []
-    walk(nodes(open, node => node.props.className === 'dshDeskAccountCache')[0], node => { cacheText.push(...node.children) })
+    walk(nodes(open, node => node.props['data-dsh-account-cache'] === 'true')[0], node => { cacheText.push(...node.children) })
     expect(cacheText).toEqual([
       'cacheReadBrief', ' ', '250', 'perMillion',
       ' · ',
@@ -932,7 +903,7 @@ describe('desktop account page', () => {
     expect(nodes(open, node => node.props['aria-label'] === 'longContext')).toHaveLength(1)
     expect(nodes(open, node => node.props.label === 'longContext longContextFrom 272,001 tokens inputPrice ×2 outputPrice ×1.5 cachePrice ×2 cacheWritePrice ×2')).toHaveLength(1)
     const noteText: unknown[] = []
-    for (const note of nodes(open, node => node.props.className === 'dshDeskAccountPriceNote')) {
+    for (const note of nodes(open, node => node.props['data-dsh-account-price-note'] === 'true')) {
       walk(note, node => { noteText.push(...node.children.filter(child => typeof child === 'string')) })
     }
     expect(noteText.join(' ')).not.toContain('longContext')
@@ -940,29 +911,29 @@ describe('desktop account page', () => {
       'peakPrice', 'weekdayMon', 'weekdayFri', '01:00–04:00', '06:00–10:00'
     ]))
     expect(nodes(open, node => node.children.includes('priceUnavailable'))).toHaveLength(1)
-    expect(nodes(open, node => node.props.className === 'dshDeskAccountRateUnit')).toHaveLength(2)
+    expect(nodes(open, node => node.props['data-dsh-account-rate-unit'] === 'true')).toHaveLength(2)
     expect(nodes(open, node => node.type === 'svg')).toHaveLength(1)
-    expect(nodes(open, node => node.props.className === 'dshDeskAccountChartTip').flatMap(node => node.children)).toContain('30')
+    expect(nodes(open, node => node.props['data-dsh-account-chart-tip'] === 'true').flatMap(node => node.children)).toContain('30')
     expect(dictionaries.zh?.totalConsumed).toBe('总消耗')
-    expect(nodes(open, node => node.props.className === 'dshDeskAccountStatLabel').flatMap(node => node.children)).toEqual([
+    expect(nodes(open, node => node.props['data-dsh-account-stat-label'] === 'true').flatMap(node => node.children)).toEqual([
       'totalConsumed',
       'consumed',
       'recharged',
       'usageCount',
       'consumed'
     ])
-    expect(nodes(open, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['30'], ['700'], ['1']])
+    expect(nodes(open, node => node.props['data-dsh-account-stat-value'] === 'true').map(node => node.children)).toEqual([['30'], ['700'], ['1']])
     choose(open, 'rangeYesterday')
     const yesterday = rerender().tree
-    expect(nodes(yesterday, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['0'], ['600'], ['0']])
+    expect(nodes(yesterday, node => node.props['data-dsh-account-stat-value'] === 'true').map(node => node.children)).toEqual([['0'], ['600'], ['0']])
     expect(nodes(yesterday, node => node.children.includes('chartEmpty'))).toHaveLength(1)
     choose(yesterday, 'rangeToday')
     const today = rerender().tree
-    expect(nodes(today, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['30'], ['100'], ['1']])
+    expect(nodes(today, node => node.props['data-dsh-account-stat-value'] === 'true').map(node => node.children)).toEqual([['30'], ['100'], ['1']])
     expect(nodes(today, node => node.type === 'svg')).toHaveLength(1)
     choose(today, 'rangeAll')
     const entire = rerender().tree
-    expect(nodes(entire, node => node.props.className === 'dshDeskAccountStatValue').map(node => node.children)).toEqual([['30'], ['700'], ['1']])
+    expect(nodes(entire, node => node.props['data-dsh-account-stat-value'] === 'true').map(node => node.children)).toEqual([['30'], ['700'], ['1']])
     expect(nodes(open, node => node.children.includes('−30'))).toHaveLength(0)
     invoke(tabs(entire), 'onChange', 'usage')
     const usage = rerender().tree
@@ -993,15 +964,15 @@ describe('desktop account page', () => {
         ]
       })
     })
-    const names = (tree: unknown) => nodes(tree, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children[0])
+    const names = (tree: unknown) => nodes(tree, node => node.props['data-dsh-account-model-name'] === 'true').map(node => node.children[0])
     const home = rerender().tree
     expect(nodes(home, node => node.children.includes('sortByVendor') && node.props['aria-pressed'] === false)).toHaveLength(1)
-    expect(nodes(home, node => node.props.className === 'dshDeskAccountVendorName').map(node => node.children[0])).toEqual(['OpenAI', 'Anthropic', 'vendorOther'])
+    expect(nodes(home, node => node.props['data-dsh-account-vendor'] === 'true').map(node => node.children[0])).toEqual(['OpenAI', 'Anthropic', 'vendorOther'])
     expect(names(home)).toEqual(['Mini', 'GPT', 'o1', 'Claude', 'Plain'])
     click(home, 'sortByVendor')
     const priced = rerender().tree
     expect(nodes(priced, node => node.children.includes('sortByPrice') && node.props['aria-pressed'] === true)).toHaveLength(1)
-    expect(nodes(priced, node => node.props.className === 'dshDeskAccountVendorName')).toHaveLength(0)
+    expect(nodes(priced, node => node.props['data-dsh-account-vendor'] === 'true')).toHaveLength(0)
     expect(names(priced)).toEqual(['Plain', 'Mini', 'Claude', 'GPT', 'o1'])
   })
 
@@ -1062,9 +1033,9 @@ describe('desktop account page', () => {
   it('keeps unknown credits distinct from zero and uses signed-in empty model copy', async () => {
     const { rerender } = await mountReady({ status: async () => emptyStatus({ signedIn: true, email: 'a@example.com' }) })
     const tree = rerender().tree
-    const balance = nodes(tree, node => node.props.className === 'dshDeskAccountBalance')[0]
+    const balance = nodes(tree, node => node.props['data-dsh-account-balance'] === 'true')[0]
     expect(balance?.children).toEqual(['—'])
-    expect(nodes(tree, node => node.props.className === 'dshDeskAccountCaption')[0]?.children).toEqual(['balanceUnread'])
+    expect(nodes(tree, node => node.props['data-dsh-account-caption'] === 'true')[0]?.children).toEqual(['balanceUnread'])
     expect(nodes(tree, node => node.children.includes('modelsEmpty'))).toHaveLength(1)
     expect(dictionaries.zh?.modelsEmpty).toBe('暂无可用模型。')
   })
@@ -1080,12 +1051,12 @@ describe('desktop account page', () => {
         models: [{ id: 'demo-chat', name: 'demo-chat' }]
       })
     })
-    const caption = nodes(rerender().tree, node => node.props.className === 'dshDeskAccountCaption')[0]
+    const caption = nodes(rerender().tree, node => node.props['data-dsh-account-caption'] === 'true')[0]
     expect(caption?.children).toEqual(['checked_in'])
     expect(caption?.props.role).toBe('status')
     const checked = nodes(rerender().tree, node => node.children.includes('checkedInDone'))[0]
     expect(checked?.props.disabled).toBe(true)
-    expect(nodes(rerender().tree, node => node.props.className === 'dshDeskAccountBalance')[0]?.children).toEqual(['4'])
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-balance'] === 'true')[0]?.children).toEqual(['4'])
   })
 
   it('opens the listed Alipay packages and starts a purchase', async () => {
@@ -1101,7 +1072,7 @@ describe('desktop account page', () => {
     })
     expect(nodes(rerender().tree, node => node.props['data-yuan'] === '39')).toHaveLength(0)
     click(rerender().tree, 'rechargeAction')
-    const packs = nodes(rerender().tree, node => node.props.className === 'dshDeskAccountPack')
+    const packs = nodes(rerender().tree, node => node.props['data-dsh-account-pack'] === 'true')
     expect(packs.map(node => node.props['data-yuan'])).toEqual(['39', '99', '199', '299'])
     expect(packs.map(node => node.props['data-credits'])).toEqual(['39000', '99000', '199000', '299000'])
     invoke(packs[0], 'onClick')
@@ -1109,7 +1080,7 @@ describe('desktop account page', () => {
     expect(purchase).toHaveBeenCalledWith(39)
     const waiting = rerender().tree
     expect(nodes(waiting, node => node.children.includes('rechargeWaiting'))).toHaveLength(1)
-    const image = nodes(waiting, node => node.type === 'img' && node.props.className === 'dshDeskAccountQr')[0]
+    const image = nodes(waiting, node => node.type === 'img' && node.props['data-dsh-account-qr'] === 'true')[0]
     expect(image?.props.src).toBe(qrImage)
     expect(image?.props.alt).toBe('rechargeScan')
   })
@@ -1534,14 +1505,14 @@ describe('desktop account page', () => {
     const notice = nodes(tree, node => (node.type as { name?: string }).name === 'RestartNotice')[0]
     expect(notice?.props.kind).toBe('signOut')
     expect(nodes(tree, node => node.children.includes('unavailable'))).toHaveLength(1)
-    expect(nodes(tree, node => node.props.className === 'dshDeskAccountBack')[0]?.props.disabled).toBe(true)
-    invoke(nodes(tree, node => node.props.className === 'dshDeskAccountBack')[0], 'onClick')
+    expect(nodes(tree, node => node.props['data-dsh-account-back'] === 'true')[0]?.props.disabled).toBe(true)
+    invoke(nodes(tree, node => node.props['data-dsh-account-back'] === 'true')[0], 'onClick')
     expect(layout.calls).toEqual([])
   })
 
   it('leaves the account page when no Harness restart is required', async () => {
     const { rerender } = await mountReady()
-    const back = nodes(rerender().tree, node => node.props.className === 'dshDeskAccountBack')[0]
+    const back = nodes(rerender().tree, node => node.props['data-dsh-account-back'] === 'true')[0]
     expect(back?.props.disabled).toBe(false)
     expect(back?.props['aria-label']).toBe('back')
     invoke(back, 'onClick')
@@ -1594,7 +1565,7 @@ describe('desktop account page', () => {
     expect(nodes(tree, node => node.props.role === 'alert')).toHaveLength(0)
     expect(nodes(tree, node => node.children.includes(dictionary.signedIn))).toHaveLength(0)
     expect(nodes(tree, node => node.children.includes(dictionary.modelsEmpty))).toHaveLength(0)
-    expect(nodes(tree, node => node.props.className === 'dshDeskAccountBalance')[0]?.children).toEqual(['—'])
+    expect(nodes(tree, node => node.props['data-dsh-account-balance'] === 'true')[0]?.children).toEqual(['—'])
     expect(nodes(tree, node => node.children.includes(dictionary.balanceUnread))).toHaveLength(1)
     expect(nodes(tree, node => node.children.includes(dictionary.modelsUnread))).toHaveLength(1)
     expect(nodes(tree, node => node.children.includes(dictionary.retry))).toHaveLength(1)

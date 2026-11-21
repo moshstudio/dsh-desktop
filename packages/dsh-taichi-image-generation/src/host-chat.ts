@@ -64,7 +64,7 @@ export interface HostChatOptions {
 
 /** Map a user-facing model name onto a filesystem-safe run id. */
 function runId(): string {
-  return `dsh-imagegen-code-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return `dsh-taichi-imagegen-code-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 /**
@@ -112,7 +112,7 @@ export function createHostChatSeam(options: HostChatOptions): HostChatSeam {
           // The brief travels as a system section so the user turn stays the
           // request itself — the same shape the director uses for its prompt.
           agentCtx.systemPrompt.section({
-            name: 'plugin:dsh-imagegen:code-render',
+            name: 'plugin:dsh-taichi-imagegen:code-render',
             order: 10,
             text: system,
           })
@@ -124,7 +124,7 @@ export function createHostChatSeam(options: HostChatOptions): HostChatSeam {
           id: `${sessionId}-turn`,
           role: 'user',
           content: [{ type: 'text', text: content }],
-          source: { kind: 'plugin:dsh-imagegen' },
+          source: { kind: 'plugin:dsh-taichi-imagegen' },
         })
         await agent.whenIdle()
         if (signal?.aborted === true) throw new Error('代码生成已取消')

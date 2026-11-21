@@ -1,6 +1,6 @@
 /**
- * Browser-side settings scope for the dsh-imagegen namespace, served by the
- * plugin's own same-origin bridge routes (/api/dsh-imagegen/settings). The
+ * Browser-side settings scope for the dsh-taichi-imagegen namespace, served by the
+ * plugin's own same-origin bridge routes (/api/dsh-taichi-imagegen/settings). The
  * official rc.6 settings scope answers "unavailable" for every third-party
  * namespace (the host-apiproxy allowlist is hard-coded), so this package
  * re-serves its namespace through the host settings seam over a same-origin
@@ -290,14 +290,14 @@ export interface ImageGenScope extends SettingsScope<ImageGenConfig> {
 }
 
 /**
- * Bind the dsh-imagegen settings scope over the bridge routes and start its
+ * Bind the dsh-taichi-imagegen settings scope over the bridge routes and start its
  * initial read (the caller mounts nothing until the scope settles).
  * @param fetchFn - the fetch implementation (the global fetch on the page).
  * @returns the scope; unavailable when the bridge is unreachable.
  */
 export function bindImageGenScope(fetchFn: typeof fetch = fetch): ImageGenScope {
   const controller = new BridgeScopeController<ImageGenConfig>(createBridgeApi(fetchFn).settings, {
-    namespace: 'dsh-imagegen',
+    namespace: 'dsh-taichi-imagegen',
   })
   void controller.load()
   return controller

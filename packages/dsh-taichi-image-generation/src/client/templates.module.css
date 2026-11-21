@@ -376,10 +376,10 @@
   height: 26px;  border: 2px solid var(--dsw-alias-border-l2);
   border-top-color: var(--dsw-alias-brand-primary);
   border-radius: 50%;
-  animation: dsh-imagegen-templates-spin 0.9s linear infinite;
+  animation: dsh-taichi-imagegen-templates-spin 0.9s linear infinite;
 }
 
-@keyframes dsh-imagegen-templates-spin {
+@keyframes dsh-taichi-imagegen-templates-spin {
   to { transform: rotate(360deg); }
 }
 

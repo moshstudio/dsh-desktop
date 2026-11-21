@@ -2184,7 +2184,7 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
    * 「还没落盘的新画布」的内存形态。
    *
    * 这里以前直接 `api.canvasCreate` + `seedDocument`：打开画布标签页就写一份
-   * 文件进 `~/.dsh/dsh-imagegen/canvas/`，于是刚装完插件、甚至只是切到这个
+   * 文件进 `~/.dsh/dsh-taichi-imagegen/canvas/`，于是刚装完插件、甚至只是切到这个
    * 标签页，下拉里就已经躺着一份带着柴犬提示词、标题叫「示例：第一张图」的
    * 画布——而用户从没建过它。那不是他的东西，删掉还得多按一次。
    *
@@ -7532,7 +7532,7 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
     ref={rootRef}
     className={css.root}
     data-canvas-workspace=""
-    data-dsh-imagegen-scheme={colorScheme}
+    data-dsh-taichi-imagegen-scheme={colorScheme}
     data-zoom-band={zoomBand}
     style={{
       // 边框补偿是「屏幕像素恒定」语义，交给 CSS 变量传下去：`.node` 的

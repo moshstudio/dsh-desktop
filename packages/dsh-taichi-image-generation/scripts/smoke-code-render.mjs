@@ -301,7 +301,7 @@ await check('C5 renderer:code produces a PLAYABLE clip stored with renderer:code
   assert.equal(result.renderer, 'code')
   assert.equal(result.videos.length, 1, 'a code render must persist exactly one clip')
   const clip = result.videos[0]
-  assert.ok(clip.url.startsWith('/api/dsh-imagegen/video/file/'), `unexpected clip url ${clip.url}`)
+  assert.ok(clip.url.startsWith('/api/dsh-taichi-imagegen/video/file/'), `unexpected clip url ${clip.url}`)
   // The stored entry must be indistinguishable from a model one except for the marker.
   const history = await listVideoHistory()
   const entry = history.find(item => item.id === result.history[0].id)
@@ -311,7 +311,7 @@ await check('C5 renderer:code produces a PLAYABLE clip stored with renderer:code
   assert.equal(entry.resolution, '720P')
   assert.equal(entry.aspectRatio, '16:9')
   // And the bytes must be a real, playable MP4.
-  const file = join(dataRoot, 'dsh-imagegen', 'videos', 'files', decodeURIComponent(clip.url.split('/').pop()))
+  const file = join(dataRoot, 'dsh-taichi-imagegen', 'videos', 'files', decodeURIComponent(clip.url.split('/').pop()))
   assert.ok(existsSync(file), `the clip file is missing at ${file}`)
   assert.ok(statSync(file).size > 1_000, 'the clip is suspiciously small')
   const probe = probeWithFfprobe(file)
@@ -352,7 +352,7 @@ await check('C6 renderer:code produces a real PNG stored with renderer:code', as
   assert.equal(image.mime, 'image/png')
   const bytes = Buffer.from(image.b64, 'base64')
   assert.deepEqual([...bytes.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'not a PNG signature')
-  const history = JSON.parse(readFileSync(join(dataRoot, 'dsh-imagegen', 'index.json'), 'utf8')).entries
+  const history = JSON.parse(readFileSync(join(dataRoot, 'dsh-taichi-imagegen', 'index.json'), 'utf8')).entries
   const entry = history.find(item => item.id === result.history[0].id)
   assert.equal(entry.renderer, 'code', `expected renderer code, got ${entry.renderer}`)
   assert.equal(entry.size, '1080x1080', `unexpected size ${entry.size}`)
@@ -456,14 +456,14 @@ await check('C8b the submit routes do not demand a channel for a code render', a
     return response
   }
 
-  const image = await invoke('/api/dsh-imagegen/tasks/submit', {
+  const image = await invoke('/api/dsh-taichi-imagegen/tasks/submit', {
     mode: 'text', renderer: 'code', prompt: 'a calm blue card', size: '720P', quality: 'auto', n: 1, detail: '',
   })
   assert.equal(image.ok, true, `a code image must queue without channels, got ${JSON.stringify(image)}`)
   assert.ok(typeof image.task?.id === 'string', 'the route answers with a queued task')
   assert.equal(image.task.request.renderer, 'code', 'the queued task keeps the marker so retry can reuse it')
 
-  const video = await invoke('/api/dsh-imagegen/video/tasks/submit', {
+  const video = await invoke('/api/dsh-taichi-imagegen/video/tasks/submit', {
     mode: 'text', renderer: 'code', prompt: 'a calm blue clip', aspectRatio: '16:9', resolution: '480P', seconds: 1,
   })
   assert.equal(video.ok, true, `a code clip must queue without channels, got ${JSON.stringify(video)}`)
@@ -472,7 +472,7 @@ await check('C8b the submit routes do not demand a channel for a code render', a
 
   // And the guard still holds where it is meant to: a MODEL request with no
   // channel is still refused, because there is genuinely nothing to call.
-  const model = await invoke('/api/dsh-imagegen/tasks/submit', {
+  const model = await invoke('/api/dsh-taichi-imagegen/tasks/submit', {
     mode: 'text', model: 'gpt-image-2', prompt: 'a cat', size: '1:1', quality: '1k', n: 1, detail: '',
   })
   assert.equal(model.ok, false, 'a model request still needs a configured channel')
@@ -532,7 +532,7 @@ await check('C9 the host seam asks the DSH conversation model and reads its answ
   assert.equal(seen.sections[0].text, 'you draw', 'the brief travels as a system section')
   assert.equal(seen.turns[0].content[0].text, 'a blue circle', 'the user turn is the request itself')
   assert.equal(seen.turns[0].role, 'user')
-  assert.equal(seen.turns[0].source.kind, 'plugin:dsh-imagegen')
+  assert.equal(seen.turns[0].source.kind, 'plugin:dsh-taichi-imagegen')
   assert.equal(seen.disposed, 1, 'the agent is disposed even on success')
 })
 

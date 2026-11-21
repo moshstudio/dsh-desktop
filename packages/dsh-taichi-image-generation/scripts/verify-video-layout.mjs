@@ -188,7 +188,7 @@ const port = server.address().port
 
 // The browser picks its own DevTools port (see scripts/lib/headless-chrome.mjs):
 // guessing a range here is what let two concurrent runs read each other's page.
-const launched = await launchChrome({ chrome: CHROME, name: 'dsh-imagegen-layout' })
+const launched = await launchChrome({ chrome: CHROME, name: 'dsh-taichi-imagegen-layout' })
 const target = await (await fetch(`http://127.0.0.1:${launched.port}/json/new?${encodeURIComponent(`http://127.0.0.1:${port}/`)}`, { method: 'PUT' })).json()
 const ws = new WebSocket(target.webSocketDebuggerUrl)
 await new Promise(r => { ws.onopen = r })

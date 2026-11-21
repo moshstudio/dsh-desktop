@@ -440,13 +440,13 @@ await check('D7c the preview route answers over real HTTP and agrees with submit
       return { status: response.status, json: await response.json() }
     }
     try {
-      const planned = await post('/api/dsh-imagegen/video/plan', { ...baseRequest })
+      const planned = await post('/api/dsh-taichi-imagegen/video/plan', { ...baseRequest })
       assert.equal(planned.status, 200)
       assert.equal(planned.json.ok, true, 'the plan route answers ok')
       assert.ok(planned.json.plan !== undefined, 'the plan route returns a plan')
       assert.ok(planned.json.plan.shots.length > 0, 'the plan carries shots over the wire')
 
-      const empty = await post('/api/dsh-imagegen/video/plan', { ...baseRequest, prompt: '' })
+      const empty = await post('/api/dsh-taichi-imagegen/video/plan', { ...baseRequest, prompt: '' })
       assert.equal(empty.json.ok, false, 'an empty prompt is refused over the wire too')
       assert.ok(typeof empty.json.code === 'string' && empty.json.code !== '', 'the refusal carries a wire code')
     } finally {

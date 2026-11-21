@@ -210,7 +210,7 @@ export function registerImageToolviews(ctx: ClientContext): void {
   }
 
   ctx.slots.inject('tool.call.toolview', function* () {
-    for (const key of ['generate_image', 'edit_image', 'get_image_generation_task']) {
+    for (const key of ['taichi_generate_image', 'taichi_edit_image', 'taichi_get_image_generation_task']) {
       yield ctx.slots.register({
         name: 'tool.call.toolview',
         key,

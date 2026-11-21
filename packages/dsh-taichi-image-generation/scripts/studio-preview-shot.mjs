@@ -279,10 +279,10 @@ try {
       await new Promise(resolve => setTimeout(resolve, 100))
     }
     const detail = await page.evaluate(`(() => {
-      const view = document.querySelector('[data-dsh-imagegen-view]')
+      const view = document.querySelector('[data-dsh-taichi-imagegen-view]')
       return JSON.stringify({
         view: view !== null,
-        buttons: document.querySelectorAll('[data-dsh-imagegen-view] button').length,
+        buttons: document.querySelectorAll('[data-dsh-taichi-imagegen-view] button').length,
         text: (document.body?.innerText ?? '').slice(0, 500),
         errors: (window.__bootErrors || []).slice(0, 3),
       })
@@ -294,8 +294,8 @@ try {
   // The preview bundle renders the panel only after `mountPanel` resolves the
   // centre column from its slot anchor, so this is the honest readiness signal.
   await waitFor(
-    `document.querySelector('[data-dsh-imagegen-view] [data-dsh-imagegen-history]') !== null
-     || document.querySelectorAll('[data-dsh-imagegen-view] button').length > 5`,
+    `document.querySelector('[data-dsh-taichi-imagegen-view] [data-dsh-taichi-imagegen-history]') !== null
+     || document.querySelectorAll('[data-dsh-taichi-imagegen-view] button').length > 5`,
     'the studio to render',
   )
   await waitFor('document.fonts.status === "loaded"', 'fonts to settle')
@@ -321,7 +321,7 @@ try {
   // measured here instead: does the studio fill its column, does anything get
   // clipped, is the type on DSH's scale, and does the text sit on real tokens.
   const audit = await page.evaluate(`(() => {
-    const view = document.querySelector('[data-dsh-imagegen-view]')
+    const view = document.querySelector('[data-dsh-taichi-imagegen-view]')
     if (view === null) return { error: 'the studio never rendered' }
     const box = element => {
       const rect = element.getBoundingClientRect()
@@ -465,17 +465,17 @@ try {
   // unrelated plugin entries must be gone. All three are injected/hidden by the
   // real code, so this measures the shipped behaviour rather than a mock of it.
   const sidebar = await page.evaluate(`(() => {
-    const root = document.querySelector('[data-dsh-imagegen-sidebar-root]')
+    const root = document.querySelector('[data-dsh-taichi-imagegen-sidebar-root]')
     const visible = element => {
       if (element === null) return false
       const rect = element.getBoundingClientRect()
       return rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none'
     }
-    const tabs = document.querySelector('[data-dsh-imagegen-session-tabs]')
-    const host = document.querySelector('[data-dsh-imagegen-history-host]')
-    const history = document.querySelector('[data-dsh-imagegen-history]')
-    const newSession = document.querySelector('[data-dsh-imagegen-new-session]')
-    const blocks = [...document.querySelectorAll('[data-dsh-imagegen-sidebar-block]')]
+    const tabs = document.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
+    const host = document.querySelector('[data-dsh-taichi-imagegen-history-host]')
+    const history = document.querySelector('[data-dsh-taichi-imagegen-history]')
+    const newSession = document.querySelector('[data-dsh-taichi-imagegen-new-session]')
+    const blocks = [...document.querySelectorAll('[data-dsh-taichi-imagegen-sidebar-block]')]
     // A slot anchor is display:contents by contract, so it has no box of its
     // own; what must stay visible is whatever the shell renders INSIDE it.
     const spare = selector => {
@@ -486,16 +486,16 @@ try {
     }
     return {
       sidebarRoot: visible(root),
-      rooted: root === null ? null : root.getAttribute('data-dsh-imagegen-shell-blocks') !== null,
+      rooted: root === null ? null : root.getAttribute('data-dsh-taichi-imagegen-shell-blocks') !== null,
       tabs: visible(tabs),
-      tabLabels: tabs === null ? [] : [...tabs.querySelectorAll('[data-dsh-imagegen-tab]')].map(tab => tab.textContent.trim()),
+      tabLabels: tabs === null ? [] : [...tabs.querySelectorAll('[data-dsh-taichi-imagegen-tab]')].map(tab => tab.textContent.trim()),
       newSessionSpared: newSession !== null && visible(newSession),
       brandSpared: spare('[data-slot="sidebar.brand.mark"]'),
       workspacesSpared: spare('[data-slot="sidebar.workspaces"]'),
       settingsSpared: spare('[data-slot="sidebar.settings"]'),
       historyHost: visible(host),
       historyPortalLanded: history !== null && host !== null && host.contains(history),
-      historyRows: document.querySelectorAll('[data-dsh-imagegen-history-main]').length,
+      historyRows: document.querySelectorAll('[data-dsh-taichi-imagegen-history-main]').length,
       markedBlocks: blocks.length,
       shellChromeHidden: blocks.filter(block => !visible(block)).length,
     }
@@ -603,7 +603,7 @@ try {
       }
       return true
     }
-    const view = document.querySelector('[data-dsh-imagegen-view]')
+    const view = document.querySelector('[data-dsh-taichi-imagegen-view]')
     const rows = []
     const skipped = []
     let worst = { ratio: Infinity }
@@ -653,7 +653,7 @@ try {
   // input so the handler runs exactly as it does under a user's finger.
   const dragCancel = await (async () => {
     const spot = await page.evaluate(`(() => {
-      const handle = document.querySelector('[data-dsh-imagegen-view] [class*="configResizer"]')
+      const handle = document.querySelector('[data-dsh-taichi-imagegen-view] [class*="configResizer"]')
       if (handle === null) return null
       const rect = handle.getBoundingClientRect()
       return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
@@ -700,7 +700,7 @@ try {
   await shoot('dark')
 
   const report = await page.evaluate(`(() => {
-    const view = document.querySelector('[data-dsh-imagegen-view]')
+    const view = document.querySelector('[data-dsh-taichi-imagegen-view]')
     const rect = view === null ? null : view.getBoundingClientRect()
     const body = getComputedStyle(document.body)
     return {
@@ -720,21 +720,21 @@ try {
   const uninstall = await page.evaluate(`(() => {
     const count = selector => document.querySelectorAll(selector).length
     const htmlAttrs = () => Array.from(document.documentElement.attributes)
-      .map(attribute => attribute.name).filter(name => name.startsWith('data-dsh-imagegen'))
+      .map(attribute => attribute.name).filter(name => name.startsWith('data-dsh-taichi-imagegen'))
     const htmlStyle = () => Array.from(document.documentElement.style)
-      .filter(name => name.startsWith('--dsh-imagegen'))
+      .filter(name => name.startsWith('--dsh-taichi-imagegen'))
     const widthVar = () => Array.from(document.querySelectorAll('*'))
-      .filter(element => element.style.getPropertyValue('--dsh-imagegen-chat-width') !== '').length
+      .filter(element => element.style.getPropertyValue('--dsh-taichi-imagegen-chat-width') !== '').length
     const snapshot = () => ({
-      centerCol: count('[data-dsh-imagegen-center-col]'),
-      view: count('[data-dsh-imagegen-view]'),
-      resizer: count('[data-dsh-imagegen-chat-resizer]'),
-      tabs: count('[data-dsh-imagegen-session-tabs]'),
-      historyHost: count('[data-dsh-imagegen-history-host]'),
-      sidebarRoot: count('[data-dsh-imagegen-sidebar-root]'),
-      blocks: count('[data-dsh-imagegen-shell-blocks]'),
-      blocksMarked: count('[data-dsh-imagegen-sidebar-block]'),
-      newSessionMark: count('[data-dsh-imagegen-new-session]'),
+      centerCol: count('[data-dsh-taichi-imagegen-center-col]'),
+      view: count('[data-dsh-taichi-imagegen-view]'),
+      resizer: count('[data-dsh-taichi-imagegen-chat-resizer]'),
+      tabs: count('[data-dsh-taichi-imagegen-session-tabs]'),
+      historyHost: count('[data-dsh-taichi-imagegen-history-host]'),
+      sidebarRoot: count('[data-dsh-taichi-imagegen-sidebar-root]'),
+      blocks: count('[data-dsh-taichi-imagegen-shell-blocks]'),
+      blocksMarked: count('[data-dsh-taichi-imagegen-sidebar-block]'),
+      newSessionMark: count('[data-dsh-taichi-imagegen-new-session]'),
       widthVar: widthVar(),
       htmlAttrs: htmlAttrs(),
       htmlStyle: htmlStyle(),
@@ -745,8 +745,8 @@ try {
     // Exercise the width path first: the custom property is only written once a
     // drag (or an arrow key) has happened, so an untouched page cannot tell
     // whether uninstall clears it.
-    document.documentElement.removeAttribute('data-dsh-imagegen-chat-collapsed')
-    const handle = document.querySelector('[data-dsh-imagegen-chat-resizer]')
+    document.documentElement.removeAttribute('data-dsh-taichi-imagegen-chat-collapsed')
+    const handle = document.querySelector('[data-dsh-taichi-imagegen-chat-resizer]')
     if (handle !== null) {
       handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     }
@@ -770,25 +770,25 @@ try {
   // with real trusted input so the handler runs exactly as it does for a user.
   const midDrag = await (async () => {
     await page.evaluate(`window.__studioRemount()`)
-    await waitFor('document.querySelector("[data-dsh-imagegen-chat-resizer]") !== null',
+    await waitFor('document.querySelector("[data-dsh-taichi-imagegen-chat-resizer]") !== null',
       'the separator to come back')
     // The chat column starts collapsed (`readChatOpen()` defaults to false), and
     // the separator is `display:none` in that state — pressing it would do
     // nothing and the probe would report a fake pass. Open it the way a user
     // does, then confirm the handle actually has a box to press.
     await page.evaluate(`(() => {
-      const toggle = document.querySelector('[data-dsh-imagegen-view] [data-open]')
+      const toggle = document.querySelector('[data-dsh-taichi-imagegen-view] [data-open]')
       if (toggle !== null && toggle.getAttribute('data-open') !== 'true') toggle.click()
     })()`)
     await waitFor(
       `(() => {
-        const handle = document.querySelector('[data-dsh-imagegen-chat-resizer]')
+        const handle = document.querySelector('[data-dsh-taichi-imagegen-chat-resizer]')
         return handle !== null && handle.getBoundingClientRect().width > 0
       })()`,
       'the separator to become visible',
     )
     const spot = await page.evaluate(`(() => {
-      const handle = document.querySelector('[data-dsh-imagegen-chat-resizer]')
+      const handle = document.querySelector('[data-dsh-taichi-imagegen-chat-resizer]')
       const rect = handle.getBoundingClientRect()
       return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
     })()`)
@@ -806,7 +806,7 @@ try {
       return {
         cursor: document.documentElement.style.getPropertyValue('cursor'),
         userSelect: document.documentElement.style.getPropertyValue('user-select'),
-        resizer: document.querySelectorAll('[data-dsh-imagegen-chat-resizer]').length,
+        resizer: document.querySelectorAll('[data-dsh-taichi-imagegen-chat-resizer]').length,
       }
     })()`)
     return { during, after, cleared: after.cursor === '' && after.userSelect === '' }

@@ -1246,7 +1246,7 @@ await check('V2 the runtime persists a clip and the store serves it', async () =
       seconds: 5,
     })
     assert.equal(result.videos.length, 1, 'the finished clip is returned')
-    assert.match(result.videos[0].url, /\/api\/dsh-imagegen\/video\/file\//, 'the result is a same-origin served URL, not raw bytes')
+    assert.match(result.videos[0].url, /\/api\/dsh-taichi-imagegen\/video\/file\//, 'the result is a same-origin served URL, not raw bytes')
     assert.equal(result.historyError, undefined, 'persistence succeeded')
 
     const listed = await host.listVideoHistory()
@@ -1325,28 +1325,28 @@ await check('V3 the video routes answer over real HTTP', async () => {
   }
   try {
     // A valid submit reaches the queue.
-    const accepted = await post('/api/dsh-imagegen/video/tasks/submit', { prompt: 'p', model: 'agnes-video-2.5-flash', mode: 'text' })
+    const accepted = await post('/api/dsh-taichi-imagegen/video/tasks/submit', { prompt: 'p', model: 'agnes-video-2.5-flash', mode: 'text' })
     assert.equal(accepted.status, 200)
     assert.equal(accepted.json.ok, true, 'the submit route accepts a valid video request')
     assert.equal(tasks.length, 1, 'the request reached the video queue')
 
     // A request without a prompt is refused with copy, not a crash.
-    const missing = await post('/api/dsh-imagegen/video/tasks/submit', { model: 'agnes-video-2.5-flash' })
+    const missing = await post('/api/dsh-taichi-imagegen/video/tasks/submit', { model: 'agnes-video-2.5-flash' })
     assert.equal(missing.json.ok, false)
     assert.match(missing.json.message, /prompt/)
     assert.equal(tasks.length, 1, 'the invalid request never reached the queue')
 
     // The queue list and history list both answer.
-    const listed = await post('/api/dsh-imagegen/video/tasks/list')
+    const listed = await post('/api/dsh-taichi-imagegen/video/tasks/list')
     assert.equal(listed.json.ok, true)
     assert.equal(listed.json.tasks.length, 1)
-    const history = await post('/api/dsh-imagegen/video/history/list')
+    const history = await post('/api/dsh-taichi-imagegen/video/history/list')
     assert.equal(history.json.ok, true)
 
     // Canvas lineage must survive the route's request parser. It is how the
     // canvas matches a finished render to its placeholder node; dropping it made
     // every canvas run look failed while the render had actually succeeded.
-    const canvasRun = await post('/api/dsh-imagegen/video/tasks/submit', {
+    const canvasRun = await post('/api/dsh-taichi-imagegen/video/tasks/submit', {
       prompt: 'from the canvas',
       model: 'agnes-video-2.5-flash',
       mode: 'text',
@@ -1360,30 +1360,30 @@ await check('V3 the video routes answer over real HTTP', async () => {
     assert.deepEqual(queued.request.canvas?.referenceNodeIds, ['img-1', 'img-2'], 'the reference node ids survive')
 
     // A malformed canvas block is ignored rather than polluting the task.
-    const badCanvas = await post('/api/dsh-imagegen/video/tasks/submit', {
+    const badCanvas = await post('/api/dsh-taichi-imagegen/video/tasks/submit', {
       prompt: 'no canvas id', model: 'agnes-video-2.5-flash', mode: 'text', canvas: { sourceNodeId: 'x' },
     })
     assert.equal(badCanvas.json.ok, true, 'a submit without a usable canvas id is still accepted')
     assert.equal(tasks.at(-1).request.canvas, undefined, 'a canvas block without an id is dropped, not stored half-formed')
 
     // One queued id resolves; an unknown id reports not-found.
-    const found = await post('/api/dsh-imagegen/video/tasks/get', { id: 'vt-1' })
+    const found = await post('/api/dsh-taichi-imagegen/video/tasks/get', { id: 'vt-1' })
     assert.equal(found.json.ok, true)
-    const absent = await post('/api/dsh-imagegen/video/tasks/get', { id: 'nope' })
+    const absent = await post('/api/dsh-taichi-imagegen/video/tasks/get', { id: 'nope' })
     assert.equal(absent.json.ok, false)
     assert.equal(absent.json.code, 'not-found')
 
     // Removal requires an id.
-    const badRemove = await post('/api/dsh-imagegen/video/history/remove', {})
+    const badRemove = await post('/api/dsh-taichi-imagegen/video/history/remove', {})
     assert.equal(badRemove.json.ok, false)
 
     // The file route: a traversal name and an unknown name both 404.
-    const traversal = await fetch(`${origin}/api/dsh-imagegen/video/file/..%2Findex.json`)
+    const traversal = await fetch(`${origin}/api/dsh-taichi-imagegen/video/file/..%2Findex.json`)
     assert.equal(traversal.status, 404, 'a traversal name does not resolve')
-    const unknown = await fetch(`${origin}/api/dsh-imagegen/video/file/absent-0.mp4`)
+    const unknown = await fetch(`${origin}/api/dsh-taichi-imagegen/video/file/absent-0.mp4`)
     assert.equal(unknown.status, 404, 'an unknown clip name does not resolve')
     // A GET method on a POST-only route is refused.
-    const wrongMethod = await fetch(`${origin}/api/dsh-imagegen/video/tasks/list`)
+    const wrongMethod = await fetch(`${origin}/api/dsh-taichi-imagegen/video/tasks/list`)
     assert.equal(wrongMethod.status, 405, 'a POST-only route refuses GET')
   } finally {
     await new Promise(resolve => server.close(resolve))
@@ -1393,7 +1393,7 @@ await check('V3 the video routes answer over real HTTP', async () => {
 await check('V3b the clip route serves bytes and honors Range for seeking', async () => {
   // A real fixture on disk: the route streams from the file system, so a
   // fabricated buffer would not exercise the path that matters.
-  const clipDir = join(dataRoot, 'dsh-imagegen', 'videos', 'files')
+  const clipDir = join(dataRoot, 'dsh-taichi-imagegen', 'videos', 'files')
   mkdirSync(clipDir, { recursive: true })
   const clipPath = join(clipDir, 'seek-0.mp4')
   const body = Buffer.concat([MP4, Buffer.alloc(2048, 7)])
@@ -1421,7 +1421,7 @@ await check('V3b the clip route serves bytes and honors Range for seeking', asyn
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const origin = `http://127.0.0.1:${server.address().port}`
   try {
-    const full = await fetch(`${origin}/api/dsh-imagegen/video/file/seek-0.mp4`)
+    const full = await fetch(`${origin}/api/dsh-taichi-imagegen/video/file/seek-0.mp4`)
     assert.equal(full.status, 200, 'the whole clip is served')
     assert.equal(full.headers.get('accept-ranges'), 'bytes', 'the route advertises range support')
     assert.equal(full.headers.get('content-type'), 'video/mp4')
@@ -1431,7 +1431,7 @@ await check('V3b the clip route serves bytes and honors Range for seeking', asyn
 
     // A Range request must answer 206 with just the asked-for slice; without
     // this the <video> element cannot seek.
-    const ranged = await fetch(`${origin}/api/dsh-imagegen/video/file/seek-0.mp4`, { headers: { range: 'bytes=100-199' } })
+    const ranged = await fetch(`${origin}/api/dsh-taichi-imagegen/video/file/seek-0.mp4`, { headers: { range: 'bytes=100-199' } })
     assert.equal(ranged.status, 206, 'a range request answers 206')
     assert.equal(ranged.headers.get('content-range'), `bytes 100-199/${body.length}`)
     assert.equal(ranged.headers.get('content-length'), '100')
@@ -1441,7 +1441,7 @@ await check('V3b the clip route serves bytes and honors Range for seeking', asyn
 
     // An unsatisfiable range answers 416 with the real size (RFC 7233) rather
     // than silently sending the whole clip with a 200.
-    const open = await fetch(`${origin}/api/dsh-imagegen/video/file/seek-0.mp4`, { headers: { range: 'bytes=999999-' } })
+    const open = await fetch(`${origin}/api/dsh-taichi-imagegen/video/file/seek-0.mp4`, { headers: { range: 'bytes=999999-' } })
     assert.equal(open.status, 416, 'an unsatisfiable range answers 416')
     assert.equal(open.headers.get('content-range'), `bytes */${body.length}`)
   } finally {
@@ -1512,7 +1512,7 @@ await check('V6 a freshly configured generic video model works through the runti
     assert.equal(result.videos.length, 1, 'the generic family produced a clip')
     assert.equal(upstream.state.submits.length, 1, 'one submit reached the upstream')
     assert.equal(upstream.state.submits[0].body.model, 'kling-v2-master', 'the alias maps to the configured upstream id')
-    assert.match(result.videos[0].url, /\/api\/dsh-imagegen\/video\/file\//, 'the clip was persisted and served')
+    assert.match(result.videos[0].url, /\/api\/dsh-taichi-imagegen\/video\/file\//, 'the clip was persisted and served')
     // A video-named id classifies as the generic family (not unknown), which is
     // what lets an operator wire an unwired provider without a code change.
     assert.equal(host.describeVideoModel('kling-v2-master').family, 'openai-video')
@@ -1567,7 +1567,7 @@ await check('V6b a channel-alias Seedance model routes and persists through the 
     assert.equal(upstream.state.polls.length, 3, 'the queued/running states are polled through to a terminal one')
     assert.equal(result.videos.length, 1)
     assert.equal(result.videos[0].duration, 5, 'the duration comes from the Ark task body')
-    assert.match(result.videos[0].url, /\/api\/dsh-imagegen\/video\/file\//, 'the clip was persisted and served')
+    assert.match(result.videos[0].url, /\/api\/dsh-taichi-imagegen\/video\/file\//, 'the clip was persisted and served')
   } finally {
     await upstream.close()
   }
@@ -1733,31 +1733,31 @@ await check('V4 the Agent video tools submit, poll, cancel and enforce the allow
       }],
     }))
     try {
-      assert.ok(tools.has('generate_video'), 'generate_video is registered')
-      assert.ok(tools.has('generate_video_from_image'), 'generate_video_from_image is registered')
-      assert.ok(tools.has('get_video_generation_task'), 'get_video_generation_task is registered')
-      assert.ok(tools.has('cancel_video_generation_task'), 'cancel_video_generation_task is registered')
+      assert.ok(tools.has('taichi_generate_video'), 'taichi_generate_video is registered')
+      assert.ok(tools.has('taichi_generate_video_from_image'), 'taichi_generate_video_from_image is registered')
+      assert.ok(tools.has('taichi_get_video_generation_task'), 'taichi_get_video_generation_task is registered')
+      assert.ok(tools.has('taichi_cancel_video_generation_task'), 'taichi_cancel_video_generation_task is registered')
 
-      const generated = await tools.get('generate_video').execute({ prompt: 'an agent cat', seconds: 5 }, {})
+      const generated = await tools.get('taichi_generate_video').execute({ prompt: 'an agent cat', seconds: 5 }, {})
       assert.equal(generated.status, 'completed', 'the Agent tool waits for the render to finish')
       assert.equal(generated.videos.length, 1)
-      assert.match(generated.videos[0].url, /\/api\/dsh-imagegen\/video\/file\//)
+      assert.match(generated.videos[0].url, /\/api\/dsh-taichi-imagegen\/video\/file\//)
       assert.equal(generated.videos[0].mime, 'video/mp4')
 
-      const rendered = tools.get('generate_video').output.render({ prompt: 'p' }, generated)
+      const rendered = tools.get('taichi_generate_video').output.render({ prompt: 'p' }, generated)
       assert.equal(rendered.length, 1)
       assert.equal(rendered[0].type, 'text', 'video results stay textual; a clip is never attached to the conversation')
 
-      const polled = await tools.get('get_video_generation_task').execute({ task_id: generated.task_id }, {})
+      const polled = await tools.get('taichi_get_video_generation_task').execute({ task_id: generated.task_id }, {})
       assert.equal(polled.status, 'completed')
 
       // The allow switch is honored per call.
       allowed = false
-      await assert.rejects(() => tools.get('generate_video').execute({ prompt: 'blocked' }, {}), /disabled/i)
+      await assert.rejects(() => tools.get('taichi_generate_video').execute({ prompt: 'blocked' }, {}), /disabled/i)
       allowed = true
 
       // Cancelling a missing task reports it instead of throwing something opaque.
-      await assert.rejects(() => tools.get('cancel_video_generation_task').execute({ task_id: 'nope' }, {}), /not found/i)
+      await assert.rejects(() => tools.get('taichi_cancel_video_generation_task').execute({ task_id: 'nope' }, {}), /not found/i)
     } finally {
       dispose()
     }
@@ -1775,7 +1775,7 @@ await check('V5 an unconfigured video model list is refused with actionable copy
   }, runtime, () => ({ enabled: true, allowAgentVideoGeneration: true, defaultChannelId: '', channels: [] }))
   try {
     await assert.rejects(
-      () => tools.get('generate_video').execute({ prompt: 'p' }, {}),
+      () => tools.get('taichi_generate_video').execute({ prompt: 'p' }, {}),
       /Sign in/i,
     )
   } finally {
@@ -1856,11 +1856,11 @@ await check('V8 a clip deleted between stat and stream open ends the request, no
     // connection just ends. What must hold is that it ENDS — `rawGet` only
     // resolves on socket close, and rejects on its 5s stall timeout — and that
     // nothing escaped the route.
-    await rawGet('/api/dsh-imagegen/video/file/evicted.mp4', 'Range: bytes=0-63\r\n')
+    await rawGet('/api/dsh-taichi-imagegen/video/file/evicted.mp4', 'Range: bytes=0-63\r\n')
     assert.equal(escaped, undefined, 'the range read error never escaped the route')
 
     // And the plain GET path, which is the other bare pipe.
-    await rawGet('/api/dsh-imagegen/video/file/evicted.mp4')
+    await rawGet('/api/dsh-taichi-imagegen/video/file/evicted.mp4')
     assert.equal(escaped, undefined, 'neither pipe lets the error escape')
   } finally {
     process.off('uncaughtException', onEscape)

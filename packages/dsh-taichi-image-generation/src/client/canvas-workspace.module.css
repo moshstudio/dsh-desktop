@@ -83,10 +83,10 @@
  * Dark theme only. Layer tokens collapse: light resolves every layer to the
  * same white, and dark resolves them to near-identical greys, so "the card
  * must differ from the canvas" cannot be one mix for both themes. The host
- * theme service writes data-dsh-imagegen-scheme on this root; the mixes below
+ * theme service writes data-dsh-taichi-imagegen-scheme on this root; the mixes below
  * nudge the dark canvas toward its own ink. Light keeps the unmixed tokens.
  */
-.root[data-dsh-imagegen-scheme='dark'] {
+.root[data-dsh-taichi-imagegen-scheme='dark'] {
   --canvas-node-surface: color-mix(in srgb, var(--dsw-alias-label-primary) 12%, var(--dsw-alias-bg-layer-1));
   --canvas-node-border: color-mix(in srgb, var(--dsw-alias-label-primary) 36%, var(--dsw-alias-bg-layer-1));
   /* One step above the resting ring (2.99:1) so hovering is visible at all. */
@@ -5366,7 +5366,7 @@
   }
 }
 
-/* dsh-imagegen-mobile-6 (phone dock): 17 tiles wrap into three rows on a
+/* dsh-taichi-imagegen-mobile-6 (phone dock): 17 tiles wrap into three rows on a
  * ~400px viewport, and together with the zoom row they cover roughly the
  * lower half of the canvas. On a phone the dock becomes a single row that
  * scrolls horizontally in group order (tools first); tiles keep their 40px

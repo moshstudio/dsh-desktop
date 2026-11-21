@@ -1,9 +1,9 @@
 /**
  * 守门：会真的写画布的脚本，必须先把数据目录指到临时目录。
  *
- * WHY 需要这一条：`~/.dsh/dsh-imagegen/canvas/` 是用户的真实数据目录，
+ * WHY 需要这一条：`~/.dsh/dsh-taichi-imagegen/canvas/` 是用户的真实数据目录，
  * 而它和测试用的目录**只差一个环境变量**——`image-storage-path.ts` 里写的是
- * `$DSH_HOME/dsh-imagegen`，不设 `DSH_HOME` 就等于指到家目录。一个脚本只要
+ * `$DSH_HOME/dsh-taichi-imagegen`，不设 `DSH_HOME` 就等于指到家目录。一个脚本只要
  * 调了 `canvas/create` 或者直接用了 `canvasStore`，跑一次就在用户的下拉里多
  * 一条；跑一整个 `pnpm test` 就是十几条。2026-10-13 到 10-15 那三天这样攒下
  * 了 1408 条 `gone`/`deck`/`extract`/`polish`/`files`，用户的画布下拉从可用
@@ -44,7 +44,7 @@ import path from 'node:path'
 /** 会往用户真实数据目录里写条目的动作。读操作（`canvas/list`、`canvasStore.list(`）
  *  不算：只读不会多出条目。
  *
- *  画布只是其中一类。`~/.dsh/dsh-imagegen/` 下还有三个库会被脚本写：图片历史
+ *  画布只是其中一类。`~/.dsh/dsh-taichi-imagegen/` 下还有三个库会被脚本写：图片历史
  *  (`appendHistory`)、视频历史 (`appendVideoHistory`)、画廊 (`appendGallery`)。
  *  2026-11-18 用户报「删不掉」的根因就是这个守门只管画布：`smoke-stage-encode`
  *  真的调 `stageEncodeSession()`，而它在编码成功后写视频历史，脚本却没设
@@ -122,9 +122,9 @@ export function isolationEvidence (text) {
 }
 
 // ------------------------------------------------------------------ 自检
-const SELF_WRITES = "await post('/api/dsh-imagegen/canvas/create', { title: 'x' })\n"
-const SELF_READONLY = "const list = await post('/api/dsh-imagegen/canvas/list')\n"
-const SELF_WRITES_COMMENTED = "// await post('/api/dsh-imagegen/canvas/create')\n"
+const SELF_WRITES = "await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'x' })\n"
+const SELF_READONLY = "const list = await post('/api/dsh-taichi-imagegen/canvas/list')\n"
+const SELF_WRITES_COMMENTED = "// await post('/api/dsh-taichi-imagegen/canvas/create')\n"
 const SELF_TEMP = "process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'x-'))\n"
 const SELF_LITERAL = "process.env.DSH_HOME = '/custom/dsh'\n"
 const SELF_RESTORE = "process.env.DSH_HOME = previousDshHome\n"
@@ -172,7 +172,7 @@ if (offenders.length > 0) {
   for (const file of offenders) console.error(`  - ${file}`)
   console.error('\n这些脚本跑一次，就会在用户真实的画布 / 历史 / 视频库里多出条目。')
   console.error('在脚本最前面（任何 import 之前）加一行：')
-  console.error("  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-imagegen-<name>-'))")
+  console.error("  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-taichi-imagegen-<name>-'))")
   process.exit(1)
 }
 

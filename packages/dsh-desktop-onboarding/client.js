@@ -52,12 +52,12 @@ window.__ModuleLoader__.load({
     // ---------- locale dictionaries ----------
 
     const en = {
-      brandName: 'taichi-dsh',
+      brandName: '太极-dsh',
       brandBy: 'by 陌上网络',
       step0Title: 'Internal Testing Notice',
       declarationBody: "DeepSeek Harness 0.1 remains in testing for Harness developers. Many areas need further improvement, and we welcome feedback from the developer community. DeepSeek Harness's core plugins and foundational APIs will continue to evolve rapidly over the coming months.\n\nWe look forward to exploring the limits of intelligence with developers around the world, building on open-source, open, reusable, and composable infrastructure. We welcome Harness developers everywhere to join the DSH plugin ecosystem.",
-      desktopIntroTitle: 'About taichi-dsh',
-      desktopIntroBody: 'taichi-dsh is maintained by 陌上网络 as the desktop edition of DeepSeek Harness — local-first and cross-platform.',
+      desktopIntroTitle: 'About 太极-dsh',
+      desktopIntroBody: '太极-dsh is maintained by 陌上网络 as the desktop edition of DeepSeek Harness — local-first and cross-platform.',
       officialSite: 'Official site',
       officialSiteUrl: 'https://moshangwangluo.com',
       desktopIntroFeedback: 'Found a bug or have a suggestion? Reach us through the official site.',

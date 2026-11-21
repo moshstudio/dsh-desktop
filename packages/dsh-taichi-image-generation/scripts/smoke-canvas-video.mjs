@@ -70,7 +70,7 @@ process.env.DSH_HOME = root
 const host = await import(new URL('../lib/index.js', import.meta.url).href)
 
 // Put a clip in the video store (simulating a finished render).
-const videosFiles = join(root, 'dsh-imagegen', 'videos', 'files')
+const videosFiles = join(root, 'dsh-taichi-imagegen', 'videos', 'files')
 mkdirSync(videosFiles, { recursive: true })
 const MP4 = Buffer.concat([Buffer.from('00000018667479706d703432', 'hex'), Buffer.alloc(4096, 3)])
 const srcClip = join(videosFiles, 'entry-0.mp4')
@@ -91,7 +91,7 @@ await check('G1-G3 a favorited clip is copied, served, and cleaned up', async ()
   assert.equal(entry.mode, 'video', 'the entry records video mode')
   assert.equal(entry.images.length, 0, 'an image list is not faked for a clip')
   assert.ok(entry.video !== undefined, 'the entry carries a video ref')
-  assert.match(entry.video.url, /\/api\/dsh-imagegen\/gallery\/video-file\//)
+  assert.match(entry.video.url, /\/api\/dsh-taichi-imagegen\/gallery\/video-file\//)
   assert.equal(entry.video.duration, 5)
   assert.equal(entry.prompt, 'a favorited cat')
 
@@ -126,7 +126,7 @@ await check('G1-G3 a favorited clip is copied, served, and cleaned up', async ()
   assert.equal(trash.length, 1, 'the deleted entry is in the trash')
   assert.equal(trash[0].id, 'fav-1')
   assert.ok(typeof trash[0].deletedAt === 'number', 'the trash entry records when it was deleted')
-  assert.equal(existsSync(join(root, 'dsh-imagegen', 'gallery', 'videos', name)), true, 'a soft delete keeps the clip bytes')
+  assert.equal(existsSync(join(root, 'dsh-taichi-imagegen', 'gallery', 'videos', name)), true, 'a soft delete keeps the clip bytes')
 
   // Restoring puts it back and the clip is still readable — the whole point of
   // not unlinking on delete.
@@ -139,7 +139,7 @@ await check('G1-G3 a favorited clip is copied, served, and cleaned up', async ()
   // Only an explicit purge reclaims the bytes.
   await host.removeGallery('fav-1')
   await host.purgeGallery()
-  assert.equal(existsSync(join(root, 'dsh-imagegen', 'gallery', 'videos', name)), false, 'purging the trash deletes the clip')
+  assert.equal(existsSync(join(root, 'dsh-taichi-imagegen', 'gallery', 'videos', name)), false, 'purging the trash deletes the clip')
   assert.equal((await host.listGalleryTrash()).length, 0, 'the trash is empty after a purge')
 
   // An image-only gallery entry still round-trips (no regression).
@@ -240,15 +240,15 @@ await check('L1-L2 a canvas run keeps its lineage and exposes its clip ref', asy
 // node points at the clip the host already persists and serves, and the canvas
 // asset store is never touched.
 
-const CLIP_URL = '/api/dsh-imagegen/video/file/vt-1-0.mp4'
+const CLIP_URL = '/api/dsh-taichi-imagegen/video/file/vt-1-0.mp4'
 const CLIP_MIME = 'video/mp4'
 const CLIP_PROMPT = 'a cat on a windowsill'
 /** Two more served clips, for the stitch (compose) half: distinct URLs make a
  *  requested order identifiable from the request body alone. */
-const CLIP_LEFT_URL = '/api/dsh-imagegen/video/file/clip-left.mp4'
-const CLIP_RIGHT_URL = '/api/dsh-imagegen/video/file/clip-right.mp4'
+const CLIP_LEFT_URL = '/api/dsh-taichi-imagegen/video/file/clip-left.mp4'
+const CLIP_RIGHT_URL = '/api/dsh-taichi-imagegen/video/file/clip-right.mp4'
 /** The clip a stitch run produces (served by the video store, like any clip). */
-const COMPOSED_URL = '/api/dsh-imagegen/video/file/composed.mp4'
+const COMPOSED_URL = '/api/dsh-taichi-imagegen/video/file/composed.mp4'
 
 const shared = {}
 const cleanups = []
@@ -517,7 +517,7 @@ await check('W1-W3 a finished studio clip lands a referenced node and states are
         ok: true,
         value: {
           namespaces: [{
-            ns: 'dsh-imagegen', value: configState, revision: 0,
+            ns: 'dsh-taichi-imagegen', value: configState, revision: 0,
             secrets: [{ path: ['channelSecrets', 'default'], set: true }],
           }],
           writable: true,
@@ -709,7 +709,7 @@ await check('W1-W3 a finished studio clip lands a referenced node and states are
     }
     if (path.endsWith('/canvas/asset/upload')) {
       canvasAssetUploads.push(JSON.parse(init.body))
-      return json({ ok: true, asset: { assetId: `${'b'.repeat(64)}.mp4`, url: `/api/dsh-imagegen/canvas/asset/${'b'.repeat(64)}.mp4`, mime: 'video/mp4', bytes: 64, width: 0, height: 0, origin: 'upload' } })
+      return json({ ok: true, asset: { assetId: `${'b'.repeat(64)}.mp4`, url: `/api/dsh-taichi-imagegen/canvas/asset/${'b'.repeat(64)}.mp4`, mime: 'video/mp4', bytes: 64, width: 0, height: 0, origin: 'upload' } })
     }
     // NOTE: `path` carries the query string the api adds, so an `endsWith` on
     // the bare route never matches.
@@ -720,7 +720,7 @@ await check('W1-W3 a finished studio clip lands a referenced node and states are
       // file-node half of the E checks could only pass by never running.
       const name = decodeURIComponent(new URL(path, 'http://localhost').searchParams.get('name') ?? '')
       canvasFileUploads.push({ name, type: init.headers['content-type'] ?? '' })
-      return json({ ok: true, asset: { assetId: `${'c'.repeat(64)}.mp4`, url: `/api/dsh-imagegen/canvas/asset/${'c'.repeat(64)}.mp4`, mime: 'video/mp4', bytes: 64, width: 0, height: 0, origin: 'upload', kind: 'file', name } })
+      return json({ ok: true, asset: { assetId: `${'c'.repeat(64)}.mp4`, url: `/api/dsh-taichi-imagegen/canvas/asset/${'c'.repeat(64)}.mp4`, mime: 'video/mp4', bytes: 64, width: 0, height: 0, origin: 'upload', kind: 'file', name } })
     }
     if (path.endsWith('/update/check')) return json({ ok: true, update: { current: '1.7.0', latest: '1.7.0', updateAvailable: false } })
     // The empty-state inspiration wall deals 12 samples on mount; without an
@@ -731,7 +731,7 @@ await check('W1-W3 a finished studio clip lands a referenced node and states are
     if (path.includes('/video/file/')) {
       return { ok: true, status: 200, blob: async () => new jsdomWindow.Blob([new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112])], { type: 'video/mp4' }) }
     }
-    if (path.endsWith('/settings/mutate')) return json({ ok: true, value: { ns: 'dsh-imagegen', value: configState, revision: 1, secrets: [] } })
+    if (path.endsWith('/settings/mutate')) return json({ ok: true, value: { ns: 'dsh-taichi-imagegen', value: configState, revision: 1, secrets: [] } })
     // Everything else this suite does not care about: an empty, valid envelope.
     return json({ ok: true, entries: [], tasks: [], projects: [], models: [], cases: [], favorites: [] })
   }
@@ -895,10 +895,10 @@ await check('W1-W3 a finished studio clip lands a referenced node and states are
   })
 
     exportsOf.apply(ctx)
-    await waitForSelector(jsdomDocument, '[data-dsh-imagegen-session-tabs]')
-    click('[data-dsh-imagegen-tab="image"]')
-    await waitForSelector(jsdomDocument, '[data-dsh-imagegen-view]')
-    const view = jsdomDocument.querySelector('[data-dsh-imagegen-view]')
+    await waitForSelector(jsdomDocument, '[data-dsh-taichi-imagegen-session-tabs]')
+    click('[data-dsh-taichi-imagegen-tab="image"]')
+    await waitForSelector(jsdomDocument, '[data-dsh-taichi-imagegen-view]')
+    const view = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-view]')
 
     // jsdom has no PointerEvent constructor in this setup, so pointer events are
     // dispatched as MouseEvents of the same type; React keys its listeners by

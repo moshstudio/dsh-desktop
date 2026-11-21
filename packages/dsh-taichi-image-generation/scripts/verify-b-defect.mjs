@@ -59,15 +59,15 @@ const check = (ok, label) => {
 // prefixes are written out and then CHECKED against the built bundle: if the
 // routes ever move, this probe fails loudly instead of testing nothing.
 const BUNDLE = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-const VIDEO_PREFIX = '/api/dsh-imagegen/video/file'
-const GALLERY_PREFIX = '/api/dsh-imagegen/gallery/video-file'
+const VIDEO_PREFIX = '/api/dsh-taichi-imagegen/video/file'
+const GALLERY_PREFIX = '/api/dsh-taichi-imagegen/gallery/video-file'
 check(BUNDLE.includes(VIDEO_PREFIX), 'B-setup: the video-store route literal is what the bundle serves')
 check(BUNDLE.includes(GALLERY_PREFIX), 'B-setup: the gallery-clip route literal is what the bundle serves')
 
 // ---------------------------------------------------------------- fixture
 
-const videoDir = join(root, 'dsh-imagegen', 'videos', 'files')
-const galleryDir = join(root, 'dsh-imagegen', 'gallery', 'videos')
+const videoDir = join(root, 'dsh-taichi-imagegen', 'videos', 'files')
+const galleryDir = join(root, 'dsh-taichi-imagegen', 'gallery', 'videos')
 mkdirSync(videoDir, { recursive: true })
 mkdirSync(galleryDir, { recursive: true })
 
@@ -102,9 +102,9 @@ const cases = [
   [`${GALLERY_PREFIX}/00000000-0000-4000-8000-000000000004-0.mp4`, undefined, 'B: a DIRECTORY named like a clip does not resolve'],
   [`${VIDEO_PREFIX}/`, undefined, 'B: the bare prefix with an empty name resolves to undefined'],
   [VIDEO_PREFIX, undefined, 'B: the bare prefix with no slash resolves to undefined'],
-  ['/api/dsh-imagegen/gallery/video-file-x/x-0.mp4', undefined, 'B: the lookalike route gallery/video-file-x is not the gallery prefix'],
-  ['/api/dsh-imagegen/gallery/image/x-0.png', undefined, 'B: gallery/image/ is not a clip'],
-  ['/api/dsh-imagegen/canvas/asset/00000000-0000-4000-8000-000000000000.mp4', undefined, 'B: a canvas ASSET url is not a served clip (cannot be stitched)'],
+  ['/api/dsh-taichi-imagegen/gallery/video-file-x/x-0.mp4', undefined, 'B: the lookalike route gallery/video-file-x is not the gallery prefix'],
+  ['/api/dsh-taichi-imagegen/gallery/image/x-0.png', undefined, 'B: gallery/image/ is not a clip'],
+  ['/api/dsh-taichi-imagegen/canvas/asset/00000000-0000-4000-8000-000000000000.mp4', undefined, 'B: a canvas ASSET url is not a served clip (cannot be stitched)'],
   ['https://evil.example/x.mp4', undefined, 'B: a foreign absolute URL is not a clip'],
   [`${VIDEO_PREFIX}/../../etc/passwd`, undefined, 'B: raw traversal out of the video store is refused'],
   [`${VIDEO_PREFIX}/..%2F..%2Fetc%2Fpasswd`, undefined, 'B: percent-encoded traversal is refused by the store name pattern'],

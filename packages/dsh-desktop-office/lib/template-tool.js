@@ -4,6 +4,26 @@ import { fileURLToPath } from 'node:url'
 import { isAbsolute, relative, sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
+/**
+ * Credential-free environment for a confined Office process.
+ * On Windows the ACL runner creates `<GetTempPathW()>\dsh-acl-locks` while
+ * applying grants, before it rewrites TMP/TEMP for the child. Clearing both
+ * makes that API return the Windows directory, which a normal user cannot
+ * create. The runner still replaces TMP/TEMP before the child starts.
+ */
+export function confinedOfficeEnvironment(runtime = process) {
+  const env = Object.fromEntries(Object.keys(runtime.env).map(key => [key, undefined]))
+  if (runtime.platform === 'win32') {
+    env.SystemRoot = runtime.env.SystemRoot
+    for (const key of ['TMP', 'TEMP']) {
+      const value = runtime.env[key]
+      if (typeof value === 'string' && value.length > 0) env[key] = value
+    }
+  }
+  if (runtime.versions.electron) env.ELECTRON_RUN_AS_NODE = '1'
+  return env
+}
+
 export async function workspacePolicy(ctx, exec, write = true) {
   const session = exec.agent?.session
   if (!session?.header.cwd) throw new Error('Choose a workspace for the Office task')
@@ -49,9 +69,7 @@ export function templateTool(ctx, library, modes, docx) {
       const policy = await workspacePolicy(ctx, exec)
       const directory = `office-templates/${prepared.item.id}-${randomUUID()}`
       const plan = await ctx.sandbox.confine([process.execPath, fileURLToPath(new URL('./template-writer.js', import.meta.url))], policy)
-      const env = Object.fromEntries(Object.keys(process.env).map(key => [key, undefined]))
-      if (process.platform === 'win32') env.SystemRoot = process.env.SystemRoot
-      if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = '1'
+      const env = confinedOfficeEnvironment()
       const facts = { templateId: prepared.item.id, revision: prepared.item.revision, directory }
       await modes.record(sessionId, 'office-template-start', facts)
       try {

@@ -114,12 +114,12 @@ async function waitUntil(predicate, timeout = 1200) {
  * smoke-compose) all do this.
  *
  * Without it the canvas/skill checks fell through to the real
- * ~/.dsh/dsh-imagegen/canvas: `makeRoutes` injects no `canvas` backend, so the
+ * ~/.dsh/dsh-taichi-imagegen/canvas: `makeRoutes` injects no `canvas` backend, so the
  * route used the real store, whose foreign index made `create` return an
  * unexpected document and every dependent check fail on `.id` / `.background` —
  * and the run wrote its fixtures into that real directory.
  */
-process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-imagegen-smoke-'))
+process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-taichi-imagegen-smoke-'))
 const host = await import(new URL('lib/index.js', root).href)
 const hostLocale = await import(new URL('lib/locale-tables.js', root).href)
 // The host half renders skill copy through the same dictionaries the browser
@@ -129,7 +129,7 @@ host.setSkillLanguage(() => 'zh')
 
 await check('A1 host exports the plugin contract', () => {
   assert.equal(typeof host.apply, 'function')
-  assert.equal(host.name, 'imagegen')
+  assert.equal(host.name, 'taichi-imagegen')
   assert.deepEqual(host.inject, ['webServer', 'systemPrompt', 'commands'])
   assert.equal(typeof host.Config, 'function')
   assert.equal(typeof host.ImageGenSettingsNamespace, 'string') // branded at runtime as string
@@ -662,7 +662,7 @@ await check('A3e desktop updates delegate to the launcher and verify its actual 
 
   // Older launchers omit `version`; the installed manifest is then the only
   // evidence, and a missing one is a failure rather than a silent success.
-  const profileDir = mkdtempSync(join(tmpdir(), 'dsh-imagegen-update-profile-'))
+  const profileDir = mkdtempSync(join(tmpdir(), 'dsh-taichi-imagegen-update-profile-'))
   const packageDir = join(profileDir, 'node_modules', '@q253595422', 'dsh-imagegen-video')
   mkdirSync(packageDir, { recursive: true })
   writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: packageJson.name, version: '9.9.9' }))
@@ -2036,7 +2036,7 @@ const history = {
     const wire = {
       ...entry,
       images: entry.images.map((image, index) => ({
-        url: `/api/dsh-imagegen/history/image/${entry.id}-${index}.png`,
+        url: `/api/dsh-taichi-imagegen/history/image/${entry.id}-${index}.png`,
         mime: image.mime,
         ...(image.revisedPrompt === undefined ? {} : { revisedPrompt: image.revisedPrompt }),
       })),
@@ -2143,7 +2143,7 @@ const attachments = {
 const pendingConversationImages = new Map()
 let storageProbeEndpoint = ''
 let heavySkillAllowed = true
-const skillRunRoot = join(tmpdir(), `dsh-imagegen-smoke-${process.pid}`)
+const skillRunRoot = join(tmpdir(), `dsh-taichi-imagegen-smoke-${process.pid}`)
 mkdirSync(skillRunRoot, { recursive: true })
 /** ---------------------------------------------------------------- canvas ---
  * In-memory canvas + file store standing in for CanvasStore, plus a scripted
@@ -2166,7 +2166,7 @@ const recordCanvasFile = (data, mime, name) => {
   canvasBlobs.set(fileName, { data: Buffer.from(data), mime })
   return {
     assetId,
-    url: `/api/dsh-imagegen/canvas/asset/${fileName}`,
+    url: `/api/dsh-taichi-imagegen/canvas/asset/${fileName}`,
     mime,
     bytes: data.length,
     width: 0,
@@ -2209,9 +2209,9 @@ let heavyRunsStarted = 0
  *  file name. A check sets this to stage an unpublishable artifact. */
 let heavyArtifacts = []
 /** Isolated skill library root for the install/remove cases. */
-const skillLibraryRoot = mkdtempSync(join(tmpdir(), 'dsh-imagegen-smoke-skills-'))
+const skillLibraryRoot = mkdtempSync(join(tmpdir(), 'dsh-taichi-imagegen-smoke-skills-'))
 /** Isolated local skill root the canvas registry adapter falls back to. */
-const skillRegistryRoot = mkdtempSync(join(tmpdir(), 'dsh-imagegen-smoke-registry-'))
+const skillRegistryRoot = mkdtempSync(join(tmpdir(), 'dsh-taichi-imagegen-smoke-registry-'))
 const canvasSkillRunner = new host.SkillRunner({
   backend: {
     canvas: canvasBackend,
@@ -2315,7 +2315,7 @@ const routes = host.makeRoutes({
   history,
   templates,
   favorites,
-  resolveStorage: () => ({ endpoint: storageProbeEndpoint, region: 'ap-guangzhou', accessKey: 'AKID-test', secretKey: 'secret-test', prefix: 'dsh-imagegen' }),
+  resolveStorage: () => ({ endpoint: storageProbeEndpoint, region: 'ap-guangzhou', accessKey: 'AKID-test', secretKey: 'secret-test', prefix: 'dsh-taichi-imagegen' }),
   attachments,
   pendingConversationImages,
   skills: canvasSkillRunner,
@@ -2354,19 +2354,19 @@ const post = async (path, body, headers = {}) => {
 
 await check('C0b prompt enhance strips reasoning-model <think> blocks', async () => {
   // Closed think block: only the visible answer may reach the prompt box.
-  const leak = await post('/api/dsh-imagegen/prompt-enhance', { prompt: 'think leak' })
+  const leak = await post('/api/dsh-taichi-imagegen/prompt-enhance', { prompt: 'think leak' })
   assert.equal(leak.status, 200)
   assert.equal(leak.body.ok, true)
   assert.equal(leak.body.prompt, 'A lighthouse at dusk over a stormy sea.')
   // Dangling unclosed <think>: everything after it is reasoning, so the
   // enhancer must fail loudly instead of returning the raw reasoning text.
-  const dangling = await post('/api/dsh-imagegen/prompt-enhance', { prompt: 'dangling think' })
+  const dangling = await post('/api/dsh-taichi-imagegen/prompt-enhance', { prompt: 'dangling think' })
   assert.equal(dangling.body.ok, false)
   assert.match(dangling.body.message, /only reasoning content/)
   // Clean content passes through untouched.
-  const clean = await post('/api/dsh-imagegen/prompt-enhance', { prompt: 'clean please' })
+  const clean = await post('/api/dsh-taichi-imagegen/prompt-enhance', { prompt: 'clean please' })
   assert.equal(clean.body.prompt, 'A calm meadow under morning light.')
-  const polished = await post('/api/dsh-imagegen/prompt-enhance', { prompt: 'clean please', mode: 'polish' })
+  const polished = await post('/api/dsh-taichi-imagegen/prompt-enhance', { prompt: 'clean please', mode: 'polish' })
   assert.equal(polished.body.ok, true)
   assert.equal(polished.body.prompt, 'A calm meadow under morning light.')
 })
@@ -2393,14 +2393,14 @@ await check('C0c canvas layer decomposition parses a fenced vision plan and clam
   assert.equal(ordered.layers[0].rect, undefined, 'the background layer carries no rect')
 
   // Route: the browser sends one data URL, the host answers with the plan.
-  const plan = await post('/api/dsh-imagegen/canvas/layers', { image: `data:image/png;base64,${pngBytes.toString('base64')}` })
+  const plan = await post('/api/dsh-taichi-imagegen/canvas/layers', { image: `data:image/png;base64,${pngBytes.toString('base64')}` })
   assert.equal(plan.body.ok, true, JSON.stringify(plan.body))
   assert.deepEqual(plan.body.plan.layers.map(layer => layer.kind), ['background', 'object', 'text'])
   assert.equal(plan.body.plan.layers[2].text, '夏日限定')
   assert.equal(plan.body.plan.layers[2].color, '#ffee00', 'hex colors are normalized to lower case')
   assert.deepEqual(plan.body.plan.layers[1].rect, { x: 0.3, y: 0.25, width: 0.3, height: 0.6 })
 
-  const missing = await post('/api/dsh-imagegen/canvas/layers', {})
+  const missing = await post('/api/dsh-taichi-imagegen/canvas/layers', {})
   assert.equal(missing.body.ok, false)
   assert.equal(missing.body.code, 'bad-request')
   // A channel without a vision chat model fails with an actionable message.
@@ -2411,21 +2411,21 @@ await check('C0c canvas layer decomposition parses a fenced vision plan and clam
 })
 
 await check('C1 settings describe serves the redacted namespace', async () => {
-  const { status, body } = await post('/api/dsh-imagegen/settings/describe', {})
+  const { status, body } = await post('/api/dsh-taichi-imagegen/settings/describe', {})
   assert.equal(status, 200)
   assert.equal(body.ok, true)
   assert.equal(body.value.writable, true)
   assert.equal(body.value.namespaces.length, 1)
   const view = body.value.namespaces[0]
-  assert.equal(view.ns, 'dsh-imagegen')
+  assert.equal(view.ns, 'dsh-taichi-imagegen')
   assert.equal(view.value.apiUrl, 'http://upstream/v1')
   assert.equal(view.value.apiKey, undefined)
   assert.deepEqual(view.secrets, [{ path: ['apiKey'], set: false }])
 })
 
 await check('C2 settings mutate writes + redacts the key', async () => {
-  const { body } = await post('/api/dsh-imagegen/settings/mutate', {
-    ns: 'dsh-imagegen',
+  const { body } = await post('/api/dsh-taichi-imagegen/settings/mutate', {
+    ns: 'dsh-taichi-imagegen',
     ops: [{ op: 'set', path: ['apiKey'], value: 'sk-new' }],
     expectedRevision: 0,
   })
@@ -2436,19 +2436,19 @@ await check('C2 settings mutate writes + redacts the key', async () => {
 })
 
 await check('C2b subscription status/login routes keep tokens host-side', async () => {
-  const status = await post('/api/dsh-imagegen/subscription/status', {})
+  const status = await post('/api/dsh-taichi-imagegen/subscription/status', {})
   assert.equal(status.body.ok, true)
   assert.equal(status.body.statuses['grok-sub'].state, 'logged-in')
   assert.equal(status.body.statuses['grok-sub'].email, 'grok@example.test')
   assert.equal(status.body.statuses['chatgpt-sub'].state, 'logged-out')
   assert.equal(status.body.statuses['openrouter-sub'].state, 'logged-out')
-  const login = await post('/api/dsh-imagegen/subscription/login', { provider: 'chatgpt-sub' })
+  const login = await post('/api/dsh-taichi-imagegen/subscription/login', { provider: 'chatgpt-sub' })
   assert.equal(login.body.ok, true)
   assert.equal(login.body.url, 'https://auth.example.test/codex')
-  const logout = await post('/api/dsh-imagegen/subscription/login', { provider: 'grok-sub', action: 'logout' })
+  const logout = await post('/api/dsh-taichi-imagegen/subscription/login', { provider: 'grok-sub', action: 'logout' })
   assert.equal(logout.body.ok, true)
   assert.equal(subscriptionStatuses['grok-sub'].state, 'logged-out')
-  const complete = await post('/api/dsh-imagegen/subscription/login', { provider: 'openrouter-sub', action: 'complete', input: 'http://127.0.0.1:56231/oauth/callback?code=manual&state=manual-state' })
+  const complete = await post('/api/dsh-taichi-imagegen/subscription/login', { provider: 'openrouter-sub', action: 'complete', input: 'http://127.0.0.1:56231/oauth/callback?code=manual&state=manual-state' })
   assert.equal(complete.body.ok, true)
   assert.equal(subscriptionStatuses['openrouter-sub'].state, 'logged-in')
 })
@@ -2560,7 +2560,7 @@ await check('C2e Grok device polling continues through authorization_pending', a
 })
 
 await check('C3 generate route persists history server-side and enforces loopback fence', async () => {
-  const { status, body } = await post('/api/dsh-imagegen/generate', {
+  const { status, body } = await post('/api/dsh-taichi-imagegen/generate', {
     mode: 'text', model: 'gpt-image-2', prompt: 'a cat', size: '1:1', quality: '4k', n: 1, detail: 'standard',
   })
   assert.equal(status, 200)
@@ -2570,7 +2570,7 @@ await check('C3 generate route persists history server-side and enforces loopbac
   assert.equal(persistedHistory[0].prompt, 'a cat')
   assert.equal(persistedHistory[0].images.length, 2)
   assert.equal(body.history.length, 1)
-  const missing = await post('/api/dsh-imagegen/generate', { mode: 'text', model: 'gpt-image-2', prompt: '  ', size: 'auto', quality: 'auto', n: 1, detail: '' })
+  const missing = await post('/api/dsh-taichi-imagegen/generate', { mode: 'text', model: 'gpt-image-2', prompt: '  ', size: 'auto', quality: 'auto', n: 1, detail: '' })
   assert.equal(missing.body.ok, false)
   assert.match(missing.body.message, /prompt is required/)
   // Non-loopback fence: a raw request carrying a foreign Host header must be
@@ -2579,7 +2579,7 @@ await check('C3 generate route persists history server-side and enforces loopbac
     const request = httpRequest({
       hostname: '127.0.0.1',
       port,
-      path: '/api/dsh-imagegen/generate',
+      path: '/api/dsh-taichi-imagegen/generate',
       method: 'POST',
       headers: { host: 'evil.example.com', 'content-type': 'application/json' },
     }, res => { resolve(res.statusCode) }, reject)
@@ -2592,7 +2592,7 @@ await check('C3b diagnostics routes read back and clear the retained attempts (#
   // The panel reads this route after a failure; the record has to survive the
   // HTTP hop unchanged and stay redacted.
   host.clearDiagnostics()
-  const clearedOnce = await post('/api/dsh-imagegen/diagnostics/list', {})
+  const clearedOnce = await post('/api/dsh-taichi-imagegen/diagnostics/list', {})
   assert.equal(clearedOnce.body.ok, true)
   assert.equal(clearedOnce.body.entries.length, 0, 'a fresh buffer is empty')
 
@@ -2612,7 +2612,7 @@ await check('C3b diagnostics routes read back and clear the retained attempts (#
     durationMs: 42,
     hadAuth: true,
   })
-  const listed = await post('/api/dsh-imagegen/diagnostics/list', {})
+  const listed = await post('/api/dsh-taichi-imagegen/diagnostics/list', {})
   assert.equal(listed.body.ok, true)
   assert.equal(listed.body.entries.length, 1)
   const entry = listed.body.entries[0]
@@ -2637,14 +2637,14 @@ await check('C3b diagnostics routes read back and clear the retained attempts (#
     durationMs: 1,
     hadAuth: true,
   })
-  const withSecret = await post('/api/dsh-imagegen/diagnostics/list', {})
+  const withSecret = await post('/api/dsh-taichi-imagegen/diagnostics/list', {})
   const serialized = JSON.stringify(withSecret.body)
   assert.equal(serialized.includes('{{API_KEY_2iip3dvh}}'), false, 'no credential survives to the client')
   assert.match(serialized, /<redacted/, 'the redaction marker is present instead')
 
-  const cleared = await post('/api/dsh-imagegen/diagnostics/clear', {})
+  const cleared = await post('/api/dsh-taichi-imagegen/diagnostics/clear', {})
   assert.equal(cleared.body.ok, true)
-  const afterClear = await post('/api/dsh-imagegen/diagnostics/list', {})
+  const afterClear = await post('/api/dsh-taichi-imagegen/diagnostics/list', {})
   assert.equal(afterClear.body.entries.length, 0, 'the Clear action empties the record')
 })
 
@@ -2652,20 +2652,20 @@ await check('C3c signal routes record, report, draft an issue and clear (L0)', a
   // The report panel talks to the host over HTTP, so the contract that matters
   // is the one the browser sees: what it may send, what comes back, and that a
   // prompt's text never appears in either direction.
-  await post('/api/dsh-imagegen/signals/clear', {})
-  const empty = await post('/api/dsh-imagegen/signals/report', {})
+  await post('/api/dsh-taichi-imagegen/signals/clear', {})
+  const empty = await post('/api/dsh-taichi-imagegen/signals/report', {})
   assert.equal(empty.body.ok, true)
   assert.equal(empty.body.report.total, 0, 'a fresh ledger reports nothing rather than guessing')
   assert.equal(empty.body.report.buckets.length, 0)
 
   // An unknown kind is answered, not thrown: an older bundle talking to a newer
   // host has to learn that, and it learns it from this code.
-  const bad = await post('/api/dsh-imagegen/signals/record', { kind: 'not-a-kind' })
+  const bad = await post('/api/dsh-taichi-imagegen/signals/record', { kind: 'not-a-kind' })
   assert.equal(bad.body.ok, false)
   assert.equal(bad.body.code, 'bad-signal')
 
   const secretPrompt = 'SMOKE-SIGNAL-SECRET 一只猫在打字'
-  const recorded = await post('/api/dsh-imagegen/signals/record', {
+  const recorded = await post('/api/dsh-taichi-imagegen/signals/record', {
     kind: 'retry',
     pipeline: 'image',
     model: 'gpt-image-2',
@@ -2681,7 +2681,7 @@ await check('C3c signal routes record, report, draft an issue and clear (L0)', a
   // Fill one bucket past MIN_SAMPLE so the report has something to judge, and
   // keep one deliberate failure row so the failure rate is non-zero.
   for (let index = 0; index < 25; index += 1) {
-    await post('/api/dsh-imagegen/signals/record', {
+    await post('/api/dsh-taichi-imagegen/signals/record', {
       kind: 'retry',
       pipeline: 'image',
       model: 'gpt-image-2',
@@ -2691,7 +2691,7 @@ await check('C3c signal routes record, report, draft an issue and clear (L0)', a
       source: 'auto',
     })
   }
-  const report = await post('/api/dsh-imagegen/signals/report', { windowDays: 90 })
+  const report = await post('/api/dsh-taichi-imagegen/signals/report', { windowDays: 90 })
   assert.equal(report.body.ok, true)
   assert.ok(report.body.report.total >= 26)
   const bucket = report.body.report.buckets[0]
@@ -2702,11 +2702,11 @@ await check('C3c signal routes record, report, draft an issue and clear (L0)', a
 
   // The privacy red line, checked on the wire rather than in the store: this is
   // the exact shape that would end up pasted into a public issue.
-  const listed = await post('/api/dsh-imagegen/signals/list', {})
+  const listed = await post('/api/dsh-taichi-imagegen/signals/list', {})
   assert.equal(listed.body.ok, true)
   assert.equal(JSON.stringify(listed.body).includes('SMOKE-SIGNAL-SECRET'), false, 'no prompt text reaches the client')
 
-  const draft = await post('/api/dsh-imagegen/signals/export', {})
+  const draft = await post('/api/dsh-taichi-imagegen/signals/export', {})
   assert.equal(draft.body.ok, true)
   assert.match(draft.body.url, /^https:\/\/github\.com\/.*\/issues\/new\?/)
   assert.equal(draft.body.markdown.includes('SMOKE-SIGNAL-SECRET'), false, 'the issue draft carries aggregates only')
@@ -2716,14 +2716,14 @@ await check('C3c signal routes record, report, draft an issue and clear (L0)', a
 
   // The window is clamped to a range the report can defend (1..365 days), and
   // the clamp is echoed back so the panel's label always matches the numbers.
-  const clampedLow = await post('/api/dsh-imagegen/signals/report', { windowDays: 0 })
+  const clampedLow = await post('/api/dsh-taichi-imagegen/signals/report', { windowDays: 0 })
   assert.equal(clampedLow.body.report.windowDays, 1)
-  const clampedHigh = await post('/api/dsh-imagegen/signals/report', { windowDays: 9999 })
+  const clampedHigh = await post('/api/dsh-taichi-imagegen/signals/report', { windowDays: 9999 })
   assert.equal(clampedHigh.body.report.windowDays, 365)
 
-  const cleared = await post('/api/dsh-imagegen/signals/clear', {})
+  const cleared = await post('/api/dsh-taichi-imagegen/signals/clear', {})
   assert.equal(cleared.body.ok, true)
-  const afterClear = await post('/api/dsh-imagegen/signals/report', {})
+  const afterClear = await post('/api/dsh-taichi-imagegen/signals/report', {})
   assert.equal(afterClear.body.report.total, 0, 'Clear empties the ledger')
 })
 
@@ -2732,29 +2732,29 @@ await check('C3d retry and delete reach the ledger without any client help (L0)'
   // for a retry or a delete, so this check drives ONLY the routes the studio
   // already called and then reads the ledger. If the wiring is ever moved to
   // the client, this test stops seeing the entries and fails.
-  await post('/api/dsh-imagegen/signals/clear', {})
+  await post('/api/dsh-taichi-imagegen/signals/clear', {})
 
   const retryPrompt = 'SMOKE-RETRY-PROMPT a lighthouse at dusk'
-  const submitted = await post('/api/dsh-imagegen/tasks/submit', {
+  const submitted = await post('/api/dsh-taichi-imagegen/tasks/submit', {
     mode: 'text', model: 'gpt-image-2', prompt: retryPrompt, size: '1:1', quality: '4k', n: 1, detail: 'standard',
   })
   assert.equal(submitted.body.ok, true, JSON.stringify(submitted.body))
   // A retry is the user saying "not this one" without typing anything. It is
   // recorded from the task the queue still holds, so it needs no round trip to
   // the browser at all.
-  const retried = await post('/api/dsh-imagegen/tasks/retry', { id: submitted.body.task.id })
+  const retried = await post('/api/dsh-taichi-imagegen/tasks/retry', { id: submitted.body.task.id })
   assert.equal(retried.body.ok, true, 'the retry itself still works')
 
   // Signal writes are fire-and-forget so a slow disk can never delay the
   // user's action; poll instead of assuming the write already landed.
   const signalOf = async (kind) => {
     for (let attempt = 0; attempt < 40; attempt += 1) {
-      const listed = await post('/api/dsh-imagegen/signals/list', {})
+      const listed = await post('/api/dsh-taichi-imagegen/signals/list', {})
       const found = listed.body.entries.find(entry => entry.kind === kind)
       if (found !== undefined) return { entry: found, listed }
       await new Promise(resolve => setTimeout(resolve, 10))
     }
-    return { entry: undefined, listed: await post('/api/dsh-imagegen/signals/list', {}) }
+    return { entry: undefined, listed: await post('/api/dsh-taichi-imagegen/signals/list', {}) }
   }
 
   const afterRetry = await signalOf('retry')
@@ -2771,7 +2771,7 @@ await check('C3d retry and delete reach the ledger without any client help (L0)'
   // not want the result kept. The entry is looked up BEFORE the removal, which
   // is the only moment its model is still known.
   const historyId = 'smoke-signal-history-1'
-  const appended = await post('/api/dsh-imagegen/history/append', {
+  const appended = await post('/api/dsh-taichi-imagegen/history/append', {
     entry: {
       id: historyId, createdAt: Date.now(), mode: 'text', model: 'gpt-image-2',
       prompt: 'SMOKE-DELETE-PROMPT a red bicycle', size: '1:1', quality: '4k', detail: 'standard', n: 1,
@@ -2779,7 +2779,7 @@ await check('C3d retry and delete reach the ledger without any client help (L0)'
     },
   })
   assert.equal(appended.body.ok, true, JSON.stringify(appended.body))
-  const removed = await post('/api/dsh-imagegen/history/remove', { id: historyId })
+  const removed = await post('/api/dsh-taichi-imagegen/history/remove', { id: historyId })
   assert.equal(removed.body.ok, true, 'the delete itself still works')
 
   const afterDelete = await signalOf('delete')
@@ -2792,12 +2792,12 @@ await check('C3d retry and delete reach the ledger without any client help (L0)'
   assert.equal(JSON.stringify(afterDelete.listed.body).includes('bicycle'), false, 'the deleted prompt is not retained either')
 
   // And the two rates feed the report the panel renders.
-  const summary = await post('/api/dsh-imagegen/signals/report', { windowDays: 90 })
+  const summary = await post('/api/dsh-taichi-imagegen/signals/report', { windowDays: 90 })
   assert.equal(summary.body.ok, true)
   assert.equal(summary.body.report.byKind.retry, 1)
   assert.equal(summary.body.report.byKind.delete, 1)
 
-  await post('/api/dsh-imagegen/signals/clear', {})
+  await post('/api/dsh-taichi-imagegen/signals/clear', {})
 })
 
 await check('C3e a failed generation leaves a failure signal with its code (L0)', async () => {
@@ -2805,7 +2805,7 @@ await check('C3e a failed generation leaves a failure signal with its code (L0)'
   // specific evidence a user can produce — they neither retried nor deleted;
   // the provider refused. The report needs the failure CODE, because "it broke"
   // is not actionable and "upstream-rejected at 413" is.
-  await post('/api/dsh-imagegen/signals/clear', {})
+  await post('/api/dsh-taichi-imagegen/signals/clear', {})
   const refusing = createServer((_req, res) => {
     res.writeHead(503, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ error: { message: 'upstream maintenance' } }))
@@ -2825,7 +2825,7 @@ await check('C3e a failed generation leaves a failure signal with its code (L0)'
 
   let failure
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    const listed = await post('/api/dsh-imagegen/signals/list', {})
+    const listed = await post('/api/dsh-taichi-imagegen/signals/list', {})
     failure = listed.body.entries.find(entry => entry.kind === 'failure')
     if (failure !== undefined) break
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -2837,7 +2837,7 @@ await check('C3e a failed generation leaves a failure signal with its code (L0)'
   assert.equal(failure.failureCode, 'upstream-rejected', 'the code, not the prose, is what a later fix can group by')
   assert.equal(failure.source, 'auto')
 
-  const report = await post('/api/dsh-imagegen/signals/report', { windowDays: 90 })
+  const report = await post('/api/dsh-taichi-imagegen/signals/report', { windowDays: 90 })
   assert.equal(report.body.ok, true)
   assert.equal(report.body.report.byKind.failure, 1)
   // A single failure is below MIN_SAMPLE, so it must produce no verdict: one
@@ -2847,18 +2847,18 @@ await check('C3e a failed generation leaves a failure signal with its code (L0)'
   assert.equal(bucket.verdict, 'unknown')
   assert.equal(report.body.report.findings.filter(finding => finding.severity !== 'info').length, 0)
 
-  await post('/api/dsh-imagegen/signals/clear', {})
+  await post('/api/dsh-taichi-imagegen/signals/clear', {})
 })
 
 await check('C4 comparison tasks run in parallel and share comparison history metadata', async () => {
   const comparisonId = 'smoke-comparison'
   const request = { mode: 'text', model: 'gpt-image-2', prompt: 'parallel one', size: '1:1', quality: '4k', n: 1, detail: 'standard', comparisonId, comparisonModels: ['gpt-image-2', 'grok-imagine-image'] }
-  const first = await post('/api/dsh-imagegen/tasks/submit', request)
-  const second = await post('/api/dsh-imagegen/tasks/submit', { ...request, model: 'grok-imagine-image', prompt: 'parallel two' })
+  const first = await post('/api/dsh-taichi-imagegen/tasks/submit', request)
+  const second = await post('/api/dsh-taichi-imagegen/tasks/submit', { ...request, model: 'grok-imagine-image', prompt: 'parallel two' })
   assert.equal(first.body.ok, true)
   assert.equal(second.body.ok, true)
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const listed = await post('/api/dsh-imagegen/tasks/list', {})
+    const listed = await post('/api/dsh-taichi-imagegen/tasks/list', {})
     const ids = [first.body.task.id, second.body.task.id]
     if (ids.every(id => listed.body.tasks.find(task => task.id === id)?.status === 'completed')) break
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -2871,14 +2871,14 @@ await check('C4 comparison tasks run in parallel and share comparison history me
 
 await check('C4b task polling stays lightweight and hydrates completed results on demand', async () => {
   const image = `data:image/png;base64,${pngBytes.toString('base64')}`
-  const submitted = await post('/api/dsh-imagegen/tasks/submit', {
+  const submitted = await post('/api/dsh-taichi-imagegen/tasks/submit', {
     mode: 'edit', model: 'gpt-image-2', prompt: 'edit this lightweight task payload', size: '3:2', quality: '4k', n: 1, detail: '',
     image, refName: 'reference.png', workflow: 'replica',
   })
   assert.equal(submitted.body.ok, true, JSON.stringify(submitted.body))
   let summary
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const listed = await post('/api/dsh-imagegen/tasks/list', {})
+    const listed = await post('/api/dsh-taichi-imagegen/tasks/list', {})
     summary = listed.body.tasks.find(task => task.id === submitted.body.task.id)
     if (summary?.status === 'completed') break
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -2890,7 +2890,7 @@ await check('C4b task polling stays lightweight and hydrates completed results o
   assert.equal(summary.request.image, undefined)
   assert.equal(summary.request.images, undefined)
 
-  const hydrated = await post('/api/dsh-imagegen/tasks/get', { id: submitted.body.task.id })
+  const hydrated = await post('/api/dsh-taichi-imagegen/tasks/get', { id: submitted.body.task.id })
   assert.equal(hydrated.body.ok, true)
   assert.equal(hydrated.body.task.request.workflow, 'replica')
   assert.equal(hydrated.body.task.request.image, image)
@@ -2899,19 +2899,19 @@ await check('C4b task polling stays lightweight and hydrates completed results o
     persistedHistory.some(entry => entry.prompt === 'edit this lightweight task payload' && entry.workflow === 'replica'),
     'history accepts replica provenance instead of rejecting its persisted result',
   )
-  const missing = await post('/api/dsh-imagegen/tasks/get', { id: 'missing-task' })
+  const missing = await post('/api/dsh-taichi-imagegen/tasks/get', { id: 'missing-task' })
   assert.equal(missing.body.ok, false)
   assert.equal(missing.body.code, 'not-found')
 })
 await check('C5 image model discovery and configured-model allow-list work', async () => {
-  const discovered = await post('/api/dsh-imagegen/image-models', {})
+  const discovered = await post('/api/dsh-taichi-imagegen/image-models', {})
   assert.equal(discovered.body.ok, true)
   // `nanobanana2` / `nanobanana2-lite` are shipped defaults whose family name
   // carries a numeric suffix with no separator; they must survive detection.
   // `gpt-4o`, `text-embedding-3-small` and the capability-flagged
   // `chat-only-model` / `gpt-image-legacy` must not appear.
   assert.deepEqual(discovered.body.models, ['glm-image', 'gpt-image-2', 'grok-imagine-image', 'nanobanana2', 'nanobanana2-lite'])
-  const chatDiscovered = await post('/api/dsh-imagegen/image-models', {
+  const chatDiscovered = await post('/api/dsh-taichi-imagegen/image-models', {
     apiUrl: `http://127.0.0.1:${upstreamPort}/v1/chat/completions`,
     apiKey: 'sk-test',
     apiUrlFull: true,
@@ -2919,14 +2919,14 @@ await check('C5 image model discovery and configured-model allow-list work', asy
   })
   assert.equal(chatDiscovered.body.ok, true)
   assert.deepEqual(chatDiscovered.body.models, ['glm-image', 'gpt-image-2', 'grok-imagine-image', 'nanobanana2', 'nanobanana2-lite'])
-  const fallbackDiscovered = await post('/api/dsh-imagegen/image-models', {
+  const fallbackDiscovered = await post('/api/dsh-taichi-imagegen/image-models', {
     apiUrl: `http://127.0.0.1:${upstreamPort}`,
     apiKey: 'sk-test',
     protocol: 'auto',
   })
   assert.equal(fallbackDiscovered.body.ok, true, JSON.stringify(fallbackDiscovered.body))
   assert.deepEqual(fallbackDiscovered.body.models, ['glm-image', 'gpt-image-2', 'grok-imagine-image', 'nanobanana2', 'nanobanana2-lite'])
-  const presets = await post('/api/dsh-imagegen/presets', {})
+  const presets = await post('/api/dsh-taichi-imagegen/presets', {})
   assert.equal(presets.body.ok, true)
   assert.ok(
     presets.body.presets.every(preset => typeof preset.link === 'string' && /^https:\/\//.test(preset.link)),
@@ -2964,7 +2964,7 @@ await check('C5 image model discovery and configured-model allow-list work', asy
     ['doubao-seedance-2-0-260128', 'doubao-seedance-2-0-fast-260128', 'doubao-seedance-1-0-pro-250528'],
     'the Ark preset ships a video catalog',
   )
-  const rejected = await post('/api/dsh-imagegen/tasks/submit', {
+  const rejected = await post('/api/dsh-taichi-imagegen/tasks/submit', {
     mode: 'text', model: 'not-configured', prompt: 'a cat', size: 'auto', quality: 'auto', n: 1, detail: '',
   })
   assert.equal(rejected.body.ok, false)
@@ -2972,34 +2972,34 @@ await check('C5 image model discovery and configured-model allow-list work', asy
 })
 
 await check('C6 template routes are source-scoped, refresh per source, and proxy only known images', async () => {
-  const { body: list } = await post('/api/dsh-imagegen/templates/list', { source: 'vibeui' })
+  const { body: list } = await post('/api/dsh-taichi-imagegen/templates/list', { source: 'vibeui' })
   assert.equal(list.ok, true)
   assert.equal(list.sourceId, 'vibeui')
   assert.equal(list.total, 1)
   assert.equal(list.cases[0].prompt, 'Create a bright product poster')
 
-  const { body: refreshed } = await post('/api/dsh-imagegen/templates/refresh', { source: 'vibeui' })
+  const { body: refreshed } = await post('/api/dsh-taichi-imagegen/templates/refresh', { source: 'vibeui' })
   assert.equal(refreshed.ok, true)
   assert.equal(refreshed.sourceId, 'vibeui')
   assert.equal(refreshed.total, 1)
   assert.equal(templateRefreshes, 1)
 
   // Unknown sources are rejected before the backend is touched.
-  const badSource = await post('/api/dsh-imagegen/templates/list', { source: 'nope' })
+  const badSource = await post('/api/dsh-taichi-imagegen/templates/list', { source: 'nope' })
   assert.equal(badSource.body.ok, false)
   assert.equal(badSource.body.code, 'templates-source-unknown')
   assert.equal(templateRefreshes, 1)
 
-  const image = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/templates/image/vibeui/case1.png`)
+  const image = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/templates/image/vibeui/case1.png`)
   assert.equal(image.status, 200)
   assert.equal(image.headers.get('content-type'), 'image/png')
   assert.deepEqual(Buffer.from(await image.arrayBuffer()), templateImage)
-  const unknown = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/templates/image/vibeui/not-allowed.png`)
+  const unknown = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/templates/image/vibeui/not-allowed.png`)
   assert.equal(unknown.status, 404)
   // Legacy single-segment image paths are gone: the source id is required.
-  const legacy = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/templates/image/case1.png`)
+  const legacy = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/templates/image/case1.png`)
   assert.equal(legacy.status, 404)
-  const badPool = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/templates/image/canghe/case1.png`)
+  const badPool = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/templates/image/canghe/case1.png`)
   assert.equal(badPool.status, 404)
 })
 
@@ -3007,39 +3007,39 @@ await check('C6a2 URL-type template image references reach the backend', async (
   // issue #29: the encoded https:// inside the ref decodes to empty path
   // segments; the route must hand the full URL to the template store (which
   // enforces the host whitelist) instead of 404ing before it is ever called.
-  const image = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/templates/image/itgoyo/${encodeURIComponent(templateUrlRef)}`)
+  const image = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/templates/image/itgoyo/${encodeURIComponent(templateUrlRef)}`)
   assert.equal(image.status, 200)
   assert.deepEqual(Buffer.from(await image.arrayBuffer()), templateImage)
 
   // A legal URL beyond the old 400-char composite cap still resolves.
   const longLegal = `https://raw.githubusercontent.com/${'a'.repeat(500)}.png`
-  const longOk = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/templates/image/itgoyo/${encodeURIComponent(longLegal)}`)
+  const longOk = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/templates/image/itgoyo/${encodeURIComponent(longLegal)}`)
   assert.equal(longOk.status, 200)
 
   // Traversal stays refused even inside a URL-shaped ref.
-  const traversal = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/templates/image/itgoyo/${encodeURIComponent('https://raw.githubusercontent.com/a/../b.png')}`)
+  const traversal = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/templates/image/itgoyo/${encodeURIComponent('https://raw.githubusercontent.com/a/../b.png')}`)
   assert.equal(traversal.status, 404)
 
   // Beyond the store's 4000-char URL limit the composite path is refused.
-  const tooLong = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/templates/image/itgoyo/${encodeURIComponent(`https://raw.githubusercontent.com/${'a'.repeat(4100)}.png`)}`)
+  const tooLong = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/templates/image/itgoyo/${encodeURIComponent(`https://raw.githubusercontent.com/${'a'.repeat(4100)}.png`)}`)
   assert.equal(tooLong.status, 404)
 
   // Bare names keep the strict rules: empty segments and >400 chars refuse.
-  const emptySegment = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/templates/image/vibeui/${encodeURIComponent('case//1.png')}`)
+  const emptySegment = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/templates/image/vibeui/${encodeURIComponent('case//1.png')}`)
   assert.equal(emptySegment.status, 404)
-  const longName = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/templates/image/vibeui/${'a'.repeat(401)}.png`)
+  const longName = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/templates/image/vibeui/${'a'.repeat(401)}.png`)
   assert.equal(longName.status, 404)
 
   // The relaxation is template-only: a URL-shaped ref on the history image
   // route still dies in path validation, before the backend is touched.
   const before = historyImageReads
-  const historyUrl = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/history/image/${encodeURIComponent(templateUrlRef)}`)
+  const historyUrl = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/history/image/${encodeURIComponent(templateUrlRef)}`)
   assert.equal(historyUrl.status, 404)
   assert.equal(historyImageReads, before)
 })
 
 await check('C6b template favorites persist host-side and round-trip', async () => {
-  const empty = await post('/api/dsh-imagegen/templates/favorites/list', {})
+  const empty = await post('/api/dsh-taichi-imagegen/templates/favorites/list', {})
   assert.equal(empty.body.ok, true)
   assert.deepEqual(empty.body.favorites, [])
 
@@ -3057,31 +3057,31 @@ await check('C6b template favorites persist host-side and round-trip', async () 
     image: 'case1.png',
     featured: true,
   }
-  const added = await post('/api/dsh-imagegen/templates/favorites/add', { source: 'vibeui', case: item })
+  const added = await post('/api/dsh-taichi-imagegen/templates/favorites/add', { source: 'vibeui', case: item })
   assert.equal(added.body.ok, true)
   assert.equal(added.body.favorites.length, 1)
   assert.equal(added.body.favorites[0].key, 'vibeui:1')
   assert.equal(added.body.favorites[0].case.prompt, item.prompt)
 
-  const invalid = await post('/api/dsh-imagegen/templates/favorites/add', { source: 'nope', case: item })
+  const invalid = await post('/api/dsh-taichi-imagegen/templates/favorites/add', { source: 'nope', case: item })
   assert.equal(invalid.body.ok, false)
 
-  const relisted = await post('/api/dsh-imagegen/templates/favorites/list', {})
+  const relisted = await post('/api/dsh-taichi-imagegen/templates/favorites/list', {})
   assert.equal(relisted.body.favorites.length, 1)
 
-  const removed = await post('/api/dsh-imagegen/templates/favorites/remove', { key: 'vibeui:1' })
+  const removed = await post('/api/dsh-taichi-imagegen/templates/favorites/remove', { key: 'vibeui:1' })
   assert.equal(removed.body.ok, true)
   assert.deepEqual(removed.body.favorites, [])
 
   const stringItem = { ...item, id: 's-001', title: 'Hand-drawn template' }
-  const stringAdded = await post('/api/dsh-imagegen/templates/favorites/add', { source: 'handraw', case: stringItem })
+  const stringAdded = await post('/api/dsh-taichi-imagegen/templates/favorites/add', { source: 'handraw', case: stringItem })
   assert.equal(stringAdded.body.ok, true)
   assert.equal(stringAdded.body.favorites[0].key, 'handraw:s-001')
-  await post('/api/dsh-imagegen/templates/favorites/remove', { key: 'handraw:s-001' })
+  await post('/api/dsh-taichi-imagegen/templates/favorites/remove', { key: 'handraw:s-001' })
 })
 
 await check('C6c template sample route draws random inspiration picks', async () => {
-  const { body } = await post('/api/dsh-imagegen/templates/sample', { count: 9 })
+  const { body } = await post('/api/dsh-taichi-imagegen/templates/sample', { count: 9 })
   assert.equal(body.ok, true)
   assert.equal(body.samples.length, 1)
   assert.equal(body.samples[0].sourceId, 'vibeui')
@@ -3163,51 +3163,51 @@ await check('C6c4 PPT routes validate the request and rebuild asset URLs host-si
   // cannot point the conversion at an arbitrary address. Both halves are
   // asserted: the malformed inputs are refused, and a well-formed one produces
   // a URL on this host's asset route rather than the one it was handed.
-  const tooMany = await post('/api/dsh-imagegen/ppt/run', {
+  const tooMany = await post('/api/dsh-taichi-imagegen/ppt/run', {
     images: Array.from({ length: 13 }, (_, i) => ({ assetId: `a${i}` })),
     offlineOcr: true,
   })
   assert.equal(tooMany.body.ok, false, '13 images must be refused')
   assert.equal(tooMany.body.code, 'bad-request', JSON.stringify(tooMany.body))
 
-  const none = await post('/api/dsh-imagegen/ppt/run', { images: [], offlineOcr: true })
+  const none = await post('/api/dsh-taichi-imagegen/ppt/run', { images: [], offlineOcr: true })
   assert.equal(none.body.code, 'bad-request', 'zero images must be refused')
 
-  const badId = await post('/api/dsh-imagegen/ppt/run', {
+  const badId = await post('/api/dsh-taichi-imagegen/ppt/run', {
     images: [{ assetId: '../etc/passwd' }],
     offlineOcr: true,
   })
   assert.equal(badId.body.code, 'bad-request', 'an asset id with path syntax must be refused')
 
-  const missingOcr = await post('/api/dsh-imagegen/ppt/run', { images: [{ assetId: 'ok-1' }] })
+  const missingOcr = await post('/api/dsh-taichi-imagegen/ppt/run', { images: [{ assetId: 'ok-1' }] })
   assert.equal(missingOcr.body.code, 'bad-request', 'offlineOcr is required, not defaulted')
 
   // Without a usable editppt setup the route must say what is missing instead
   // of starting a run that cannot finish. Two refusals are legitimate here —
   // the runtime is not installed, or the skill itself is not — so the assertion
   // is "refused, with a reason naming what to fix", not one exact message.
-  const run = await post('/api/dsh-imagegen/ppt/run', { images: [{ assetId: 'ok-1' }], offlineOcr: true })
+  const run = await post('/api/dsh-taichi-imagegen/ppt/run', { images: [{ assetId: 'ok-1' }], offlineOcr: true })
   assert.equal(run.body.ok, false, JSON.stringify(run.body))
   assert.match(String(run.body.message), /PPT runtime|editppt|image-to-editable-ppt|技能/i, JSON.stringify(run.body))
 
-  const runtime = await post('/api/dsh-imagegen/ppt/runtime', {})
+  const runtime = await post('/api/dsh-taichi-imagegen/ppt/runtime', {})
   assert.equal(typeof runtime.body.ok, 'boolean', JSON.stringify(runtime.body))
 
   // The task list is served whenever the host mounted the skill registry, which
   // this suite does. An empty list is the correct answer here — what must hold
   // is that the route answers with tasks rather than failing.
-  const tasks = await post('/api/dsh-imagegen/ppt/tasks', {})
+  const tasks = await post('/api/dsh-taichi-imagegen/ppt/tasks', {})
   assert.equal(tasks.body.ok, true, JSON.stringify(tasks.body))
   assert.ok(Array.isArray(tasks.body.tasks), 'the task list is always an array')
 })
 
 await check('C6d data-folder route resolves the host directory (no spawn in tests)', async () => {
-  const { body } = await post('/api/dsh-imagegen/data-folder/open', { open: false })
+  const { body } = await post('/api/dsh-taichi-imagegen/data-folder/open', { open: false })
   assert.equal(body.ok, true)
   // Assert the property that actually matters: the route resolves the SAME data
   // root the stores use. This suite points DSH_HOME at a temp directory, so the
   // old `includes('.dsh')` assertion only passed because the route hardcoded
-  // `~/.dsh/dsh-imagegen` — it certified the bug, not the behaviour. Anything
+  // `~/.dsh/dsh-taichi-imagegen` — it certified the bug, not the behaviour. Anything
   // that pins the literal home path would pass here while ignoring DSH_HOME and
   // a custom localStoragePath, which is exactly the defect being guarded.
   const dataRoot = process.env.DSH_HOME
@@ -3216,14 +3216,14 @@ await check('C6d data-folder route resolves the host directory (no spawn in test
     String(body.path).startsWith(dataRoot),
     `resolved path stays under DSH_HOME (got ${String(body.path)}, DSH_HOME=${dataRoot})`,
   )
-  assert.ok(String(body.path).endsWith('dsh-imagegen'), 'resolved path is the dsh-imagegen data dir')
+  assert.ok(String(body.path).endsWith('dsh-taichi-imagegen'), 'resolved path is the dsh-taichi-imagegen data dir')
 })
 
 await check('C6e storage test route signs and uploads a probe object', async () => {
   const uploads = []
   const probe = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
-    if (req.method === 'PUT' && url.pathname === '/dsh-imagegen/ping.txt') {
+    if (req.method === 'PUT' && url.pathname === '/dsh-taichi-imagegen/ping.txt') {
       const chunks = []
       for await (const chunk of req) chunks.push(chunk)
       uploads.push({
@@ -3242,11 +3242,11 @@ await check('C6e storage test route signs and uploads a probe object', async () 
   await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve))
   storageProbeEndpoint = `http://127.0.0.1:${probe.address().port}`
   try {
-    const { body } = await post('/api/dsh-imagegen/storage/test', {})
+    const { body } = await post('/api/dsh-taichi-imagegen/storage/test', {})
     assert.equal(body.ok, true, `probe upload must succeed: ${JSON.stringify(body)}`)
     assert.equal(typeof body.ms, 'number')
     assert.equal(uploads.length, 1)
-    assert.equal(uploads[0].body, 'dsh-imagegen storage ok')
+    assert.equal(uploads[0].body, 'dsh-taichi-imagegen storage ok')
     assert.ok(String(uploads[0].authorization).startsWith('AWS4-HMAC-SHA256 Credential=AKID-test/'), 'SigV4 credential scope is present')
     assert.ok(uploads[0].amzDate !== undefined && uploads[0].payloadHash !== undefined)
   } finally {
@@ -3263,16 +3263,16 @@ await check('C7 Agent tool-result image route serves durable attachments without
     width: String(agentPreviewRef.width),
     height: String(agentPreviewRef.height),
   })
-  const image = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/agent-image?${query}`)
+  const image = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/agent-image?${query}`)
   assert.equal(image.status, 200)
   assert.equal(image.headers.get('content-type'), 'image/png')
   assert.deepEqual(Buffer.from(await image.arrayBuffer()), agentPreviewImage)
-  const invalid = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/agent-image?attachment_id=bad`)
+  const invalid = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/agent-image?attachment_id=bad`)
   assert.equal(invalid.status, 400)
 })
 
-await check('C8 composer images can be staged for the direct edit_image command', async () => {
-  const staged = await post('/api/dsh-imagegen/conversation-image', {
+await check('C8 composer images can be staged for the direct taichi_edit_image command', async () => {
+  const staged = await post('/api/dsh-taichi-imagegen/conversation-image', {
     sessionId: 'session-staged',
     dataUrl: `data:image/png;base64,${pngBytes.toString('base64')}`,
     name: 'staged.png',
@@ -3324,7 +3324,7 @@ await check('C9 Agent tools wait for results, keep images in the UI view, edit, 
         quality: entry.quality,
         detail: entry.detail,
         n: entry.n,
-        images: entry.images.map((image, index) => ({ url: `/api/dsh-imagegen/history/image/${entry.id}-${index}.png`, mime: image.mime })),
+        images: entry.images.map((image, index) => ({ url: `/api/dsh-taichi-imagegen/history/image/${entry.id}-${index}.png`, mime: image.mime })),
       }]
     },
   }
@@ -3359,14 +3359,14 @@ await check('C9 Agent tools wait for results, keep images in the UI view, edit, 
     }],
   }))
   try {
-    const generated = await tools.get('generate_image').execute({ prompt: 'a mismatch cat', size: '1:1', quality: '4k', detail: 'standard' }, { agent })
+    const generated = await tools.get('taichi_generate_image').execute({ prompt: 'a mismatch cat', size: '1:1', quality: '4k', detail: 'standard' }, { agent })
     assert.equal(generated.status, 'completed', 'the Agent tool waits for the task to finish')
     assert.equal(generated.images.length, 2)
-    const generatedRendered = tools.get('generate_image').output.render({ prompt: 'a cat' }, generated)
+    const generatedRendered = tools.get('taichi_generate_image').output.render({ prompt: 'a cat' }, generated)
     assert.equal(generatedRendered.filter(block => block.type === 'image').length, 0, 'generated images stay out of model-facing tool content')
     const generatedArgs = { prompt: 'a cat' }
-    const generatedMeta = tools.get('generate_image').output.presentationMeta(generatedArgs, generated)
-    const generatedView = tools.get('generate_image').presentResult(generatedArgs, {
+    const generatedMeta = tools.get('taichi_generate_image').output.presentationMeta(generatedArgs, generated)
+    const generatedView = tools.get('taichi_generate_image').presentResult(generatedArgs, {
       content: generatedRendered,
       isError: false,
       meta: generatedMeta,
@@ -3388,29 +3388,29 @@ await check('C9 Agent tools wait for results, keep images in the UI view, edit, 
       assert.equal(file.endsWith('.png'), true, 'files paths keep the stored file name')
       assert.equal(file.includes(embedId), true, 'files paths belong to this generation, not an older one')
     }
-    const complete = await tools.get('get_image_generation_task').execute({ task_id: generated.task_id }, {})
+    const complete = await tools.get('taichi_get_image_generation_task').execute({ task_id: generated.task_id }, {})
     assert.equal(complete.status, 'completed')
     assert.equal(complete.images.length, 2)
     assert.equal(saved.size, 2, 'status lookup reuses the completion attachments instead of saving duplicate files')
 
-    const background = await tools.get('generate_image').execute({ prompt: 'a background cat', size: '1:1', quality: '4k', detail: 'standard', wait_for_completion: false }, { agent })
-    assert.equal(background.status, 'completed', 'generate_image waits for the gateway even when wait_for_completion is passed')
+    const background = await tools.get('taichi_generate_image').execute({ prompt: 'a background cat', size: '1:1', quality: '4k', detail: 'standard', wait_for_completion: false }, { agent })
+    assert.equal(background.status, 'completed', 'taichi_generate_image waits for the gateway even when wait_for_completion is passed')
     assert.equal(sent.length, 0, 'completion does not inject a conversation message')
     assert.equal(runtime.queue.list().find(task => task.id === background.task_id)?.status, 'completed')
-    const backgroundComplete = await tools.get('get_image_generation_task').execute({ task_id: background.task_id }, {})
+    const backgroundComplete = await tools.get('taichi_get_image_generation_task').execute({ task_id: background.task_id }, {})
     assert.equal(backgroundComplete.status, 'completed')
     assert.equal(saved.size, 4)
 
     await assert.rejects(
-      tools.get('generate_image').execute({ prompt: 'a cat', model: 'grok-imagine-image' }, {}),
+      tools.get('taichi_generate_image').execute({ prompt: 'a cat', model: 'grok-imagine-image' }, {}),
       /not configured/,
     )
 
-    const edited = await tools.get('edit_image').execute({ prompt: 'edit this', source_image: complete.images[0], size: '3:2', quality: '2k' }, { signal: new AbortController().signal })
+    const edited = await tools.get('taichi_edit_image').execute({ prompt: 'edit this', source_image: complete.images[0], size: '3:2', quality: '2k' }, { signal: new AbortController().signal })
     assert.equal(edited.status, 'completed', 'image edits also wait for completion')
     assert.equal(edited.images.length, 1)
-    const editedRendered = tools.get('edit_image').output.render({ prompt: 'edit this' }, edited)
-    assert.equal(editedRendered.filter(block => block.type === 'image').length, 0, 'edit_image output stays out of model-visible image context')
+    const editedRendered = tools.get('taichi_edit_image').output.render({ prompt: 'edit this' }, edited)
+    assert.equal(editedRendered.filter(block => block.type === 'image').length, 0, 'taichi_edit_image output stays out of model-visible image context')
     assert.equal(saved.size, 5)
 
     const commands = new Map()
@@ -3435,13 +3435,13 @@ await check('C9 Agent tools wait for results, keep images in the UI view, edit, 
       consume: (sessionId, ref) => { if (pending.get(sessionId)?.attachmentId === ref.attachmentId) pending.delete(sessionId) },
     })
     try {
-      assert.ok(commands.has('edit_image'), 'the /edit_image command is registered')
-      const command = commands.get('edit_image')
+      assert.ok(commands.has('taichi_edit_image'), 'the /taichi_edit_image command is registered')
+      const command = commands.get('taichi_edit_image')
       assert.deepEqual(command.input, { hint: 'Describe how to modify the latest image', images: true }, 'the command accepts composer images')
       const noImageAgent = { session: { deriveMessages: () => [] } }
       assert.deepEqual(await command.handler({ agent: noImageAgent, rawInput: '   ', signal: new AbortController().signal }), {
         kind: 'error',
-        text: '请提供图片修改描述，例如：/edit_image 把背景改成夜景',
+        text: '请提供图片修改描述，例如：/taichi_edit_image 把背景改成夜景',
       })
       assert.deepEqual(await command.handler({ agent: noImageAgent, rawInput: 'edit this', signal: new AbortController().signal }), {
         kind: 'error',
@@ -3489,14 +3489,14 @@ await check('C9 Agent tools wait for results, keep images in the UI view, edit, 
     const aborted = new AbortController()
     aborted.abort(new Error('test cancellation'))
     await assert.rejects(
-      tools.get('generate_image').execute({ prompt: 'cancel this' }, { signal: aborted.signal }),
+      tools.get('taichi_generate_image').execute({ prompt: 'cancel this' }, { signal: aborted.signal }),
       /test cancellation/,
     )
     assert.equal(runtime.queue.list().find(task => task.request.prompt === 'cancel this')?.status, 'cancelled')
 
     enabled = false
     await assert.rejects(
-      tools.get('generate_image').execute({ prompt: 'a cat' }, {}),
+      tools.get('taichi_generate_image').execute({ prompt: 'a cat' }, {}),
       /Agent image generation is disabled/,
     )
   } finally {
@@ -3506,7 +3506,7 @@ await check('C9 Agent tools wait for results, keep images in the UI view, edit, 
 
 await check('C10 canvas file upload accepts arbitrary bytes and serves them as an attachment', async () => {
   const bytes = Buffer.from('name,role\nalice,admin\n', 'utf8')
-  const response = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/canvas/file/upload?name=people.csv`, {
+  const response = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/canvas/file/upload?name=people.csv`, {
     method: 'POST',
     headers: { 'content-type': 'text/csv' },
     body: bytes,
@@ -3518,7 +3518,7 @@ await check('C10 canvas file upload accepts arbitrary bytes and serves them as a
   assert.equal(body.asset.name, 'people.csv')
   assert.equal(body.asset.bytes, bytes.length)
   assert.equal(body.asset.mime, 'text/csv')
-  assert.match(body.asset.url, /^\/api\/dsh-imagegen\/canvas\/asset\/[a-f0-9]{64}\.csv$/)
+  assert.match(body.asset.url, /^\/api\/dsh-taichi-imagegen\/canvas\/asset\/[a-f0-9]{64}\.csv$/)
 
   // Non-image assets download rather than render inline.
   const served = await fetch(`http://127.0.0.1:${port}${body.asset.url}`)
@@ -3530,7 +3530,7 @@ await check('C10 canvas file upload accepts arbitrary bytes and serves them as a
 })
 
 await check('C10b canvas file upload refuses executable extensions with an actionable message', async () => {
-  const response = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/canvas/file/upload?name=payload.exe`, {
+  const response = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/canvas/file/upload?name=payload.exe`, {
     method: 'POST',
     headers: { 'content-type': 'application/octet-stream' },
     body: Buffer.from('MZ'),
@@ -3541,7 +3541,7 @@ await check('C10b canvas file upload refuses executable extensions with an actio
 
   // Uploads carry no byte limit inside the raw-body reader other than the cap:
   // a name that sanitizes to nothing still lands under a safe fallback.
-  const odd = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/canvas/file/upload?name=${encodeURIComponent('../..\\evil.txt')}`, {
+  const odd = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/canvas/file/upload?name=${encodeURIComponent('../..\\evil.txt')}`, {
     method: 'POST',
     headers: { 'content-type': 'text/plain' },
     body: Buffer.from('ok'),
@@ -3554,7 +3554,7 @@ await check('C10b canvas file upload refuses executable extensions with an actio
 
 await check('C10c a file node round-trips through canvas save with its asset intact', async () => {
   const asset = recordCanvasFile(Buffer.from('报告正文\n', 'utf8'), 'text/plain', 'report.txt')
-  const created = await post('/api/dsh-imagegen/canvas/create', { title: 'files' })
+  const created = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'files' })
   const document = created.body.document
   assert.equal(document.background, 'lines', 'new canvases default to the lightweight grid background')
   const fileNode = {
@@ -3567,7 +3567,7 @@ await check('C10c a file node round-trips through canvas save with its asset int
     height: 170,
     metadata: { asset, fileKind: 'text' },
   }
-  const saved = await post('/api/dsh-imagegen/canvas/save', {
+  const saved = await post('/api/dsh-taichi-imagegen/canvas/save', {
     document: { ...document, nodes: [...document.nodes, fileNode] },
     expectedRevision: document.revision,
   })
@@ -3586,7 +3586,7 @@ await check('C10c3 a video node round-trips through canvas save (every CanvasNod
   // the canvas-video suite answers /canvas/save with a stub that records the
   // payload, so the real guard never ran on a video node. This check goes
   // through the real route and the real store, like C10c does for file nodes.
-  const created = await post('/api/dsh-imagegen/canvas/create', { title: 'video nodes' })
+  const created = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'video nodes' })
   const document = created.body.document
 
   // The three states a video node legitimately has: a finished clip, one still
@@ -3595,7 +3595,7 @@ await check('C10c3 a video node round-trips through canvas save (every CanvasNod
   const nodes = [
     {
       id: 'node-video-clip', type: 'video', title: '视频节点', x: 40, y: 40, width: 240, height: 240,
-      metadata: { status: 'success', videoMode: 'text', video: { url: '/api/dsh-imagegen/video/file/clip.mp4', mime: 'video/mp4', duration: 5, bytes: 1024, entryId: 'entry-1' } },
+      metadata: { status: 'success', videoMode: 'text', video: { url: '/api/dsh-taichi-imagegen/video/file/clip.mp4', mime: 'video/mp4', duration: 5, bytes: 1024, entryId: 'entry-1' } },
     },
     {
       id: 'node-video-rendering', type: 'video', title: '视频节点', x: 40, y: 340, width: 240, height: 240,
@@ -3606,7 +3606,7 @@ await check('C10c3 a video node round-trips through canvas save (every CanvasNod
       metadata: { status: 'error', error: '上游拒绝了这个请求', videoMode: 'image' },
     },
   ]
-  const saved = await post('/api/dsh-imagegen/canvas/save', {
+  const saved = await post('/api/dsh-taichi-imagegen/canvas/save', {
     document: { ...document, nodes: [...document.nodes, ...nodes] },
     expectedRevision: document.revision,
   })
@@ -3614,13 +3614,13 @@ await check('C10c3 a video node round-trips through canvas save (every CanvasNod
   const stored = saved.body.document.nodes.filter(node => node.type === 'video')
   assert.equal(stored.length, 3, 'all three video nodes survive the save')
   const clip = stored.find(node => node.id === 'node-video-clip')
-  assert.equal(clip.metadata.video.url, '/api/dsh-imagegen/video/file/clip.mp4')
+  assert.equal(clip.metadata.video.url, '/api/dsh-taichi-imagegen/video/file/clip.mp4')
   assert.equal(clip.metadata.video.entryId, 'entry-1')
   assert.equal(clip.metadata.videoMode, 'text')
 
   // Read it back through the list route too: the guard runs on the way in AND
   // on the way out, and a node that only survived one direction is still broken.
-  const reopened = await post('/api/dsh-imagegen/canvas/read', { id: document.id })
+  const reopened = await post('/api/dsh-taichi-imagegen/canvas/read', { id: document.id })
   assert.equal(reopened.body.ok, true)
   assert.equal(
     reopened.body.document.nodes.filter(node => node.type === 'video').length, 3,
@@ -3635,13 +3635,13 @@ await check('C10c4 a poster recipe round-trips, and a broken one is refused', as
   // Without this check the guard's two directions are unproven: a valid recipe
   // could be rejected (posters never save) and an invalid one accepted (a
   // document that fails to render, or renders something the user never drew).
-  const created = await post('/api/dsh-imagegen/canvas/create', { title: 'poster recipe' })
+  const created = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'poster recipe' })
   const document = created.body.document
   // The recipe may only point at immutable host canvas assets: a content-hashed
   // id, the host's own asset URL, a whitelisted image MIME. That rule is why a
   // recipe can be replayed later without the image changing under it.
   const assetId = `${'a'.repeat(64)}.png`
-  const asset = { assetId, url: `/api/dsh-imagegen/canvas/asset/${assetId}`, mime: 'image/png', width: 1200, height: 1600, bytes: 2048 }
+  const asset = { assetId, url: `/api/dsh-taichi-imagegen/canvas/asset/${assetId}`, mime: 'image/png', width: 1200, height: 1600, bytes: 2048 }
   const poster = {
     version: 1,
     width: 1200,
@@ -3657,7 +3657,7 @@ await check('C10c4 a poster recipe round-trips, and a broken one is refused', as
   }
   const node = { id: 'node-poster', type: 'image', title: '海报成品', x: 40, y: 40, width: 300, height: 400, metadata: { status: 'success', asset, poster } }
 
-  const saved = await post('/api/dsh-imagegen/canvas/save', {
+  const saved = await post('/api/dsh-taichi-imagegen/canvas/save', {
     document: { ...document, nodes: [...document.nodes, node] },
     expectedRevision: document.revision,
   })
@@ -3667,7 +3667,7 @@ await check('C10c4 a poster recipe round-trips, and a broken one is refused', as
   assert.equal(stored.metadata.poster.layers[0].type, 'text')
   assert.equal(stored.metadata.poster.width, 1200)
 
-  const reopened = await post('/api/dsh-imagegen/canvas/read', { id: document.id })
+  const reopened = await post('/api/dsh-taichi-imagegen/canvas/read', { id: document.id })
   assert.equal(reopened.body.document.nodes.find(candidate => candidate.id === 'node-poster').metadata.poster.layers.length, 2,
     'the recipe is intact when the canvas is read back')
 
@@ -3675,7 +3675,7 @@ await check('C10c4 a poster recipe round-trips, and a broken one is refused', as
   // recipe with no layers array (the renderer iterates it), and one pointing at
   // a remote URL instead of a host asset (it would break the moment the remote
   // file moves, and the host never agreed to fetch it).
-  const broken = await post('/api/dsh-imagegen/canvas/save', {
+  const broken = await post('/api/dsh-taichi-imagegen/canvas/save', {
     document: {
       ...reopened.body.document,
       nodes: [{ ...node, metadata: { ...node.metadata, poster: { version: 1, width: 1200, height: 1600, background: asset } } }],
@@ -3683,7 +3683,7 @@ await check('C10c4 a poster recipe round-trips, and a broken one is refused', as
     expectedRevision: reopened.body.document.revision,
   })
   assert.equal(broken.body.ok, false, `a recipe without layers must be refused: ${JSON.stringify(broken.body)}`)
-  const remote = await post('/api/dsh-imagegen/canvas/save', {
+  const remote = await post('/api/dsh-taichi-imagegen/canvas/save', {
     document: {
       ...reopened.body.document,
       nodes: [{
@@ -3703,7 +3703,7 @@ await check('C10c4 a poster recipe round-trips, and a broken one is refused', as
   // save that accepts one of them corrupts a stored poster instead of failing.
   const unchanged = { id: 'legacy-image', type: 'image', title: '旧节点', x: 0, y: 0, width: 240, height: 240, metadata: { asset, status: 'success' } }
   const withLegacy = { ...reopened.body.document, nodes: [unchanged, node] }
-  const baseline = await post('/api/dsh-imagegen/canvas/save', { document: withLegacy, expectedRevision: reopened.body.document.revision })
+  const baseline = await post('/api/dsh-taichi-imagegen/canvas/save', { document: withLegacy, expectedRevision: reopened.body.document.revision })
   assert.equal(baseline.body.ok, true, `a legacy image node beside a poster still saves: ${JSON.stringify(baseline.body)}`)
   assert.deepEqual(baseline.body.document.nodes[0], unchanged, 'a recipe never rewrites the plain image node beside it')
   const revision = baseline.body.document.revision
@@ -3716,14 +3716,14 @@ await check('C10c4 a poster recipe round-trips, and a broken one is refused', as
     ['a remote image layer', { ...poster, layers: [{ ...poster.layers[1], asset: { ...asset, url: 'https://example.test/logo.png' } }] }],
     ['41 layers', { ...poster, layers: Array.from({ length: 41 }, (_, index) => ({ ...layer, id: `text-${index}` })) }],
   ]) {
-    const result = await post('/api/dsh-imagegen/canvas/save', {
+    const result = await post('/api/dsh-taichi-imagegen/canvas/save', {
       document: { ...withLegacy, nodes: [unchanged, { ...node, metadata: { ...node.metadata, poster: broken } }] },
       expectedRevision: revision,
     })
     assert.equal(result.body.ok, false, `a recipe with ${label} must be refused: ${JSON.stringify(result.body)}`)
   }
   // None of those refusals may have replaced the document that is on disk.
-  const afterRefusals = await post('/api/dsh-imagegen/canvas/read', { id: document.id })
+  const afterRefusals = await post('/api/dsh-taichi-imagegen/canvas/read', { id: document.id })
   assert.deepEqual(afterRefusals.body.document.nodes.find(candidate => candidate.id === 'legacy-image'), unchanged)
   assert.deepEqual(
     afterRefusals.body.document.nodes.find(candidate => candidate.id === node.id).metadata.poster,
@@ -3742,7 +3742,7 @@ await check('C10c5 deleting a canvas keeps the assets a poster recipe still poin
   // layers floating on it. The sweep itself must keep working: an asset nothing
   // references still has to go.
   const upload = async (bytes, width, height) => {
-    const uploaded = await post('/api/dsh-imagegen/canvas/asset/upload', {
+    const uploaded = await post('/api/dsh-taichi-imagegen/canvas/asset/upload', {
       dataUrl: `data:image/png;base64,${bytes.toString('base64')}`, width, height, origin: 'upload',
     })
     assert.equal(uploaded.body.ok, true, JSON.stringify(uploaded.body))
@@ -3753,13 +3753,13 @@ await check('C10c5 deleting a canvas keeps the assets a poster recipe still poin
   const composite = await upload(Buffer.concat([pngBytes, Buffer.from('the flattened poster')]), 640, 640)
   const orphan = await upload(Buffer.concat([pngBytes, Buffer.from('nothing points here')]), 32, 32)
 
-  const created = await post('/api/dsh-imagegen/canvas/create', { title: 'poster assets' })
+  const created = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'poster assets' })
   const document = created.body.document
   const poster = {
     version: 1, width: 640, height: 640, background,
     layers: [{ id: 'layer-logo', type: 'image', asset: logo, x: 16, y: 16, width: 96, height: 96 }],
   }
-  const saved = await post('/api/dsh-imagegen/canvas/save', {
+  const saved = await post('/api/dsh-taichi-imagegen/canvas/save', {
     document: {
       ...document,
       nodes: [{
@@ -3773,8 +3773,8 @@ await check('C10c5 deleting a canvas keeps the assets a poster recipe still poin
 
   // Any canvas deletion runs the sweep; use a throwaway page so the poster
   // canvas above is the only thing holding those references.
-  const doomed = await post('/api/dsh-imagegen/canvas/create', { title: 'doomed canvas' })
-  const removed = await post('/api/dsh-imagegen/canvas/remove', { id: doomed.body.document.id })
+  const doomed = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'doomed canvas' })
+  const removed = await post('/api/dsh-taichi-imagegen/canvas/remove', { id: doomed.body.document.id })
   assert.equal(removed.body.ok, true, JSON.stringify(removed.body))
 
   const served = async asset => (await fetch(`http://127.0.0.1:${port}${asset.url}`)).status
@@ -3783,36 +3783,36 @@ await check('C10c5 deleting a canvas keeps the assets a poster recipe still poin
   assert.equal(await served(composite), 200, 'the flattened composite was deleted by the sweep')
   assert.equal(await served(orphan), 404, 'an asset nothing references is still collected')
 
-  await post('/api/dsh-imagegen/canvas/remove', { id: document.id })
+  await post('/api/dsh-taichi-imagegen/canvas/remove', { id: document.id })
 })
 
 await check('C10c2 canvas favorites persist across saves and project lists', async () => {
-  const created = await post('/api/dsh-imagegen/canvas/create', { title: 'favorite canvas' })
+  const created = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'favorite canvas' })
   const document = created.body.document
-  const before = await post('/api/dsh-imagegen/canvas/list', {})
+  const before = await post('/api/dsh-taichi-imagegen/canvas/list', {})
   assert.equal(before.body.projects.find(project => project.id === document.id)?.favorite, undefined)
 
-  const favorited = await post('/api/dsh-imagegen/canvas/favorite', { id: document.id, favorite: true })
+  const favorited = await post('/api/dsh-taichi-imagegen/canvas/favorite', { id: document.id, favorite: true })
   assert.equal(favorited.body.ok, true, JSON.stringify(favorited.body))
   assert.equal(favorited.body.projects.find(project => project.id === document.id)?.favorite, true)
 
-  const saved = await post('/api/dsh-imagegen/canvas/save', {
+  const saved = await post('/api/dsh-taichi-imagegen/canvas/save', {
     document: { ...document, title: 'favorite canvas saved' },
     expectedRevision: document.revision,
   })
   assert.equal(saved.body.ok, true, JSON.stringify(saved.body))
-  const after = await post('/api/dsh-imagegen/canvas/list', {})
+  const after = await post('/api/dsh-taichi-imagegen/canvas/list', {})
   assert.equal(after.body.projects.find(project => project.id === document.id)?.favorite, true, 'saving must preserve the favorite marker')
 
-  const unfavorited = await post('/api/dsh-imagegen/canvas/favorite', { id: document.id, favorite: false })
+  const unfavorited = await post('/api/dsh-taichi-imagegen/canvas/favorite', { id: document.id, favorite: false })
   assert.equal(unfavorited.body.ok, true, JSON.stringify(unfavorited.body))
   assert.equal(unfavorited.body.projects.find(project => project.id === document.id)?.favorite, undefined)
-  await post('/api/dsh-imagegen/canvas/remove', { id: document.id })
+  await post('/api/dsh-taichi-imagegen/canvas/remove', { id: document.id })
 })
 
 /** Upload one file through the real route, exactly like the browser does. */
 const uploadCanvasFile = async (name, mime, body) => {
-  const response = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/canvas/file/upload?name=${encodeURIComponent(name)}`, {
+  const response = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/canvas/file/upload?name=${encodeURIComponent(name)}`, {
     method: 'POST',
     headers: { 'content-type': mime },
     body,
@@ -3824,7 +3824,7 @@ const uploadCanvasFile = async (name, mime, body) => {
 
 /** Ask the host for one asset's structured preview (node metadata as hints). */
 const canvasFilePreview = async asset => {
-  const response = await post('/api/dsh-imagegen/canvas/file/preview', { assetId: asset.assetId, name: asset.name, mime: asset.mime })
+  const response = await post('/api/dsh-taichi-imagegen/canvas/file/preview', { assetId: asset.assetId, name: asset.name, mime: asset.mime })
   assert.equal(response.body.ok, true, JSON.stringify(response.body))
   return response.body.preview
 }
@@ -3875,7 +3875,7 @@ await check('C10d a canvas file preview decodes text, tables and office document
   assert.match(mdPreview.markdown, /# 计划/)
   assert.equal(mdPreview.truncated, false)
 
-  const missing = await post('/api/dsh-imagegen/canvas/file/preview', { assetId: 'nope.csv' })
+  const missing = await post('/api/dsh-taichi-imagegen/canvas/file/preview', { assetId: 'nope.csv' })
   assert.equal(missing.body.ok, false)
   assert.equal(missing.body.code, 'not-found')
 })
@@ -4040,7 +4040,7 @@ await check('C11 the skill catalog merges built-ins with local skills and tiers 
     { name: 'image-to-editable-ppt', description: 'Rebuild slides as an editable deck', path: 'C:/skills/ppt/SKILL.md' },
     { name: 'summarize-notes', description: 'Turn notes into a short brief', metadata: { tier: 'light' } },
   )
-  const listed = await post('/api/dsh-imagegen/canvas/skills/list', {})
+  const listed = await post('/api/dsh-taichi-imagegen/canvas/skills/list', {})
   assert.equal(listed.body.ok, true, JSON.stringify(listed.body))
   const ids = listed.body.skills.map(skill => skill.id)
   assert.ok(ids.includes('polish.text'), `missing polish.text in ${JSON.stringify(ids)}`)
@@ -4081,7 +4081,7 @@ await check('C11a the host registry adapter hides user-only skills and narrows s
 })
 
 await check('C11b a lightweight skill run answers through the chat model and drafts a text node', async () => {
-  const created = await post('/api/dsh-imagegen/canvas/create', { title: 'polish' })
+  const created = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'polish' })
   const document = created.body.document
   const textNode = {
     id: 'node-text-1', type: 'text', title: 'draft', x: 0, y: 0, width: 280, height: 150,
@@ -4090,7 +4090,7 @@ await check('C11b a lightweight skill run answers through the chat model and dra
   canvasDocuments.set(document.id, { ...document, nodes: [textNode] })
   const before = chatCalls
   chatReply = 'Hello, world.'
-  const run = await post('/api/dsh-imagegen/canvas/skills/run', {
+  const run = await post('/api/dsh-taichi-imagegen/canvas/skills/run', {
     canvasId: document.id,
     skillId: 'polish.text',
     nodeIds: ['node-text-1'],
@@ -4104,16 +4104,16 @@ await check('C11b a lightweight skill run answers through the chat model and dra
   let snapshot = run.body.task
   for (let attempt = 0; attempt < 80 && snapshot.status !== 'completed'; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 25))
-    snapshot = (await post('/api/dsh-imagegen/canvas/skills/task', { taskId })).body.task
+    snapshot = (await post('/api/dsh-taichi-imagegen/canvas/skills/task', { taskId })).body.task
   }
   assert.equal(snapshot.status, 'completed', JSON.stringify(snapshot))
   // The finished snapshot keeps nodeIds so a reload can still rebuild context.
   assert.deepEqual(snapshot.nodeIds, ['node-text-1'])
   // A canvas-scoped listing only reports unfinished runs.
-  const drained = await post('/api/dsh-imagegen/canvas/skills/task', { canvasId: document.id })
+  const drained = await post('/api/dsh-taichi-imagegen/canvas/skills/task', { canvasId: document.id })
   assert.equal(drained.body.ok, true)
   assert.deepEqual(drained.body.tasks, [], 'finished runs are not listed as live')
-  const unknown = await post('/api/dsh-imagegen/canvas/skills/task', { canvasId: 'canvas-none' })
+  const unknown = await post('/api/dsh-taichi-imagegen/canvas/skills/task', { canvasId: 'canvas-none' })
   assert.deepEqual(unknown.body.tasks, [])
   assert.equal(chatCalls, before + 1)
   const produced = snapshot.output.nodes[0]
@@ -4125,7 +4125,7 @@ await check('C11b a lightweight skill run answers through the chat model and dra
 })
 
 await check('C11c extract.content reads an uploaded text file without spending a chat call', async () => {
-  const created = await post('/api/dsh-imagegen/canvas/create', { title: 'extract' })
+  const created = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'extract' })
   const document = created.body.document
   const asset = recordCanvasFile(Buffer.from('第一行\n第二行\n', 'utf8'), 'text/plain', 'notes.txt')
   const fileNode = {
@@ -4134,7 +4134,7 @@ await check('C11c extract.content reads an uploaded text file without spending a
   }
   canvasDocuments.set(document.id, { ...document, nodes: [fileNode] })
   const before = chatCalls
-  const run = await post('/api/dsh-imagegen/canvas/skills/run', {
+  const run = await post('/api/dsh-taichi-imagegen/canvas/skills/run', {
     canvasId: document.id,
     skillId: 'extract.content',
     nodeIds: ['node-file-2'],
@@ -4144,7 +4144,7 @@ await check('C11c extract.content reads an uploaded text file without spending a
   let snapshot = run.body.task
   for (let attempt = 0; attempt < 80 && snapshot.status !== 'completed'; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 25))
-    snapshot = (await post('/api/dsh-imagegen/canvas/skills/task', { taskId })).body.task
+    snapshot = (await post('/api/dsh-taichi-imagegen/canvas/skills/task', { taskId })).body.task
   }
   assert.equal(snapshot.status, 'completed', JSON.stringify(snapshot))
   assert.equal(chatCalls, before)
@@ -4152,12 +4152,12 @@ await check('C11c extract.content reads an uploaded text file without spending a
   assert.match(snapshot.output.nodes[0].metadata.text, /第一行/)
 })
 
-await check('C11d heavy skills refuse to start without the agent runtime, then produce a file node', async () => {  const created = await post('/api/dsh-imagegen/canvas/create', { title: 'deck' })
+await check('C11d heavy skills refuse to start without the agent runtime, then produce a file node', async () => {  const created = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'deck' })
   const document = created.body.document
   const imageNode = {
     id: 'node-image-1', type: 'image', title: 'slide-1', x: 0, y: 0, width: 240, height: 240,
     metadata: {
-      asset: { assetId: 'img-1', url: '/api/dsh-imagegen/canvas/asset/' + 'a'.repeat(64) + '.png', mime: 'image/png', bytes: pngBytes.length, width: 1, height: 1, origin: 'upload', kind: 'image', name: 'img-1.png' },
+      asset: { assetId: 'img-1', url: '/api/dsh-taichi-imagegen/canvas/asset/' + 'a'.repeat(64) + '.png', mime: 'image/png', bytes: pngBytes.length, width: 1, height: 1, origin: 'upload', kind: 'image', name: 'img-1.png' },
       status: 'success',
     },
   }
@@ -4166,7 +4166,7 @@ await check('C11d heavy skills refuse to start without the agent runtime, then p
   // The built-in deck conversion disappears from the catalog when the agent
   // runtime is not available, so the run fails instead of silently no-oping.
   heavySkillAllowed = false
-  const disabled = await post('/api/dsh-imagegen/canvas/skills/list', {})
+  const disabled = await post('/api/dsh-taichi-imagegen/canvas/skills/list', {})
   assert.equal(disabled.body.agentAvailable, false)
   heavySkillAllowed = true
 
@@ -4176,7 +4176,7 @@ await check('C11d heavy skills refuse to start without the agent runtime, then p
   // The run materializes its input images on disk, so the stub store needs the
   // bytes the node's asset points at (`<assetId>.<extension>`).
   canvasBlobs.set('img-1.png', { data: pngBytes, mime: 'image/png' })
-  const run = await post('/api/dsh-imagegen/canvas/skills/run', {
+  const run = await post('/api/dsh-taichi-imagegen/canvas/skills/run', {
     canvasId: document.id,
     skillId: 'ppt.fromImages',
     nodeIds: ['node-image-1'],
@@ -4186,7 +4186,7 @@ await check('C11d heavy skills refuse to start without the agent runtime, then p
   let snapshot = run.body.task
   for (let attempt = 0; attempt < 200 && snapshot.status !== 'completed' && snapshot.status !== 'failed'; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 25))
-    snapshot = (await post('/api/dsh-imagegen/canvas/skills/task', { taskId })).body.task
+    snapshot = (await post('/api/dsh-taichi-imagegen/canvas/skills/task', { taskId })).body.task
   }
   assert.equal(snapshot.status, 'completed', JSON.stringify(snapshot))
   assert.equal(heavyRunsStarted, before + 1)
@@ -4196,12 +4196,12 @@ await check('C11d heavy skills refuse to start without the agent runtime, then p
 })
 
 await check('C11d2 an unpublishable artifact is skipped, not a lost run', async () => {
-  const created = await post('/api/dsh-imagegen/canvas/create', { title: 'deck-with-junk' })
+  const created = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'deck-with-junk' })
   const document = created.body.document
   const imageNode = {
     id: 'node-image-2', type: 'image', title: 'slide-1', x: 0, y: 0, width: 240, height: 240,
     metadata: {
-      asset: { assetId: 'img-2', url: '/api/dsh-imagegen/canvas/asset/' + 'b'.repeat(64) + '.png', mime: 'image/png', bytes: pngBytes.length, width: 1, height: 1, origin: 'upload', kind: 'image', name: 'img-2.png' },
+      asset: { assetId: 'img-2', url: '/api/dsh-taichi-imagegen/canvas/asset/' + 'b'.repeat(64) + '.png', mime: 'image/png', bytes: pngBytes.length, width: 1, height: 1, origin: 'upload', kind: 'image', name: 'img-2.png' },
       status: 'success',
     },
   }
@@ -4213,7 +4213,7 @@ await check('C11d2 an unpublishable artifact is skipped, not a lost run', async 
   // unwound the whole run — the deck was thrown away and the task failed.
   heavyArtifacts = [['chart.svg', Buffer.from('<svg/>', 'utf8')]]
   try {
-    const run = await post('/api/dsh-imagegen/canvas/skills/run', {
+    const run = await post('/api/dsh-taichi-imagegen/canvas/skills/run', {
       canvasId: document.id,
       skillId: 'ppt.fromImages',
       nodeIds: ['node-image-2'],
@@ -4223,7 +4223,7 @@ await check('C11d2 an unpublishable artifact is skipped, not a lost run', async 
     let snapshot = run.body.task
     for (let attempt = 0; attempt < 200 && snapshot.status !== 'completed' && snapshot.status !== 'failed'; attempt += 1) {
       await new Promise(resolve => setTimeout(resolve, 25))
-      snapshot = (await post('/api/dsh-imagegen/canvas/skills/task', { taskId })).body.task
+      snapshot = (await post('/api/dsh-taichi-imagegen/canvas/skills/task', { taskId })).body.task
     }
     assert.equal(snapshot.status, 'completed', JSON.stringify(snapshot))
     const names = snapshot.output.nodes.filter(node => node.type === 'file').map(node => String(node.metadata.asset.name))
@@ -4237,12 +4237,12 @@ await check('C11d2 an unpublishable artifact is skipped, not a lost run', async 
 })
 
 await check('C11e an unknown skill id and a missing canvas fail with copy, not a crash', async () => {
-  const unknown = await post('/api/dsh-imagegen/canvas/skills/run', {
+  const unknown = await post('/api/dsh-taichi-imagegen/canvas/skills/run', {
     canvasId: 'nope', skillId: 'skill:does-not-exist', nodeIds: [],
   })
   assert.equal(unknown.body.ok, false)
-  const created = await post('/api/dsh-imagegen/canvas/create', { title: 'gone' })
-  const missing = await post('/api/dsh-imagegen/canvas/skills/run', {
+  const created = await post('/api/dsh-taichi-imagegen/canvas/create', { title: 'gone' })
+  const missing = await post('/api/dsh-taichi-imagegen/canvas/skills/run', {
     canvasId: `missing-${created.body.document.id}`, skillId: 'polish.text', nodeIds: ['x'],
   })
   assert.equal(missing.body.ok, false)
@@ -4250,9 +4250,9 @@ await check('C11e an unknown skill id and a missing canvas fail with copy, not a
 })
 
 await check('C11f skill routes answer in the caller language and reject unknown hints', async () => {
-  const zh = await post('/api/dsh-imagegen/canvas/skills/list', { language: 'zh' })
-  const en = await post('/api/dsh-imagegen/canvas/skills/list', { language: 'en' })
-  const bogus = await post('/api/dsh-imagegen/canvas/skills/list', { language: 'not-a-locale' })
+  const zh = await post('/api/dsh-taichi-imagegen/canvas/skills/list', { language: 'zh' })
+  const en = await post('/api/dsh-taichi-imagegen/canvas/skills/list', { language: 'en' })
+  const bogus = await post('/api/dsh-taichi-imagegen/canvas/skills/list', { language: 'not-a-locale' })
   const nameOf = (body, id) => body.skills.find(skill => skill.id === id).name
   assert.equal(nameOf(zh.body, 'polish.text'), '文本润色')
   assert.equal(nameOf(en.body, 'polish.text'), 'Polish text')
@@ -4279,7 +4279,7 @@ await check('C11g a scope-blind host registry still offers the local skill libra
     bundle('Bad_Name', '---\nname: Bad_Name\ndescription: Wrong name shape\n---\n\n# Bad\n')
     bundle('user-only-thing', '---\nname: user-only-thing\ndescription: Slash command only\ndisable-model-invocation: true\n---\n\n# Human\n')
 
-    const listed = await post('/api/dsh-imagegen/canvas/skills/list', {})
+    const listed = await post('/api/dsh-taichi-imagegen/canvas/skills/list', {})
     const ids = listed.body.skills.map(skill => skill.id)
     assert.ok(ids.includes('skill:image-to-editable-ppt'), `missing the installed deck skill in ${JSON.stringify(ids)}`)
     assert.ok(ids.includes('skill:local-worker'), `missing the local skill in ${JSON.stringify(ids)}`)
@@ -4306,7 +4306,7 @@ await check('C11g a scope-blind host registry still offers the local skill libra
     for (const name of names) rmSync(join(skillRegistryRoot, name), { recursive: true, force: true })
     skillRegistrySkills.push(...previous)
     // Leave the catalog a later check sees as the registry-only one again.
-    const restored = await post('/api/dsh-imagegen/canvas/skills/list', {})
+    const restored = await post('/api/dsh-taichi-imagegen/canvas/skills/list', {})
     assert.equal(restored.body.skills.some(skill => skill.id === 'skill:local-worker'), false)
   }
 })
@@ -4353,7 +4353,7 @@ await check('C11h a heavy run composes its agent with the preset roster and a mo
   assert.equal(seen.mounted, 'standard', 'the agent must join the preset, or it runs tool-less')
   assert.equal(seen.sections.length, 1)
   assert.equal(seen.sections[0].text, 'SKILL BODY')
-  assert.equal(seen.sections[0].name, 'plugin:dsh-imagegen:canvas-skill')
+  assert.equal(seen.sections[0].name, 'plugin:dsh-taichi-imagegen:canvas-skill')
   // Driving the handle narrows the DSH agent to what a run needs.
   created.followup('go')
   assert.equal(seen.delivered, true)
@@ -4551,7 +4551,7 @@ await check('C11ppt-store immutable checkpoints survive Windows replacement lock
 await check('C11ppt standalone PPT validates input, preserves order, persists results and rejects incomplete outputs', async () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-ppt-conversion-'))
   const assets = ['first.png', 'second.png'].map(assetId => ({
-    assetId, url: `/api/dsh-imagegen/canvas/asset/${assetId}`, mime: 'image/png',
+    assetId, url: `/api/dsh-taichi-imagegen/canvas/asset/${assetId}`, mime: 'image/png',
     bytes: pngBytes.length, width: 1, height: 1, origin: 'upload', name: assetId,
   }))
   let mode = 'ok'
@@ -4692,11 +4692,11 @@ await check('C11ppt standalone PPT validates input, preserves order, persists re
 
 await check('C11ppt routes refuse bad sources and expose durable conversion history', async () => {
   for (const body of [{ images: [], offlineOcr: true }, { images: [{ assetId: '../escape' }], offlineOcr: true }, { images: [{ assetId: 'x.png' }] }]) {
-    const result = await post('/api/dsh-imagegen/ppt/run', body)
+    const result = await post('/api/dsh-taichi-imagegen/ppt/run', body)
     assert.equal(result.body.ok, false, JSON.stringify(body))
     assert.equal(result.body.code, 'bad-request')
   }
-  const list = await post('/api/dsh-imagegen/ppt/tasks', {})
+  const list = await post('/api/dsh-taichi-imagegen/ppt/tasks', {})
   assert.equal(list.body.ok, true)
   assert.ok(Array.isArray(list.body.tasks))
 })
@@ -4833,7 +4833,7 @@ await check('C12a the library lists, installs from an archive, replaces and remo
 })
 
 await check('C12b the library routes list, install from an upload, and remove', async () => {
-  const initial = await post('/api/dsh-imagegen/canvas/skills/library', { language: 'zh' })
+  const initial = await post('/api/dsh-taichi-imagegen/canvas/skills/library', { language: 'zh' })
   assert.equal(initial.status, 200)
   assert.equal(initial.body.ok, true)
   assert.equal(initial.body.library.root, skillLibraryRoot)
@@ -4841,7 +4841,7 @@ await check('C12b the library routes list, install from an upload, and remove', 
   // The browser uploads the archive first (same route as a file node), then
   // installs it by asset reference.
   const archive = buildZip([{ name: 'bundle/SKILL.md', body: '---\nname: routed-skill\ndescription: From a route\n---\n\n# Routed\n' }])
-  const uploaded = await fetch(`http://127.0.0.1:${port}/api/dsh-imagegen/canvas/file/upload?name=routed.zip`, {
+  const uploaded = await fetch(`http://127.0.0.1:${port}/api/dsh-taichi-imagegen/canvas/file/upload?name=routed.zip`, {
     method: 'POST',
     headers: { 'content-type': 'application/zip' },
     body: archive,
@@ -4849,7 +4849,7 @@ await check('C12b the library routes list, install from an upload, and remove', 
   const upload = await uploaded.json()
   assert.equal(upload.ok, true, JSON.stringify(upload))
 
-  const install = await post('/api/dsh-imagegen/canvas/skills/install', {
+  const install = await post('/api/dsh-taichi-imagegen/canvas/skills/install', {
     asset: upload.asset, name: 'routed', force: true, language: 'zh',
   })
   assert.equal(install.body.ok, true, JSON.stringify(install.body))
@@ -4857,14 +4857,14 @@ await check('C12b the library routes list, install from an upload, and remove', 
   assert.ok(install.body.library.entries.some(entry => entry.name === 'routed-skill'))
 
   // An empty install request is a bad request, not a crash.
-  const empty = await post('/api/dsh-imagegen/canvas/skills/install', {})
+  const empty = await post('/api/dsh-taichi-imagegen/canvas/skills/install', {})
   assert.equal(empty.body.ok, false)
   assert.equal(empty.body.code, 'bad-request')
 
-  const removed = await post('/api/dsh-imagegen/canvas/skills/remove', { name: 'routed-skill' })
+  const removed = await post('/api/dsh-taichi-imagegen/canvas/skills/remove', { name: 'routed-skill' })
   assert.equal(removed.body.ok, true, JSON.stringify(removed.body))
   assert.ok(!removed.body.library.entries.some(entry => entry.name === 'routed-skill'))
-  const missing = await post('/api/dsh-imagegen/canvas/skills/remove', { name: 'never-installed' })
+  const missing = await post('/api/dsh-taichi-imagegen/canvas/skills/remove', { name: 'never-installed' })
   assert.equal(missing.body.ok, false)
 })
 
@@ -4882,7 +4882,7 @@ await check('C12c an install the host registry would ignore is refused with copy
   assert.equal(await host.removeSkill('human-only', skillLibraryRoot), 'human-only')
 
   // The panel explains the same verdicts it would otherwise leave silent.
-  const issueRoot = mkdtempSync(join(tmpdir(), 'dsh-imagegen-smoke-issue-'))
+  const issueRoot = mkdtempSync(join(tmpdir(), 'dsh-taichi-imagegen-smoke-issue-'))
   try {
     mkdirSync(join(issueRoot, 'bad-name'), { recursive: true })
     writeFileSync(join(issueRoot, 'bad-name', 'SKILL.md'), '---\nname: Bad_Name\ndescription: Wrong shape\n---\n\n# Bad\n')
@@ -4950,7 +4950,7 @@ await check('C13a a skill.config.json is validated, bounded and versioned', () =
 })
 
 await check('C13b apply steps substitute values, honor guards and mask secrets', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'dsh-imagegen-smoke-config-'))
+  const root = mkdtempSync(join(tmpdir(), 'dsh-taichi-imagegen-smoke-config-'))
   try {
     const parsed = host.parseSkillConfigManifest({
       version: 1,
@@ -4994,7 +4994,7 @@ await check('C13b apply steps substitute values, honor guards and mask secrets',
 })
 
 await check('C13c the built-in recipe covers image-to-editable-ppt and a sidecar wins', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'dsh-imagegen-smoke-recipe-'))
+  const root = mkdtempSync(join(tmpdir(), 'dsh-taichi-imagegen-smoke-recipe-'))
   try {
     const recipe = await host.readCanvasSkillConfig({ name: 'image-to-editable-ppt', root, store: { values: {}, secrets: {} } })
     assert.equal(recipe.declaration.source, 'plugin')
@@ -5056,7 +5056,7 @@ await check('C13d the config routes save and apply through the library backend',
     return { ok: true, library: await skillLibraryFake.list(), steps: [{ kind: 'command', detail: 'editppt config --api-key •••', ok: true }] }
   }
   try {
-    const saved = await post('/api/dsh-imagegen/canvas/skills/config/save', {
+    const saved = await post('/api/dsh-taichi-imagegen/canvas/skills/config/save', {
       name: 'image-to-editable-ppt',
       values: [{ id: 'image-api-key', value: 'sk-1' }, { bad: true }, { id: 'x' }],
       language: 'zh',
@@ -5064,12 +5064,12 @@ await check('C13d the config routes save and apply through the library backend',
     assert.equal(saved.body.ok, true, JSON.stringify(saved.body))
     assert.deepEqual(seen.saved, { name: 'image-to-editable-ppt', values: [{ id: 'image-api-key', value: 'sk-1' }], language: 'zh' })
 
-    const applied = await post('/api/dsh-imagegen/canvas/skills/config/apply', { name: 'image-to-editable-ppt', language: 'zh' })
+    const applied = await post('/api/dsh-taichi-imagegen/canvas/skills/config/apply', { name: 'image-to-editable-ppt', language: 'zh' })
     assert.equal(applied.body.ok, true, JSON.stringify(applied.body))
     assert.equal(applied.body.steps[0].kind, 'command')
     assert.equal(seen.applied.name, 'image-to-editable-ppt')
 
-    const nameless = await post('/api/dsh-imagegen/canvas/skills/config/save', { values: [] })
+    const nameless = await post('/api/dsh-taichi-imagegen/canvas/skills/config/save', { values: [] })
     assert.equal(nameless.body.ok, false)
     assert.equal(nameless.body.code, 'bad-request')
   } finally {
@@ -5093,12 +5093,12 @@ await check('C14 product-link fetching refuses every internal or literal host', 
     'file:///etc/passwd',
     'gopher://example.com/x',
   ]) {
-    const blocked = await post('/api/dsh-imagegen/ecommerce/fetch-link', { url })
+    const blocked = await post('/api/dsh-taichi-imagegen/ecommerce/fetch-link', { url })
     assert.equal(blocked.status, 200, `${url} answers as a normal envelope`)
     assert.equal(blocked.body.ok, false, `${url} is refused`)
     assert.equal(blocked.body.reason, 'blocked-host', `${url} is refused as an internal host`)
   }
-  const empty = await post('/api/dsh-imagegen/ecommerce/fetch-link', {})
+  const empty = await post('/api/dsh-taichi-imagegen/ecommerce/fetch-link', {})
   assert.equal(empty.status, 400, 'a missing url is a bad request')
 })
 
@@ -5409,15 +5409,15 @@ await check('D2 the client bundle ships the canvas skill + file-node surface', (
   }
   // Endpoints: the browser half must call the exact routes the host registers.
   for (const route of [
-    '/api/dsh-imagegen/canvas/file/upload',
-    '/api/dsh-imagegen/canvas/file/preview',
-    '/api/dsh-imagegen/canvas/skills/list',
-    '/api/dsh-imagegen/canvas/skills/run',
-    '/api/dsh-imagegen/canvas/skills/task',
-    '/api/dsh-imagegen/canvas/skills/cancel',
-    '/api/dsh-imagegen/canvas/skills/library',
-    '/api/dsh-imagegen/canvas/skills/install',
-    '/api/dsh-imagegen/canvas/skills/remove',
+    '/api/dsh-taichi-imagegen/canvas/file/upload',
+    '/api/dsh-taichi-imagegen/canvas/file/preview',
+    '/api/dsh-taichi-imagegen/canvas/skills/list',
+    '/api/dsh-taichi-imagegen/canvas/skills/run',
+    '/api/dsh-taichi-imagegen/canvas/skills/task',
+    '/api/dsh-taichi-imagegen/canvas/skills/cancel',
+    '/api/dsh-taichi-imagegen/canvas/skills/library',
+    '/api/dsh-taichi-imagegen/canvas/skills/install',
+    '/api/dsh-taichi-imagegen/canvas/skills/remove',
   ]) {
     assert.ok(source.includes(route), `client bundle is missing route ${route}`)
   }
@@ -5542,17 +5542,17 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   const desktopRoot = findSidebarRoot()
   assert.equal(desktopRoot?.className, 'xUkysG_root', 'the desktop sidebar surface resolves to the wrapper that owns the shell button')
   const disposeDesktop = mount(controller, 'Session', 'Back to the current conversation', 'Image', 'Open the image studio')
-  const tabs = jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]')
+  const tabs = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
   assert.ok(tabs !== null, 'the two tabs mount in the desktop shell')
   assert.equal(tabs.parentElement.className, 'xUkysG_root', 'the tabs land where the shell button sits')
   assert.equal(tabs.getAttribute('role'), 'tablist')
   assert.equal(tabs.getAttribute('aria-label'), 'Session / Image', 'the tablist names the switcher, not the image tooltip (#25)')
-  for (const tab of tabs.querySelectorAll('[data-dsh-imagegen-tab]')) {
+  for (const tab of tabs.querySelectorAll('[data-dsh-taichi-imagegen-tab]')) {
     assert.equal(tab.getAttribute('role'), 'tab', 'each switcher entry is a tab (#25)')
   }
-  assert.equal(tabs.hasAttribute('data-dsh-imagegen-tabs-seat'), false, 'the seated switcher carries no fallback marker')
+  assert.equal(tabs.hasAttribute('data-dsh-taichi-imagegen-tabs-seat'), false, 'the seated switcher carries no fallback marker')
   assert.deepEqual(
-    [...tabs.querySelectorAll('[data-dsh-imagegen-tab]')].map(tab => tab.getAttribute('data-dsh-imagegen-tab')),
+    [...tabs.querySelectorAll('[data-dsh-taichi-imagegen-tab]')].map(tab => tab.getAttribute('data-dsh-taichi-imagegen-tab')),
     ['session', 'image'],
   )
   const shellButton = jsdomDocument.querySelector('.xUkysG_newSession')
@@ -5564,21 +5564,21 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   assert.equal(brandButton.style.display, '', 'the brand button is never hidden')
   assert.equal(brandButton.hasAttribute('aria-hidden'), false)
   assert.equal(brandButton.tabIndex, 0)
-  const historyHost = jsdomDocument.querySelector('[data-dsh-imagegen-history-host]')
+  const historyHost = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]')
   assert.ok(historyHost !== null, 'the history host mounts inside the desktop sidebar')
   assert.equal(historyHost.parentElement.className, 'xUkysG_regionArea')
-  assert.equal(desktopRoot.getAttribute('data-dsh-imagegen-sidebar-root'), '', 'the resolved shell root is marked')
+  assert.equal(desktopRoot.getAttribute('data-dsh-taichi-imagegen-sidebar-root'), '', 'the resolved shell root is marked')
 
   // Tab clicks drive the panel, and the active state follows the panel store.
-  tabs.querySelector('[data-dsh-imagegen-tab="image"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
-  tabs.querySelector('[data-dsh-imagegen-tab="session"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
+  tabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
+  tabs.querySelector('[data-dsh-taichi-imagegen-tab="session"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
   assert.equal(calls.join(','), 'open,close', 'the image tab opens the studio and the session tab returns to the conversation without starting one')
   panelOpen = true
   for (const listener of [...listeners]) listener()
-  assert.equal(tabs.querySelector('[data-dsh-imagegen-tab="image"]').hasAttribute('data-active'), true, 'the open panel marks the image tab')
-  assert.equal(tabs.querySelector('[data-dsh-imagegen-tab="session"]').hasAttribute('data-active'), false)
-  assert.equal(tabs.querySelector('[data-dsh-imagegen-tab="image"]').getAttribute('aria-selected'), 'true', 'aria-selected follows the open panel (#25)')
-  assert.equal(tabs.querySelector('[data-dsh-imagegen-tab="session"]').getAttribute('aria-selected'), 'false')
+  assert.equal(tabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').hasAttribute('data-active'), true, 'the open panel marks the image tab')
+  assert.equal(tabs.querySelector('[data-dsh-taichi-imagegen-tab="session"]').hasAttribute('data-active'), false)
+  assert.equal(tabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').getAttribute('aria-selected'), 'true', 'aria-selected follows the open panel (#25)')
+  assert.equal(tabs.querySelector('[data-dsh-taichi-imagegen-tab="session"]').getAttribute('aria-selected'), 'false')
 
   // The rest of the role="tablist" promise: exactly one tab in the Tab order,
   // and the arrow keys move between them (#25 follow-up). `aria-selected`
@@ -5588,7 +5588,7 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   // `tabIndex` is written by the same subscriber that writes `aria-selected`,
   // so each key press is followed by the notify a real controller would send —
   // otherwise this would assert against a state the plugin never reaches.
-  const tabOf = name => tabs.querySelector(`[data-dsh-imagegen-tab="${name}"]`)
+  const tabOf = name => tabs.querySelector(`[data-dsh-taichi-imagegen-tab="${name}"]`)
   const notify = () => { for (const listener of [...listeners]) listener() }
   assert.equal(tabOf('image').getAttribute('tabindex'), '0', 'the selected tab is the one Tab stop')
   assert.equal(tabOf('session').getAttribute('tabindex'), '-1', 'the unselected tab leaves the Tab order')
@@ -5601,7 +5601,7 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   // 「标注卡无连接桩」用例上方那条注释。布尔版本稳定产出可读失败。
   assert.ok(
     jsdomDocument.activeElement === tabOf('session'),
-    `the arrow key moves focus with the selection (focus: ${jsdomDocument.activeElement?.getAttribute?.('data-dsh-imagegen-tab') ?? jsdomDocument.activeElement?.tagName ?? 'none'})`,
+    `the arrow key moves focus with the selection (focus: ${jsdomDocument.activeElement?.getAttribute?.('data-dsh-taichi-imagegen-tab') ?? jsdomDocument.activeElement?.tagName ?? 'none'})`,
   )
   panelOpen = false
   notify()
@@ -5612,7 +5612,7 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   assert.equal(calls.join(','), 'close,open', 'End jumps to the last tab')
   assert.ok(
     jsdomDocument.activeElement === tabOf('image'),
-    `End puts focus on the last tab (focus: ${jsdomDocument.activeElement?.getAttribute?.('data-dsh-imagegen-tab') ?? jsdomDocument.activeElement?.tagName ?? 'none'})`,
+    `End puts focus on the last tab (focus: ${jsdomDocument.activeElement?.getAttribute?.('data-dsh-taichi-imagegen-tab') ?? jsdomDocument.activeElement?.tagName ?? 'none'})`,
   )
   panelOpen = true
   notify()
@@ -5621,7 +5621,7 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   assert.equal(calls.join(','), 'close,open,close', 'ArrowRight wraps around to the first tab')
   assert.ok(
     jsdomDocument.activeElement === tabOf('session'),
-    `ArrowRight wraps focus back to the first tab (focus: ${jsdomDocument.activeElement?.getAttribute?.('data-dsh-imagegen-tab') ?? jsdomDocument.activeElement?.tagName ?? 'none'})`,
+    `ArrowRight wraps focus back to the first tab (focus: ${jsdomDocument.activeElement?.getAttribute?.('data-dsh-taichi-imagegen-tab') ?? jsdomDocument.activeElement?.tagName ?? 'none'})`,
   )
 
   // A key the contract does not claim must not steal the press.
@@ -5631,7 +5631,7 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   assert.equal(calls.join(','), 'close,open,close', 'an unrelated key activates nothing')
   panelOpen = false
   notify()
-  jsdomDocument.documentElement.setAttribute('data-dsh-imagegen-active', '')
+  jsdomDocument.documentElement.setAttribute('data-dsh-taichi-imagegen-active', '')
   assert.equal(jsdomWindow.getComputedStyle(shellButton).display, 'none', 'the native New Session action is hidden while the studio is open')
   assert.equal(jsdomWindow.getComputedStyle(desktopRoot.querySelector('[data-other-sidebar-plugin]')).display, 'none', 'unrelated sidebar plugin entries remain hidden')
   // The other half of the same rule, and the reason it is gated: a shell whose
@@ -5639,13 +5639,13 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   // cosmetic win; hiding the brand row or the foot is a broken sidebar.
   for (const block of ['.xUkysG_topStrip', '.xUkysG_logoRow', '.xUkysG_regionArea', '.xUkysG_footArea']) {
     assert.notEqual(jsdomWindow.getComputedStyle(desktopRoot.querySelector(block)).display, 'none', `the shell's own ${block} block stays visible in the studio`)
-    assert.equal(desktopRoot.querySelector(block).getAttribute('data-dsh-imagegen-sidebar-block'), '', `the shell's own ${block} block is marked as chrome, not guessed by class`)
+    assert.equal(desktopRoot.querySelector(block).getAttribute('data-dsh-taichi-imagegen-sidebar-block'), '', `the shell's own ${block} block is marked as chrome, not guessed by class`)
   }
   // The macOS shell's collapse control lives in a strip that owns no slot
   // anchor, so it is not reachable from any of the anchors above. Hiding it
   // leaves the 生图 pane with no visible way back to a wide sidebar.
   assert.notEqual(jsdomWindow.getComputedStyle(desktopRoot.querySelector('.xUkysG_toggle')).display, 'none', 'the shell collapse control stays reachable in the studio')
-  jsdomDocument.documentElement.removeAttribute('data-dsh-imagegen-active')
+  jsdomDocument.documentElement.removeAttribute('data-dsh-taichi-imagegen-active')
   await new Promise(resolve => setTimeout(resolve, 60))
   assert.equal(warnings.length, 0, `a mounted sidebar entry logs nothing: ${warnings.join(' | ')}`)
 
@@ -5658,8 +5658,8 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   // scene the fixture below reproduces. The host has to stop the event before
   // it reaches that listener, WITHOUT preventing the browser's own scroll.
   const wheelOrder = []
-  const hostForWheel = jsdomDocument.querySelector('[data-dsh-imagegen-history-host]')
-  assert.equal(hostForWheel.getAttribute('data-dsh-imagegen-wheel-owner'), '', 'the history host claims its own wheel events')
+  const hostForWheel = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]')
+  assert.equal(hostForWheel.getAttribute('data-dsh-taichi-imagegen-wheel-owner'), '', 'the history host claims its own wheel events')
   // A stand-in for the shell's scroll viewport: the column around the host,
   // which is where 0.2.2 puts its listener. Bubble phase, same as the shell's.
   const onShellWheel = () => { wheelOrder.push('shell') }
@@ -5675,10 +5675,10 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   // The listener is installed once per host, not once per shell mutation: the
   // host element itself is reused across re-seats. Dropping the mark and
   // mutating the shell (which is what runs `ensure`) has to put it back.
-  hostForWheel.removeAttribute('data-dsh-imagegen-wheel-owner')
+  hostForWheel.removeAttribute('data-dsh-taichi-imagegen-wheel-owner')
   jsdomDocument.body.append(jsdomDocument.createElement('span'))
   await new Promise(resolve => setTimeout(resolve, 20))
-  assert.equal(hostForWheel.getAttribute('data-dsh-imagegen-wheel-owner'), '', 'a re-seat reinstalls the wheel ownership mark')
+  assert.equal(hostForWheel.getAttribute('data-dsh-taichi-imagegen-wheel-owner'), '', 'a re-seat reinstalls the wheel ownership mark')
   assert.equal(hostForWheel.parentElement.className, 'xUkysG_regionArea', 'the re-seated host is the same element, in the same seat')
 
   // --- unrelated DOM churn must not re-measure the sidebar --------------------
@@ -5730,19 +5730,19 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
     measureCounter.count = 0
     jsdomDocument.body.append(jsdomDocument.createElement('span'))
     await settle()
-    assert.ok(measureCounter.count > 0, `a change above the sidebar root still re-measures the entry (count=${measureCounter.count}, root=${jsdomDocument.querySelector('[data-dsh-imagegen-sidebar-root]')?.className ?? 'none'})`)
+    assert.ok(measureCounter.count > 0, `a change above the sidebar root still re-measures the entry (count=${measureCounter.count}, root=${jsdomDocument.querySelector('[data-dsh-taichi-imagegen-sidebar-root]')?.className ?? 'none'})`)
     canvas.remove()
     jsdomWindow.getComputedStyle = realComputedStyle
   }
 
   disposeDesktop()
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]') === null, true, 'the disposer takes the tabs back out')
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-history-host]') === null, true, 'the disposer takes the history host back out')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]') === null, true, 'the disposer takes the tabs back out')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]') === null, true, 'the disposer takes the history host back out')
   assert.equal(shellButton.style.display, '', 'the shell button keeps its native display after unload')
   assert.equal(shellButton.hasAttribute('aria-hidden'), false)
   assert.equal(shellButton.hasAttribute('tabindex'), false)
-  assert.equal(shellButton.hasAttribute('data-dsh-imagegen-new-session'), false, 'the temporary action marker is removed on unload')
-  assert.equal(desktopRoot.hasAttribute('data-dsh-imagegen-sidebar-root'), false, 'the root marker is cleared on unload')
+  assert.equal(shellButton.hasAttribute('data-dsh-taichi-imagegen-new-session'), false, 'the temporary action marker is removed on unload')
+  assert.equal(desktopRoot.hasAttribute('data-dsh-taichi-imagegen-sidebar-root'), false, 'the root marker is cleared on unload')
 
   // --- unknown shell: no marker class and no data hook anywhere, only the brand
   // row plus the shell button's accessible name.
@@ -5755,12 +5755,12 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   const unknownRoot = findSidebarRoot()
   assert.equal(unknownRoot?.className, 'zzzShell', 'a shell without our markers resolves through the brand row and the button name')
   const disposeUnknown = mount(controller, 'Session', 'Back to the current conversation', 'Image', 'Open the image studio')
-  const unknownTabs = jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]')
+  const unknownTabs = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
   assert.ok(unknownTabs !== null, 'the tabs mount in a shell we have never seen')
   assert.equal(unknownTabs.parentElement.className, 'zzzShell')
   assert.equal(jsdomDocument.querySelector('.zzzShell > button[aria-label="New session"]').style.display, '', 'the shell button stays visible in an unknown shell too')
   assert.equal(jsdomDocument.querySelector('.zzzShell > button[aria-label="New session"]').previousElementSibling, unknownTabs)
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-history-host]').parentElement.className, 'zzz_regionArea')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]').parentElement.className, 'zzz_regionArea')
 
   // React can wrap or replace a native action without retaining its CSS class.
   // Check ancestor visibility as well as the button's own computed display.
@@ -5769,15 +5769,15 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   unknownRoot.insertBefore(actionWrapper, unknownButton)
   actionWrapper.append(unknownButton)
   await new Promise(resolve => setTimeout(resolve, 20))
-  assert.equal(jsdomDocument.querySelectorAll('[data-dsh-imagegen-session-tabs]').length, 1, 'repairing a wrapped action never duplicates the switcher')
+  assert.equal(jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-session-tabs]').length, 1, 'repairing a wrapped action never duplicates the switcher')
   // The contract is "immediately above the action", not "immediately above the
   // button": since 0.2.2-rc.3 the shell wraps the button in its own row, and a
   // switcher inserted inside that row would sit beside the action instead of
   // over it. The seat is therefore the outermost wrapper that holds only this
   // action.
-  assert.equal(actionWrapper.previousElementSibling?.hasAttribute('data-dsh-imagegen-session-tabs'), true, 'the switcher sits above the wrapped action row')
+  assert.equal(actionWrapper.previousElementSibling?.hasAttribute('data-dsh-taichi-imagegen-session-tabs'), true, 'the switcher sits above the wrapped action row')
   assert.equal(unknownButton.previousElementSibling, null, 'the switcher never lands inside the action wrapper')
-  jsdomDocument.documentElement.setAttribute('data-dsh-imagegen-active', '')
+  jsdomDocument.documentElement.setAttribute('data-dsh-taichi-imagegen-active', '')
   assert.notEqual(jsdomWindow.getComputedStyle(actionWrapper).display, 'none', 'a wrapper around the native action stays visible')
   assert.notEqual(jsdomWindow.getComputedStyle(unknownButton).display, 'none', 'an action found only by its accessible name stays visible')
   const replacementButton = jsdomDocument.createElement('button')
@@ -5787,11 +5787,11 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.notEqual(jsdomWindow.getComputedStyle(actionWrapper).display, 'none', 'replacing the native action preserves its wrapper visibility')
   assert.notEqual(jsdomWindow.getComputedStyle(replacementButton).display, 'none', 'the replacement native action stays visible')
-  assert.equal(unknownButton.hasAttribute('data-dsh-imagegen-new-session'), false, 'the replaced action loses its temporary marker')
-  jsdomDocument.documentElement.removeAttribute('data-dsh-imagegen-active')
+  assert.equal(unknownButton.hasAttribute('data-dsh-taichi-imagegen-new-session'), false, 'the replaced action loses its temporary marker')
+  jsdomDocument.documentElement.removeAttribute('data-dsh-taichi-imagegen-active')
   disposeUnknown()
-  assert.equal(replacementButton.hasAttribute('data-dsh-imagegen-new-session'), false, 'the replacement action is cleaned up on unload')
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]') === null, true)
+  assert.equal(replacementButton.hasAttribute('data-dsh-taichi-imagegen-new-session'), false, 'the replacement action is cleaned up on unload')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]') === null, true)
 
   // --- a shell without a New Session affordance must still get an entry. Another
   // plugin can take the sidebar over and hide that action (`display: none
@@ -5806,28 +5806,28 @@ await check('D3 sidebar entry mounts inside desktop and unknown sidebar shells, 
   const fallbackPane = jsdomDocument.querySelector('[data-pane="sidebar"]')
   const callsBeforeFallback = calls.length
   const disposeFallback = mount(controller, 'Session', 'Back to the current conversation', 'Image', 'Open the image studio')
-  const fallbackTabs = jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]')
+  const fallbackTabs = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
   assert.ok(fallbackTabs !== null, 'the switcher mounts even when no shell New Session action is reachable')
   assert.equal(fallbackTabs.parentElement, fallbackPane, 'the sidebar column itself becomes the seat')
   assert.equal(fallbackTabs.nextElementSibling, jsdomDocument.querySelector('.regionArea'), 'the fallback switcher sits directly above the block that carries the workspace seat')
-  assert.equal(fallbackTabs.getAttribute('data-dsh-imagegen-tabs-seat'), 'top', 'the fallback seat is marked so only that seat is restyled')
+  assert.equal(fallbackTabs.getAttribute('data-dsh-taichi-imagegen-tabs-seat'), 'top', 'the fallback seat is marked so only that seat is restyled')
   assert.equal(jsdomDocument.querySelector('.brandButton').style.display, '', 'the brand button is not mistaken for the new-session control')
-  assert.equal(jsdomDocument.querySelector('.brandButton').hasAttribute('data-dsh-imagegen-new-session'), false, 'no action marker lands on an unrelated control')
-  fallbackTabs.querySelector('[data-dsh-imagegen-tab="image"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
+  assert.equal(jsdomDocument.querySelector('.brandButton').hasAttribute('data-dsh-taichi-imagegen-new-session'), false, 'no action marker lands on an unrelated control')
+  fallbackTabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
   assert.equal(calls.slice(callsBeforeFallback).join(','), 'open', 'the fallback switcher opens the studio like the seated one')
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-history-host]').parentElement.className, 'regionArea', 'the history host still seats in the region area')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]').parentElement.className, 'regionArea', 'the history host still seats in the region area')
   await new Promise(resolve => setTimeout(resolve, 60))
   assert.equal(warnings.length, 0, `a mounted fallback entry logs nothing: ${warnings.join(' | ')}`)
   disposeFallback()
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]') === null, true, 'the fallback disposer takes the tabs back out')
-  assert.equal(fallbackPane.hasAttribute('data-dsh-imagegen-sidebar-root'), false, 'the fallback root marker is cleared on unload')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]') === null, true, 'the fallback disposer takes the tabs back out')
+  assert.equal(fallbackPane.hasAttribute('data-dsh-taichi-imagegen-sidebar-root'), false, 'the fallback root marker is cleared on unload')
 
   // --- a page with no sidebar at all reaches no seat, and says so: the silent
   // return is exactly what made #20 hard to diagnose.
   jsdomDocument.body.innerHTML = '<main></main>'
   const disposeUnmounted = mount(controller, 'Session', 'Back to the current conversation', 'Image', 'Open the image studio')
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]') === null, true, 'a page with no sidebar mounts no tabs')
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-history-host]') === null, true, 'no history host mounts either')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]') === null, true, 'a page with no sidebar mounts no tabs')
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]') === null, true, 'no history host mounts either')
   await new Promise(resolve => setTimeout(resolve, 60))
   const warning = warnings.find(line => line.includes('sidebar entry stayed unmounted'))
   assert.ok(warning !== undefined, `an unreachable shell is reported instead of failing silently: ${warnings.join(' | ')}`)
@@ -5947,22 +5947,22 @@ await check('D3d the switcher still mounts when another plugin hides the shell a
     subscribe: () => () => {},
   }
   const disposeBot = botMount(botController, 'Session', 'Back to the current conversation', 'Image', 'Open the image studio')
-  const botTabs = botDocument.querySelector('[data-dsh-imagegen-session-tabs]')
+  const botTabs = botDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
   assert.ok(botTabs !== null, 'the switcher mounts in another plugin\'s sidebar instead of disappearing')
   assert.equal(botTabs.parentElement, botRoot, 'it seats in the column, not inside a scrolling grid wrapper')
   assert.notEqual(botTabs.parentElement, botDocument.querySelector('.scrollArea'), 'never in the scroll area (#35)')
   assert.equal(botTabs.nextElementSibling, botDocument.querySelector('.scrollRegion'), 'it sits directly above the block that carries the workspace seat')
   assert.notEqual(botTabs, botRoot.firstElementChild, 'it never lands on the macOS traffic-light strip')
   assert.equal(botTabs.previousElementSibling?.className, 'newSessionRow', 'the hidden action row stays above the switcher, so the order is unchanged when it comes back')
-  assert.equal(botTabs.getAttribute('data-dsh-imagegen-tabs-seat'), 'top', 'the fallback seat is marked for the stylesheet')
+  assert.equal(botTabs.getAttribute('data-dsh-taichi-imagegen-tabs-seat'), 'top', 'the fallback seat is marked for the stylesheet')
   // The whole point: 生图 is reachable from that view.
-  botTabs.querySelector('[data-dsh-imagegen-tab="image"]').dispatchEvent(new botWindow.MouseEvent('click', { bubbles: true }))
+  botTabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').dispatchEvent(new botWindow.MouseEvent('click', { bubbles: true }))
   assert.equal(botCalls.join(','), 'open', 'the tab opens the studio from the other plugin\'s sidebar')
-  assert.ok(botDocument.querySelector('[data-dsh-imagegen-history-host]') !== null, 'the history surface seats too')
+  assert.ok(botDocument.querySelector('[data-dsh-taichi-imagegen-history-host]') !== null, 'the history surface seats too')
   await new Promise(resolve => setTimeout(resolve, 60))
   assert.equal(botWarnings.length, 0, `a mounted entry in a foreign sidebar logs nothing: ${botWarnings.join(' | ')}`)
   disposeBot()
-  assert.equal(botDocument.querySelector('[data-dsh-imagegen-session-tabs]') === null, true, 'the disposer takes the tabs back out')
+  assert.equal(botDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]') === null, true, 'the disposer takes the tabs back out')
   botWindow.setTimeout = botRealSetTimeout
 })
 
@@ -6056,13 +6056,13 @@ await check('D3b sidebar entry mounts above the shell action when the workspace 
   let drawerToggleClicks = 0
   jsdomDocument.querySelector('[data-sidebar-toggle]').addEventListener('click', () => { drawerToggleClicks += 1 })
   const dispose = mount(controller, '会话', '回到当前对话', '生图', '打开生图工作室')
-  const tabs = jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]')
+  const tabs = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
   const newSession = jsdomDocument.querySelector('.newSession')
   const scrollArea = jsdomDocument.querySelector('.scrollArea')
   assert.ok(tabs !== null, 'the switcher mounts in the nested shell')
   assert.equal(tabs.parentElement, jsdomDocument.querySelector('.shellRoot'), 'the switcher sits in the column, not the grid viewport')
   assert.equal(newSession.previousElementSibling, tabs, 'the switcher sits directly above the shell action')
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-history-host]')?.parentElement, jsdomDocument.querySelector('.regionArea'))
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]')?.parentElement, jsdomDocument.querySelector('.regionArea'))
   assert.equal(scrollArea.contains(tabs), false, 'the switcher is not a child of the scrolling grid')
 
   const workspaceRow = jsdomDocument.querySelector('.workspaceRow')
@@ -6074,7 +6074,7 @@ await check('D3b sidebar entry mounts above the shell action when the workspace 
   revealedAction.textContent = '+'
   workspaceRow.append(revealedAction)
   await new Promise(resolve => setTimeout(resolve, 30))
-  assert.equal(jsdomDocument.querySelectorAll('[data-dsh-imagegen-session-tabs]').length, 1, 'a revealed workspace action never duplicates the switcher')
+  assert.equal(jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-session-tabs]').length, 1, 'a revealed workspace action never duplicates the switcher')
   assert.equal(tabs.parentElement, jsdomDocument.querySelector('.shellRoot'), 'a workspace action cannot steal the switcher into the tree')
   assert.equal(newSession.previousElementSibling, tabs, 'the switcher stays above the shell action after a workspace row mutation')
 
@@ -6082,20 +6082,20 @@ await check('D3b sidebar entry mounts above the shell action when the workspace 
   const panelList = jsdomDocument.querySelector('.panelList')
   const panelCss = readFileSync(new URL('../src/client/panel.module.css', import.meta.url), 'utf8')
   assert.match(panelCss, /\[data-sidebar-scrollport\][\s\S]{0,80}grid-template-rows:\s*8px max-content 2px minmax\(0,\s*1fr\)/, 'studio mode makes the history region fill the remaining sidebar height')
-  assert.match(panelCss, /html\[data-dsh-imagegen-active\] \[data-dsh-sidebar-new-session\]/, 'studio mode hides the shell new-session control')
-  assert.match(panelCss, /html\[data-dsh-imagegen-active\] \[data-slot='sidebar\.quickSwitcher'\]/, 'studio mode hides the workbench switcher')
-  assert.match(panelCss, /html\[data-dsh-imagegen-active\] \[data-slot='sidebar\.primaryNavigation'\]/, 'studio mode hides the panel navigation')
-  assert.equal(scrollRegion.hasAttribute('data-dsh-imagegen-sidebar-block'), true, 'the wrapper carrying the region is spared')
-  assert.equal(panelList.hasAttribute('data-dsh-imagegen-sidebar-hide'), true, 'the panel nav beside the region is marked for hiding')
-  assert.equal(jsdomDocument.querySelector('.regionArea').getAttribute('data-dsh-imagegen-sidebar-region'), '')
-  tabs.querySelector('[data-dsh-imagegen-tab="image"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
+  assert.match(panelCss, /html\[data-dsh-taichi-imagegen-active\] \[data-dsh-sidebar-new-session\]/, 'studio mode hides the shell new-session control')
+  assert.match(panelCss, /html\[data-dsh-taichi-imagegen-active\] \[data-slot='sidebar\.quickSwitcher'\]/, 'studio mode hides the workbench switcher')
+  assert.match(panelCss, /html\[data-dsh-taichi-imagegen-active\] \[data-slot='sidebar\.primaryNavigation'\]/, 'studio mode hides the panel navigation')
+  assert.equal(scrollRegion.hasAttribute('data-dsh-taichi-imagegen-sidebar-block'), true, 'the wrapper carrying the region is spared')
+  assert.equal(panelList.hasAttribute('data-dsh-taichi-imagegen-sidebar-hide'), true, 'the panel nav beside the region is marked for hiding')
+  assert.equal(jsdomDocument.querySelector('.regionArea').getAttribute('data-dsh-taichi-imagegen-sidebar-region'), '')
+  tabs.querySelector('[data-dsh-taichi-imagegen-tab="image"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
   assert.equal(drawerToggleClicks, 1, 'choosing the image tab closes the mobile drawer so the studio is visible')
-  tabs.querySelector('[data-dsh-imagegen-tab="session"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
+  tabs.querySelector('[data-dsh-taichi-imagegen-tab="session"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
   assert.equal(drawerToggleClicks, 2, 'choosing the session tab closes it too')
   dispose()
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]'), null)
-  assert.equal(scrollRegion.hasAttribute('data-dsh-imagegen-sidebar-block'), false)
-  assert.equal(panelList.hasAttribute('data-dsh-imagegen-sidebar-hide'), false)
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null)
+  assert.equal(scrollRegion.hasAttribute('data-dsh-taichi-imagegen-sidebar-block'), false)
+  assert.equal(panelList.hasAttribute('data-dsh-taichi-imagegen-sidebar-hide'), false)
   jsdomWindow.setTimeout = realSetTimeout
 })
 
@@ -6187,7 +6187,7 @@ await check('D3c the switcher stays on its own line when the shell wraps the act
     subscribe: () => () => {},
   }
   const dispose = mount(controller, '会话', '回到当前对话', '生图', '打开生图工作室')
-  const tabs = jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]')
+  const tabs = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
   const row = jsdomDocument.querySelector('.newSessionRow')
   const button = jsdomDocument.querySelector('.newSession')
   const shellRoot = jsdomDocument.querySelector('.shellRoot')
@@ -6209,13 +6209,13 @@ await check('D3c the switcher stays on its own line when the shell wraps the act
   const brandAndAction = jsdomDocument.querySelector('.logoRow')
   brandAndAction.append(row)
   await new Promise(resolve => setTimeout(resolve, 30))
-  const reseated = jsdomDocument.querySelectorAll('[data-dsh-imagegen-session-tabs]')
+  const reseated = jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-session-tabs]')
   assert.equal(reseated.length, 1, 're-seating never duplicates the switcher')
-  assert.equal(brandAndAction.firstElementChild.hasAttribute('data-dsh-imagegen-session-tabs'), false, 'the switcher is never hoisted above the logo')
+  assert.equal(brandAndAction.firstElementChild.hasAttribute('data-dsh-taichi-imagegen-session-tabs'), false, 'the switcher is never hoisted above the logo')
   assert.equal(reseated[0].closest('.newSessionRow') !== null, true, 'a shared header block is not treated as the action row')
 
   dispose()
-  assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]'), null)
+  assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]'), null)
   jsdomWindow.setTimeout = realSetTimeout
 })
 
@@ -6268,7 +6268,7 @@ await check('D6 the plugin declares its own display title in both locales', () =
   assert.equal(en.meta.title, 'Image', 'the English plugin page shows the product name')
   // The host builds `{ en: <manifest name>, ...languageEntries }`, so `en.json`
   // must win over that fallback rather than repeat it.
-  assert.doesNotMatch(en.meta.title, /^@|dsh-imagegen/, 'the English title is a product name, not the package specifier')
+  assert.doesNotMatch(en.meta.title, /^@|dsh-taichi-imagegen/, 'the English title is a product name, not the package specifier')
   // The name the user sees has to be the name the panel and the sidebar show.
   const locales = readFileSync(new URL('../src/client/locales.ts', import.meta.url), 'utf8')
   assert.ok(locales.includes("'panel.title': '生图'"), 'the studio panel carries the same name')
@@ -6294,8 +6294,8 @@ await check('E0 the chat track keeps the 0.2.2 workbench frame', async () => {
   const style = document.createElement('style')
   style.textContent = rule
   document.head.append(style)
-  document.documentElement.setAttribute('data-dsh-imagegen-active', '')
-  document.body.innerHTML = '<div data-dsh-imagegen-center-col><div data-slot="main">'
+  document.documentElement.setAttribute('data-dsh-taichi-imagegen-active', '')
+  document.body.innerHTML = '<div data-dsh-taichi-imagegen-center-col><div data-slot="main">'
     + '<div id="frame" data-slot="desktop.workbench.frame" style="display:contents">'
     + '<div data-slot="main.conversation"><div id="conversation" data-phase="hero">conversation</div></div>'
     + '</div><div id="shell">plugin page</div></div></div>'
@@ -6566,12 +6566,12 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     {
       id: 'clip-new', createdAt: 6, mode: 'text', model: 'agnes-video-2.5-flash',
       prompt: 'a clip newest', aspectRatio: '16:9', resolution: '720P', seconds: 5,
-      videos: [{ url: '/api/dsh-imagegen/video/file/clip-new-0.mp4', mime: 'video/mp4', duration: 5 }],
+      videos: [{ url: '/api/dsh-taichi-imagegen/video/file/clip-new-0.mp4', mime: 'video/mp4', duration: 5 }],
     },
     {
       id: 'clip-mid', createdAt: 3, mode: 'text', model: 'agnes-video-2.5-flash',
       prompt: 'a clip middle', aspectRatio: '9:16', resolution: '1080P', seconds: 10,
-      videos: [{ url: '/api/dsh-imagegen/video/file/clip-mid-0.mp4', mime: 'video/mp4', duration: 10 }],
+      videos: [{ url: '/api/dsh-taichi-imagegen/video/file/clip-mid-0.mp4', mime: 'video/mp4', duration: 10 }],
     },
   ]
   const videoHistoryRemovals = []
@@ -6592,7 +6592,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
   const canvasGrabUploads = []
   const canvasImageAsset = {
     assetId: `${'a'.repeat(64)}.png`,
-    url: `/api/dsh-imagegen/canvas/asset/${'a'.repeat(64)}.png`,
+    url: `/api/dsh-taichi-imagegen/canvas/asset/${'a'.repeat(64)}.png`,
     mime: 'image/png',
     bytes: 128,
     width: 64,
@@ -6603,7 +6603,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
   /** One stored text file, addressed the way the real content-addressed store is. */
   const canvasFileAsset = {
     assetId: `${'c'.repeat(64)}.txt`,
-    url: `/api/dsh-imagegen/canvas/asset/${'c'.repeat(64)}.txt`,
+    url: `/api/dsh-taichi-imagegen/canvas/asset/${'c'.repeat(64)}.txt`,
     mime: 'text/plain',
     bytes: 48,
     width: 0,
@@ -6616,7 +6616,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
   /** One stored PDF, the document type the browser renders itself. */
   const canvasPdfAsset = {
     assetId: `${'d'.repeat(64)}.pdf`,
-    url: `/api/dsh-imagegen/canvas/asset/${'d'.repeat(64)}.pdf`,
+    url: `/api/dsh-taichi-imagegen/canvas/asset/${'d'.repeat(64)}.pdf`,
     mime: 'application/pdf',
     bytes: 1024,
     width: 0,
@@ -6691,7 +6691,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // Tool-result attachments are served as bytes by the host route; the tool
     // view then turns the blob into an object URL. Without this branch the
     // view shows its load error instead of the generated image.
-    if (path.startsWith('/api/dsh-imagegen/agent-image?')) {
+    if (path.startsWith('/api/dsh-taichi-imagegen/agent-image?')) {
       return { ok: true, blob: async () => new Blob([pngBytes], { type: 'image/png' }) }
     }
     // The outfit workspace reads its draft on mount and keeps its fields
@@ -6714,7 +6714,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
           ok: true,
           value: {
             namespaces: [{
-              ns: 'dsh-imagegen',
+              ns: 'dsh-taichi-imagegen',
           value: configState,
           revision: 0,
           secrets: channelSecrets(),
@@ -6732,8 +6732,8 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         ? {
             ...task,
             resultAvailable: true,
-            resultUrl: '/api/dsh-imagegen/video/file/vt-1-0.mp4',
-            resultVideo: { url: '/api/dsh-imagegen/video/file/vt-1-0.mp4', mime: 'video/mp4', duration: 5 },
+            resultUrl: '/api/dsh-taichi-imagegen/video/file/vt-1-0.mp4',
+            resultVideo: { url: '/api/dsh-taichi-imagegen/video/file/vt-1-0.mp4', mime: 'video/mp4', duration: 5 },
             resultEntryId: 'video-entry-1',
           }
         : { ...task, resultAvailable: false })
@@ -6868,7 +6868,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         json: async () => ({
           ok: true,
           value: {
-            ns: 'dsh-imagegen',
+            ns: 'dsh-taichi-imagegen',
             value: configState,
             revision: 1,
             secrets: channelSecrets(),
@@ -6905,13 +6905,13 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         json: async () => ({
           ok: true,
           entries: [
-            { id: 'gallery-one', createdAt: 3, mode: 'text', model: 'gpt-image-2', prompt: 'gallery prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/gallery.png', mime: 'image/png' }] },
-            { id: 'gallery-two', createdAt: 4, mode: 'text', model: 'gpt-image-2', prompt: 'wide gallery prompt', size: '4:3', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/wide.png', mime: 'image/png' }] },
+            { id: 'gallery-one', createdAt: 3, mode: 'text', model: 'gpt-image-2', prompt: 'gallery prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-taichi-imagegen/gallery/image/gallery.png', mime: 'image/png' }] },
+            { id: 'gallery-two', createdAt: 4, mode: 'text', model: 'gpt-image-2', prompt: 'wide gallery prompt', size: '4:3', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-taichi-imagegen/gallery/image/wide.png', mime: 'image/png' }] },
             // A favorited clip: the host stores it by reference, with NO images.
             {
               id: 'gallery-clip', createdAt: 8, mode: 'video', model: 'agnes-video-2.5-flash',
               prompt: 'favorited clip', size: '16:9', quality: '', detail: '', n: 1, images: [],
-              video: { url: '/api/dsh-imagegen/gallery/video-file/gallery-clip-0.mp4', mime: 'video/mp4', duration: 5 },
+              video: { url: '/api/dsh-taichi-imagegen/gallery/video-file/gallery-clip-0.mp4', mime: 'video/mp4', duration: 5 },
             },
           ],
           // Two soft-deleted entries. Two, not one, because the restore check
@@ -6920,8 +6920,8 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
           // been gone by the time the purge check looked for it, which reads as
           // "purge is not rendered" rather than as a fixture that ran out.
           trash: [
-            { id: 'gallery-trashed', createdAt: 2, deletedAt: 9, mode: 'text', model: 'gpt-image-2', prompt: 'trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/trashed.png', mime: 'image/png' }] },
-            { id: 'gallery-trashed-2', createdAt: 1, deletedAt: 4, mode: 'text', model: 'gpt-image-2', prompt: 'older trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/trashed2.png', mime: 'image/png' }] },
+            { id: 'gallery-trashed', createdAt: 2, deletedAt: 9, mode: 'text', model: 'gpt-image-2', prompt: 'trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-taichi-imagegen/gallery/image/trashed.png', mime: 'image/png' }] },
+            { id: 'gallery-trashed-2', createdAt: 1, deletedAt: 4, mode: 'text', model: 'gpt-image-2', prompt: 'older trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-taichi-imagegen/gallery/image/trashed2.png', mime: 'image/png' }] },
           ],
         }),
       }
@@ -6934,7 +6934,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         json: async () => ({
           ok: true,
           added: true,
-          entries: [{ ...payload, id: `gallery-appended-${galleryAppends.length}`, images: [{ url: '/api/dsh-imagegen/gallery/image/appended.png', mime: payload.images[0]?.mime ?? 'image/png' }] }],
+          entries: [{ ...payload, id: `gallery-appended-${galleryAppends.length}`, images: [{ url: '/api/dsh-taichi-imagegen/gallery/image/appended.png', mime: payload.images[0]?.mime ?? 'image/png' }] }],
         }),
       }
     }
@@ -6948,20 +6948,20 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // nothing — a silent hole rather than a failure.
     if (path.endsWith('/gallery/remove') || path.endsWith('/gallery/restore') || path.endsWith('/gallery/purge') || path.endsWith('/gallery/clear') || path.endsWith('/gallery/tags')) {
       galleryMutations.push({ path: path.split('/').pop(), body: init?.body ?? null })
-      const trashed = { id: 'gallery-trashed', createdAt: 2, deletedAt: 9, mode: 'text', model: 'gpt-image-2', prompt: 'trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/trashed.png', mime: 'image/png' }] }
+      const trashed = { id: 'gallery-trashed', createdAt: 2, deletedAt: 9, mode: 'text', model: 'gpt-image-2', prompt: 'trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-taichi-imagegen/gallery/image/trashed.png', mime: 'image/png' }] }
       // Restore answers with a live row: `deletedAt` is absent, which is what
       // the shelf filter treats as "back in the gallery". Leaving the flag on
       // would hide the card the restore check looks for.
-      const restored = { id: 'gallery-trashed', createdAt: 2, mode: 'text', model: 'gpt-image-2', prompt: 'trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/trashed.png', mime: 'image/png' }] }
+      const restored = { id: 'gallery-trashed', createdAt: 2, mode: 'text', model: 'gpt-image-2', prompt: 'trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-taichi-imagegen/gallery/image/trashed.png', mime: 'image/png' }] }
       // The sibling stays in the trash after the other one is restored, so the
       // purge check still has a rendered section to find its button in.
-      const sibling = { id: 'gallery-trashed-2', createdAt: 1, deletedAt: 4, mode: 'text', model: 'gpt-image-2', prompt: 'older trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/trashed2.png', mime: 'image/png' }] }
+      const sibling = { id: 'gallery-trashed-2', createdAt: 1, deletedAt: 4, mode: 'text', model: 'gpt-image-2', prompt: 'older trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-taichi-imagegen/gallery/image/trashed2.png', mime: 'image/png' }] }
       const purged = path.endsWith('/gallery/purge')
       return {
         ok: true,
         json: async () => ({
           ok: true,
-          entries: path.endsWith('/gallery/restore') ? [restored, { id: 'gallery-one', createdAt: 3, mode: 'text', model: 'gpt-image-2', prompt: 'gallery prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/gallery.png', mime: 'image/png' }] }] : [],
+          entries: path.endsWith('/gallery/restore') ? [restored, { id: 'gallery-one', createdAt: 3, mode: 'text', model: 'gpt-image-2', prompt: 'gallery prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-taichi-imagegen/gallery/image/gallery.png', mime: 'image/png' }] }] : [],
           outcome: path.endsWith('/gallery/restore') ? 'restored' : undefined,
           trash: purged ? [] : path.endsWith('/gallery/restore') ? [sibling] : [trashed, sibling],
         }),
@@ -7053,7 +7053,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         output: {
           nodes: [{
             id: 'ppt-file', type: 'file', title: 'final.pptx',
-            metadata: { asset: { assetId: 'deck.pptx', url: '/api/dsh-imagegen/canvas/asset/deck.pptx', name: 'final.pptx', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', bytes: 12, width: 0, height: 0, origin: 'upload' } },
+            metadata: { asset: { assetId: 'deck.pptx', url: '/api/dsh-taichi-imagegen/canvas/asset/deck.pptx', name: 'final.pptx', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', bytes: 12, width: 0, height: 0, origin: 'upload' } },
           }],
           connections: [], warnings: [],
         },
@@ -7071,7 +7071,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       const name = new URL(path, 'http://localhost').searchParams.get('name')
       const asset = {
         assetId: `${pptUploaded.length + 1}.png`,
-        url: `/api/dsh-imagegen/canvas/asset/${pptUploaded.length + 1}.png`,
+        url: `/api/dsh-taichi-imagegen/canvas/asset/${pptUploaded.length + 1}.png`,
         mime: init.headers['content-type'], name, bytes: 12, width: 12, height: 12, origin: 'upload',
       }
       pptUploaded.push(asset)
@@ -7115,7 +7115,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
           ok: true,
           asset: {
             assetId: `${String(canvasUploads).padStart(64, 'b')}.png`,
-            url: `/api/dsh-imagegen/canvas/asset/${String(canvasUploads).padStart(64, 'b')}.png`,
+            url: `/api/dsh-taichi-imagegen/canvas/asset/${String(canvasUploads).padStart(64, 'b')}.png`,
             mime: 'image/png',
             bytes: 64,
             width: payload.width,
@@ -7140,7 +7140,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         }),
       }
     }
-    if (path.startsWith('/api/dsh-imagegen/canvas/asset/')) {
+    if (path.startsWith('/api/dsh-taichi-imagegen/canvas/asset/')) {
       return {
         ok: true,
         blob: async () => new jsdomWindow.Blob([pngBytes], { type: 'image/png' }),
@@ -7152,7 +7152,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         blob: async () => new jsdomWindow.Blob([pngBytes], { type: 'image/png' }),
       }
     }
-    if (path.startsWith('/api/dsh-imagegen/gallery/image/')) {
+    if (path.startsWith('/api/dsh-taichi-imagegen/gallery/image/')) {
       return {
         ok: true,
         blob: async () => new jsdomWindow.Blob([pngBytes], { type: 'image/png' }),
@@ -7571,7 +7571,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
   const toolviewHost = jsdomDocument.createElement('div')
   jsdomDocument.body.append(toolviewHost)
   const toolviewRoot = moduleStubs['react-dom/client'].createRoot(toolviewHost)
-  for (const toolName of ['generate_image', 'edit_image', 'get_image_generation_task']) {
+  for (const toolName of ['taichi_generate_image', 'taichi_edit_image', 'taichi_get_image_generation_task']) {
     const registration = registered.find(row => row.name === 'tool.call.toolview' && row.key === toolName)
     assert.ok(registration?.component, `${toolName} registers its real conversation renderer`)
     toolviewRoot.render(react.createElement(registration.component, {
@@ -7604,37 +7604,37 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     jsdomDocument.body.append(dialog)
   })
   jsdomDocument.body.append(settingsTrigger)
-  jsdomWindow.dispatchEvent(new jsdomWindow.CustomEvent('dsh-imagegen:open-config'))
+  jsdomWindow.dispatchEvent(new jsdomWindow.CustomEvent('dsh-taichi-imagegen:open-config'))
   assert.ok(await waitUntil(() => settingsSectionClicks === 1), 'in-app configure prompts select the settings.section entry')
   jsdomDocument.querySelector('[role="dialog"]')?.remove()
   settingsTrigger.remove()
   // Wait for the bridge fetch + scope settle + sidebar entry. The studio is
   // intentionally loaded without history images until the image tab activates.
-  await waitForSelectorCount(jsdomDocument, '[data-dsh-imagegen-session-tabs]', 1)
-  assert.equal(jsdomDocument.querySelectorAll('[data-dsh-imagegen-history] img').length, 0, 'inactive studio renders no history images')
+  await waitForSelectorCount(jsdomDocument, '[data-dsh-taichi-imagegen-session-tabs]', 1)
+  assert.equal(jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-history] img').length, 0, 'inactive studio renders no history images')
   assert.equal(
     requestPaths.some(path => path.endsWith('/history/list') || path.endsWith('/gallery/list')),
     false,
     'inactive studio does not request history or gallery data',
   )
-  jsdomDocument.querySelector('[data-dsh-imagegen-tab="image"]')
+  jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]')
     .dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
   await waitForSelectorCount(jsdomDocument, '[data-comparison]', 1)
 
   try {
     // Regression: the scope must settle (a scope that never loads leaves the
     // UI unmounted forever) and the two session tabs must be inserted.
-    const entry = jsdomDocument.querySelector('[data-dsh-imagegen-session-tabs]')
+    const entry = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-session-tabs]')
     assert.ok(entry !== null, 'session tabs were mounted')
-    assert.equal(entry.querySelectorAll('[data-dsh-imagegen-tab]').length, 2, 'session and image tabs are present')
+    assert.equal(entry.querySelectorAll('[data-dsh-taichi-imagegen-tab]').length, 2, 'session and image tabs are present')
     assert.ok(entry.textContent.includes('生图'), 'image tab label localized')
-    assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-entry]') === null, true, 'standalone image entry was removed')
-    const view = jsdomDocument.querySelector('[data-dsh-imagegen-view]')
+    assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-entry]') === null, true, 'standalone image entry was removed')
+    const view = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-view]')
     assert.ok(view !== null, 'studio view container was mounted')
     assert.ok(view.isConnected, 'view container attached to the center column')
-    assert.ok(jsdomDocument.querySelector('[data-dsh-imagegen-chat-resizer]') !== null, 'chat resizer was mounted')
-    assert.ok(jsdomDocument.querySelector('[data-dsh-imagegen-history-host] [data-dsh-imagegen-history]') !== null, 'history moved into the sidebar region')
-    assert.equal(view.querySelector('[data-dsh-imagegen-history]') === null, true, 'studio no longer owns the history column')
+    assert.ok(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-chat-resizer]') !== null, 'chat resizer was mounted')
+    assert.ok(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host] [data-dsh-taichi-imagegen-history]') !== null, 'history moved into the sidebar region')
+    assert.equal(view.querySelector('[data-dsh-taichi-imagegen-history]') === null, true, 'studio no longer owns the history column')
     assert.ok(jsdomDocument.querySelector('[data-history-new]') !== null, 'new creation button rendered beside history clear')
     assert.ok(jsdomDocument.querySelector('[data-history-clear]') !== null, 'history clear button rendered')
     jsdomDocument.querySelector('[data-history-clear]')?.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
@@ -7643,11 +7643,11 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // The panel header stays, without the product mark, the GitHub link, or the
     // connection readout. Those three used to live in this header; putting any
     // of them back is what this check fails on.
-    const header = jsdomDocument.querySelector('[data-dsh-imagegen-view] header')
+    const header = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-view] header')
     assert.ok(header !== null, 'panel header rendered')
     assert.equal(header.querySelector('h2'), null, 'studio header no longer shows the product mark')
     assert.equal(header.querySelector('a[href*="github.com"]'), null, 'studio header no longer shows the GitHub link')
-    assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-view] [data-connected]'), null, 'studio header no longer shows the connection status')
+    assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-view] [data-connected]'), null, 'studio header no longer shows the connection status')
     assert.equal(jsdomDocument.querySelectorAll('[data-comparison]').length, 1, 'comparison history rows collapse into one item')
     assert.ok(jsdomDocument.querySelector('[data-comparison]')?.textContent?.includes('gpt-image-2'), 'comparison history shows its models')
 
@@ -7659,7 +7659,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // covered by the `baseline` suite through `lifecycleNoticeKey`, because no
     // id in the shipped table is retired yet; this half is what a real DOM can
     // prove today.
-    const sessionPanel = jsdomDocument.querySelector('[data-dsh-imagegen-view]')
+    const sessionPanel = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-view]')
     assert.equal(
       sessionPanel?.querySelector('[data-model-lifecycle]') ?? null,
       null,
@@ -7675,10 +7675,10 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // `!important` sheet rules over inline styles, so the takeover is asserted
     // through selector matching and the placement through the shipped sheet's
     // own declarations.
-    jsdomDocument.querySelector('[data-dsh-imagegen-tab="image"]')
+    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]')
       .dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.ok(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active'), 'the image tab opens the studio')
+    assert.ok(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), 'the image tab opens the studio')
     const historyFilter = jsdomDocument.querySelector('button[data-dsh-select][aria-label="模型筛选"]')
     assert.ok(historyFilter !== null, 'history uses the shared rounded selector')
     historyFilter.click()
@@ -7707,7 +7707,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.ok(chatToggle !== null, 'chat toggle rendered in the panel header')
     chatToggle.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-chat-collapsed'), false, 'the chat toggle opens the chat track')
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-chat-collapsed'), false, 'the chat toggle opens the chat track')
     const centreCol = jsdomDocument.querySelector('.smoke_centerCol')
     const mainSlot = centreCol.querySelector('[data-slot="main"]')
     const conversationRoot = centreCol.querySelector('[data-slot="main.conversation"] > [data-phase]')
@@ -7716,8 +7716,8 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // shell's `centerCol` is a build-time hash, so a `[class*='centerCol']`
     // selector here would keep passing on a fixture that spells the class while
     // the shipped sheet matches nothing at all.
-    assert.equal(centreCol.getAttribute('data-dsh-imagegen-center-col'), '', 'the resolved column carries our mark, which is what the sheet addresses')
-    const takeoverSelector = "html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-imagegen-center-col] > :not([data-dsh-imagegen-view]):not([data-slot='conversation']):not([data-slot='main']):not([data-dsh-imagegen-chat-resizer])"
+    assert.equal(centreCol.getAttribute('data-dsh-taichi-imagegen-center-col'), '', 'the resolved column carries our mark, which is what the sheet addresses')
+    const takeoverSelector = "html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-taichi-imagegen-center-col] > :not([data-dsh-taichi-imagegen-view]):not([data-slot='conversation']):not([data-slot='main']):not([data-dsh-taichi-imagegen-chat-resizer])"
     assert.equal(mainSlot.matches(takeoverSelector), false, 'the keyed main slot survives the studio takeover')
     assert.equal(centreCol.querySelector('[data-other-plugin-entry]').matches(takeoverSelector), true, 'unrelated center-column entries are still hidden')
     // #38: a shell global panel (the plugin market page) registers into the SAME
@@ -7725,7 +7725,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // anchor through and therefore left that page rendering inside it, so the
     // studio ended up sharing the column with a live panel. Assert on computed
     // style, not selector matching: only the cascade proves the page is gone.
-    const shellPanelSelector = "html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main'] > :not([data-dsh-imagegen-view]):not([data-phase]):not([data-slot='main.conversation']):not([data-slot='desktop.workbench.frame'])"
+    const shellPanelSelector = "html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main'] > :not([data-dsh-taichi-imagegen-view]):not([data-phase]):not([data-slot='main.conversation']):not([data-slot='desktop.workbench.frame'])"
     const shellPanel = jsdomDocument.createElement('div')
     shellPanel.setAttribute('data-shell-panel', 'plugins')
     shellPanel.textContent = 'plugin market page'
@@ -7757,7 +7757,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     )
     shellPanel.remove()
     await new Promise(resolve => setTimeout(resolve, 20))
-    const collapseSelector = "html[data-dsh-imagegen-chat-collapsed][data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main.conversation'] > [data-phase]"
+    const collapseSelector = "html[data-dsh-taichi-imagegen-chat-collapsed][data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main.conversation'] > [data-phase]"
     assert.equal(conversationRoot.matches(collapseSelector), false, 'the open chat track keeps the conversation root')
     // The shipped sheet carries the chat-track placement and the stretch; the
     // minifier may fold the placement into the `grid-area` shorthand.
@@ -7772,25 +7772,25 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.match(chatTrackDeclarations, /display:\s*none/, 'the collapsed chat track still hides the conversation root')
     chatToggle.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.ok(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-chat-collapsed'), 'the chat toggle collapses the track again')
+    assert.ok(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-chat-collapsed'), 'the chat toggle collapses the track again')
     assert.equal(conversationRoot.matches(collapseSelector), true, 'the collapsed chat track drops the conversation root')
-    jsdomDocument.querySelector('[data-dsh-imagegen-tab="session"]')
+    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="session"]')
       .dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active'), false, 'the studio closes again')
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'the studio closes again')
     assert.equal(nativeNewSessionCalls, 0, 'returning to the current conversation never starts a new session')
 
     // The native action must both create a session and close the studio, even
     // when the shell exposes no recognizable newSession CSS class.
-    jsdomDocument.querySelector('[data-dsh-imagegen-tab="image"]').click()
+    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]').click()
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active'), true)
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true)
     nativeNewSession.className = ''
     nativeNewSession.click()
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(nativeNewSessionCalls, 1, 'the native New Session handler still runs exactly once')
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active'), false, 'the native action returns from the studio to the conversation')
-    assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-tab="session"]').hasAttribute('data-active'), true, 'the switcher follows the native action')
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'the native action returns from the studio to the conversation')
+    assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="session"]').hasAttribute('data-active'), true, 'the switcher follows the native action')
     nativeNewSession.className = 'newSession'
 
     // The account page is a main-slot panel, and the studio hides every
@@ -7807,28 +7807,28 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     let studioClosedBeforeAccountClick = false
     accountButton.addEventListener('click', () => {
       accountClicks += 1
-      studioClosedBeforeAccountClick = jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active') === false
+      studioClosedBeforeAccountClick = jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active') === false
     })
     jsdomDocument.body.append(accountButton)
-    jsdomDocument.querySelector('[data-dsh-imagegen-tab="image"]').click()
+    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]').click()
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active'), true, 'the image tab is open before the account click')
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true, 'the image tab is open before the account click')
     accountButton.click()
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active'), false, 'opening the account page leaves the studio')
-    assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-tab="session"]').hasAttribute('data-active'), true, 'the session tab is selected when the account page opens')
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'opening the account page leaves the studio')
+    assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="session"]').hasAttribute('data-active'), true, 'the session tab is selected when the account page opens')
     assert.equal(accountClicks, 1, 'the account button still opens its page after the studio closes')
     assert.equal(studioClosedBeforeAccountClick, true, 'the session tab is restored before the account page opens')
 
-    jsdomDocument.querySelector('[data-dsh-imagegen-tab="image"]').click()
+    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]').click()
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active'), true)
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true)
     accountButton.setAttribute('aria-pressed', 'true')
     accountButton.setAttribute('data-selected', 'true')
     accountButton.click()
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active'), false, 'a covered account page is revealed by leaving the studio')
-    assert.equal(jsdomDocument.querySelector('[data-dsh-imagegen-tab="session"]').hasAttribute('data-active'), true, 'revealing the account page returns to the session tab')
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'a covered account page is revealed by leaving the studio')
+    assert.equal(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="session"]').hasAttribute('data-active'), true, 'revealing the account page returns to the session tab')
     assert.equal(accountClicks, 1, 'revealing an already-open account page does not toggle it shut')
     accountButton.setAttribute('aria-pressed', 'false')
     accountButton.setAttribute('data-selected', 'false')
@@ -7952,10 +7952,10 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // tab strip is visible but the panel is mounted inactive — `active` gates
     // `PptWorkspace`'s `hidden`. Re-open the studio through the image tab the
     // way a user would before switching workspaces.
-    jsdomDocument.querySelector('[data-dsh-imagegen-tab="image"]')
+    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]')
       .dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
     assert.ok(
-      await waitPpt(() => jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active')),
+      await waitPpt(() => jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active')),
       'the studio re-opens before the PPT workspace is exercised',
     )
     const pptTab = [...view.querySelectorAll('[role="tablist"] button')].find(button => button.textContent?.includes('图片转 PPT'))
@@ -8030,16 +8030,16 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.equal(view.querySelector('button[class*="generateButton"]') === null, true, 'gallery hides normal generation button')
     assert.equal(view.textContent?.includes('灵感案例'), false, 'gallery hides inspiration examples')
     assert.ok(view.querySelector('[data-gallery="true"]') !== null, 'gallery workspace is isolated')
-    assert.ok(jsdomDocument.querySelector('[data-dsh-imagegen-history-host] [data-dsh-imagegen-history]') !== null, 'history remains visible in gallery mode')
+    assert.ok(jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host] [data-dsh-taichi-imagegen-history]') !== null, 'history remains visible in gallery mode')
     assert.equal(view.querySelectorAll('[data-gallery="true"]').length, 2, 'gallery mode is active')
     assert.ok(view.querySelector('[data-gallery="true"] [data-gallery-add-conversation]') !== null, 'gallery entries expose add-to-conversation action')
     // Target a PLAIN image row. The sidebar now also lists clips (which open the
     // video studio) and product sets (which rebuild the ecommerce canvas), so
     // neither is what this assertion is about: it checks that selecting an
     // ordinary image history entry restores the image board.
-    const galleryHistoryMain = [...jsdomDocument.querySelectorAll('[data-dsh-imagegen-history-host] [data-kind="image"]')]
+    const galleryHistoryMain = [...jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-history-host] [data-kind="image"]')]
       .find(row => row.textContent?.includes('plain image prompt'))
-      ?.querySelector('[data-dsh-imagegen-history-main]')
+      ?.querySelector('[data-dsh-taichi-imagegen-history-main]')
     assert.ok(galleryHistoryMain !== null && galleryHistoryMain !== undefined, 'gallery mode exposes clickable image history')
     galleryHistoryMain.click()
     await waitForSelector(view, '[data-count]')
@@ -8256,7 +8256,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     const sectionRegistrations = registered.filter(item => item.name === 'settings.section')
     assert.equal(sectionRegistrations.length, 1)
     const sectionRegistration = sectionRegistrations[0]
-    assert.equal(sectionRegistration?.id, 'dsh-imagegen')
+    assert.equal(sectionRegistration?.id, 'dsh-taichi-imagegen')
     assert.equal(sectionRegistration?.order, 16)
     assert.equal(typeof sectionRegistration?.label, 'function')
     assert.equal(sectionRegistration?.label(), '生图 / 生视频')
@@ -8273,7 +8273,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // The history sidebar stays mounted on the gallery tab. 「加入素材库」 used to
     // return before the host call whenever that tab was active, so the same
     // button that works on the generation pages did nothing here.
-    const addFromHistoryOnGallery = [...jsdomDocument.querySelectorAll('[data-dsh-imagegen-history-host] [data-kind="image"]')]
+    const addFromHistoryOnGallery = [...jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-history-host] [data-kind="image"]')]
       .find(row => row.textContent?.includes('plain image prompt'))
       ?.querySelector('[data-history-add-gallery]')
     assert.ok(addFromHistoryOnGallery !== undefined && addFromHistoryOnGallery !== null, 'the gallery tab still offers add-to-gallery on a history image')
@@ -8719,7 +8719,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.ok(mainGroup !== null, 'results are grouped by slot label')
     assert.ok(mainGroup.querySelector('img') !== null, 'completed slot renders its image')
     let draftSnapshot = null
-    try { draftSnapshot = jsdomWindow.localStorage.getItem('dsh-imagegen-ecommerce-draft') } catch { /* opaque origin: draft persistence is optional */ }
+    try { draftSnapshot = jsdomWindow.localStorage.getItem('dsh-taichi-imagegen-ecommerce-draft') } catch { /* opaque origin: draft persistence is optional */ }
     if (draftSnapshot !== null) {
       assert.ok(draftSnapshot.includes('测试保温杯'), 'ecommerce draft persists to local storage')
     }
@@ -8727,7 +8727,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // Restore one persisted product set from history: the sidebar collapses
     // its rows into one project entry, and clicking it rebuilds the grouped
     // results canvas from the stored entries.
-    const ecommerceHistoryRow = [...jsdomDocument.querySelectorAll('[data-dsh-imagegen-history-main]')]
+    const ecommerceHistoryRow = [...jsdomDocument.querySelectorAll('[data-dsh-taichi-imagegen-history-main]')]
       .find(button => button.textContent?.includes('历史保温杯'))
     assert.ok(ecommerceHistoryRow !== undefined, 'ecommerce history rows collapse into one project entry')
     ecommerceHistoryRow.click()
@@ -8952,7 +8952,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // live, so it went on claiming Ctrl+A / Ctrl+Z / Delete for the whole
     // document while the user typed in the chat beside it. This pins the "only
     // while on screen" rule with the panel properly closed.
-    jsdomDocument.querySelector('[data-dsh-imagegen-tab="image"]').click()
+    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]').click()
     await new Promise(resolve => setTimeout(resolve, 80))
     const nodeElement = () => view.querySelector('[data-node-id="node-image"]')
     assert.ok(nodeElement() !== null, 'the fixture node is on screen before the panel is closed')
@@ -8963,9 +8963,9 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.match(nodeElement().className, /nodeSelected/, 'pointerdown selects a node while the canvas is on screen')
 
     // Close the panel through the sidebar switcher, exactly as the user does.
-    jsdomDocument.querySelector('[data-dsh-imagegen-tab="session"]').click()
+    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="session"]').click()
     await new Promise(resolve => setTimeout(resolve, 80))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active'), false, 'the panel reports itself closed')
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'the panel reports itself closed')
     assert.ok(nodeElement() !== null, 'the canvas stays mounted while the panel is closed -- that is WHY the listeners outlive visibility')
 
     const savesBeforeHiddenDelete = canvasSaves.length
@@ -8978,9 +8978,9 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.match(nodeElement().className, /nodeSelected/, 'the closed canvas keeps its selection untouched')
 
     // Back to the studio for the checks that follow.
-    jsdomDocument.querySelector('[data-dsh-imagegen-tab="image"]').click()
+    jsdomDocument.querySelector('[data-dsh-taichi-imagegen-tab="image"]').click()
     await new Promise(resolve => setTimeout(resolve, 80))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-imagegen-active'), true, 'the studio is active again')
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true, 'the studio is active again')
 
     // ------------------------------------- a failed save must stop retrying (F13)
     // `syncedRef` only advances on a SUCCESSFUL write, so while an edit stays
@@ -9228,7 +9228,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // the merge must interleave them by time while leaving each store's own
     // relative order untouched (a blanket re-sort can change which row a click
     // opens, because comparison groups and product sets do not follow createdAt).
-    const histHost = jsdomDocument.querySelector('[data-dsh-imagegen-history-host]')
+    const histHost = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-history-host]')
     assert.ok(histHost !== null, 'the history sidebar is mounted')
     const rowKinds = () => [...histHost.querySelectorAll('[data-kind]')].map(el => el.getAttribute('data-kind'))
     // Canvas rows share this same list as a third kind. This check is about the
@@ -9237,7 +9237,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // expected order; a canvas appearing in the list is not what it asserts.
     const rowPrompts = () => [...histHost.querySelectorAll('[data-kind]')]
       .filter(row => row.getAttribute('data-kind') !== 'canvas')
-      .map(row => row.querySelector('[data-dsh-imagegen-history-main] [class*="historyPrompt"]')?.textContent ?? '')
+      .map(row => row.querySelector('[data-dsh-taichi-imagegen-history-main] [class*="historyPrompt"]')?.textContent ?? '')
     assert.ok(rowKinds().includes('video'), 'clip rows appear in the same list as images')
     assert.ok(rowKinds().includes('image'), 'image rows are still present')
     // Chronological interleave: the newest clip (6) leads, then the ecommerce
@@ -9286,7 +9286,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.ok(await waitFor(() => conversationDrafts.length > beforeSidebarDrafts), 'the sidebar clip row drafts the clip too')
     assert.match(conversationDrafts.at(-1).type, /^video\//, 'the sidebar draft is also a video file')
 
-    midClip.querySelector('[data-dsh-imagegen-history-main]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
+    midClip.querySelector('[data-dsh-taichi-imagegen-history-main]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
     await new Promise(resolve => setTimeout(resolve, 60))
     // A clip opens on the RESULT BOARD (where image results appear), which is
     // where the user is already looking -- not by jumping to the video studio.
@@ -9763,7 +9763,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     )
     const filled = canvasSaves.at(-1).nodes.find(node => node.id === placeholderId)
     assert.equal(filled.metadata.status, 'success', 'the video node reports success')
-    assert.match(filled.metadata.video.url, /\/api\/dsh-imagegen\/video\/file\//, 'the clip is referenced by its served URL')
+    assert.match(filled.metadata.video.url, /\/api\/dsh-taichi-imagegen\/video\/file\//, 'the clip is referenced by its served URL')
     assert.equal(filled.metadata.video.mime, 'video/mp4')
     assert.equal(filled.metadata.video.entryId, 'video-entry-1', 'the node remembers its history entry for gallery writes')
     // The clip must NOT be copied into the canvas asset store.
@@ -9904,7 +9904,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.equal(layerText.metadata.color, '#ffee00')
     assert.ok(layerText.metadata.fontSize > 0, 'the text layer keeps an editable font size')
     const layerObject = layerNodes.find(node => node.metadata.layer.kind === 'object')
-    assert.ok(String(layerObject.metadata.asset.url).startsWith('/api/dsh-imagegen/canvas/asset/'), 'the object layer was uploaded as its own asset')
+    assert.ok(String(layerObject.metadata.asset.url).startsWith('/api/dsh-taichi-imagegen/canvas/asset/'), 'the object layer was uploaded as its own asset')
     assert.ok(
       layerNodes.every(node => savedAfterLayers.connections.some(connection => connection.fromNodeId === 'node-image' && connection.toNodeId === node.id)),
       'every layer node is wired to the source image',

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { compareVersions } from '../update/version-catalog'
+import { archiveFeedUrl, compareVersions, updatePolicyUrl } from '../update/version-catalog'
 
 export const SERVICE_URL = 'https://dshdesktop.com/crash'
 export type DesktopPlatform = 'mac' | 'mac-intel' | 'windows'
@@ -152,11 +152,11 @@ export class DesktopService {
   async checkUpdate(manual = false): Promise<UpdateDecision> {
     const query = new URLSearchParams({ installationId: this.installationId, currentVersion: this.options.version, platform: this.platform })
     if (manual) query.set('manual', 'true')
-    const response = await this.options.request(`${SERVICE_URL}/v1/updates/check?${query}`, { signal: AbortSignal.timeout(5000), redirect: 'error' })
+    const response = await this.options.request(`${updatePolicyUrl()}?${query}`, { signal: AbortSignal.timeout(5000), redirect: 'error' })
     if (!response.ok) throw new Error(`Update policy unavailable (${response.status})`)
     const policy = await response.json() as Record<string, unknown>
     if (policy?.updateAvailable === false) return { updateAvailable: false }
-    if (policy?.updateAvailable !== true || !isVersion(policy.version) || compareVersions(policy.version.split('+')[0]!, this.options.version.split('+')[0]!) <= 0 || (!isPrereleaseVersion(this.options.version) && isPrereleaseVersion(policy.version)) || policy.feedUrl !== `https://dshdesktop.com/updates/archive/${policy.version}/`) throw new Error('Invalid update policy')
+    if (policy?.updateAvailable !== true || !isVersion(policy.version) || compareVersions(policy.version.split('+')[0]!, this.options.version.split('+')[0]!) <= 0 || (!isPrereleaseVersion(this.options.version) && isPrereleaseVersion(policy.version)) || policy.feedUrl !== archiveFeedUrl(policy.version)) throw new Error('Invalid update policy')
     return { updateAvailable: true, version: policy.version, feedUrl: policy.feedUrl as string }
   }
 }

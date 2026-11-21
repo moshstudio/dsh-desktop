@@ -5,7 +5,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dataelement/dsh-desktop.git",
+    "url": "git+https://github.com/moshstudio/dsh-desktop.git",
     "directory": "packages/ppt-runtime/core"
   },
   "type": "module",

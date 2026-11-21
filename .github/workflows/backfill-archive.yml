@@ -46,10 +46,14 @@ jobs:
       - name: Archive to ModelScope and rebuild the version index
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          MODELSCOPE_REPO_ID: alexyaojin/dsh-desktop
+          MODELSCOPE_REPO_ID: ${{ vars.MODELSCOPE_REPO_ID }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          if [ -z "${MODELSCOPE_REPO_ID:-}" ]; then
+            echo "ModelScope repository is not configured; skipping the archive."
+            exit 0
+          fi
           test -n "$MODELSCOPE_TOKEN" || { echo "::error::Missing secret MODELSCOPE_TOKEN"; exit 1; }
           python3 -m venv "$RUNNER_TEMP/ms-env"
           "$RUNNER_TEMP/ms-env/bin/pip" install -q modelscope

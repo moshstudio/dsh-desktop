@@ -304,7 +304,7 @@ jobs:
       - name: Verify signed and notarized ${{ matrix.label }} app
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
         run: |
-          app_path="dist/${{ matrix.app-directory }}/DSH Desktop.app"
+          app_path="dist/${{ matrix.app-directory }}/太极-dsh.app"
           codesign --verify --deep --strict --verbose=2 "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
           for attempt in 1 2 3 4 5 6; do
@@ -678,8 +678,8 @@ jobs:
               --tsmode RFC3161 \
               --tsretries 3 \
               --tsretrywait 10 \
-              --name 'DSH Desktop' \
-              --url https://www.dshdesktop.com \
+              --name '太极-dsh' \
+              --url https://moshangwangluo.com \
               --verbose \
               "$installer"; then
               break
@@ -773,11 +773,15 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.MODELS_TOKEN }}
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          MODELSCOPE_REPO_ID: alexyaojin/dsh-desktop
+          MODELSCOPE_REPO_ID: ${{ vars.MODELSCOPE_REPO_ID }}
           FEISHU_RELEASE_WEBHOOK: ${{ secrets.FEISHU_RELEASE_WEBHOOK }}
           SIGNED_VERSION: ${{ inputs.version }}
           TEST_TARGET: ${{ inputs.target }}
         run: |
+          if [ -z "${MODELSCOPE_REPO_ID:-}" ]; then
+            echo "ModelScope repository is not configured; skipping the signed-test upload."
+            exit 0
+          fi
           python3 -m venv "$RUNNER_TEMP/test-upload-env"
           "$RUNNER_TEMP/test-upload-env/bin/pip" install -q modelscope
           "$RUNNER_TEMP/test-upload-env/bin/python3" .github/scripts/signed_test_build.py \
@@ -951,15 +955,19 @@ jobs:
             gh release create "$RELEASE_TAG" release-assets/* \
               --verify-tag \
               --notes-file "$notes" \
-              --title "DSH Desktop $RELEASE_TAG" \
+              --title "太极-dsh $RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY"
           fi
       - name: Mirror release assets to ModelScope
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          MODELSCOPE_REPO_ID: alexyaojin/dsh-desktop
+          MODELSCOPE_REPO_ID: ${{ vars.MODELSCOPE_REPO_ID }}
         run: |
           set -euo pipefail
+          if [ -z "${MODELSCOPE_REPO_ID:-}" ]; then
+            echo "ModelScope repository is not configured; skipping the mirror."
+            exit 0
+          fi
           test -n "$MODELSCOPE_TOKEN" || { echo "::error::Missing secret MODELSCOPE_TOKEN"; exit 1; }
           python3 -m venv "$RUNNER_TEMP/ms-env"
           "$RUNNER_TEMP/ms-env/bin/pip" install -q modelscope
@@ -1127,16 +1135,20 @@ jobs:
               --prerelease \
               --target "$GITHUB_SHA" \
               --generate-notes \
-              --title "DSH Desktop $RELEASE_TAG（预发布）" \
+              --title "太极-dsh $RELEASE_TAG（预发布）" \
               --repo "$GITHUB_REPOSITORY"
           fi
       - name: Mirror pre-release assets to ModelScope
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          MODELSCOPE_REPO_ID: alexyaojin/dsh-desktop
+          MODELSCOPE_REPO_ID: ${{ vars.MODELSCOPE_REPO_ID }}
           PRERELEASE_TAG: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          if [ -z "${MODELSCOPE_REPO_ID:-}" ]; then
+            echo "ModelScope repository is not configured; skipping the mirror."
+            exit 0
+          fi
           test -n "$MODELSCOPE_TOKEN" || { echo "::error::Missing secret MODELSCOPE_TOKEN"; exit 1; }
           python3 -m venv "$RUNNER_TEMP/ms-env"
           "$RUNNER_TEMP/ms-env/bin/pip" install -q modelscope

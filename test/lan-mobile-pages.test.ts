@@ -306,7 +306,7 @@ describe('LAN mobile page', () => {
     expect(phone).toContain("fetch('/pair/verify'")
     expect(phone).toContain('Enter pairing password')
     expect(phone).toContain('Show password on the computer')
-    expect(phone).toContain('Cannot reach the desktop. Start taichi-dsh and try again.')
+    expect(phone).toContain('Cannot reach the desktop. Start 太极-dsh and try again.')
     expect(phone).toContain("location.replace('/')")
     expect(phone).not.toContain("location.href='/'")
   })

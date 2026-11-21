@@ -1,25 +1,25 @@
 /**
- * Wire contract shared by the host and client halves of dsh-imagegen: the
+ * Wire contract shared by the host and client halves of dsh-taichi-imagegen: the
  * settings namespace, the route paths, and the generate payload/result shapes.
  * Pure types + constants — safe for the client bundle to inline.
  */
 
 /** Settings namespace this plugin owns (host settings seam + bridge). */
-export const IMAGEGEN_SETTINGS_NAMESPACE = 'dsh-imagegen'
+export const IMAGEGEN_SETTINGS_NAMESPACE = 'dsh-taichi-imagegen'
 
 /** Published package version shared by the host updater and the client UI. */
 export const PLUGIN_VERSION = '1.35.0'
 
 /** Same-origin route family (loopback-only, mirroring the dsh-ssh fence). */
 export const SETTINGS_API = {
-  describe: '/api/dsh-imagegen/settings/describe',
-  mutate: '/api/dsh-imagegen/settings/mutate',
+  describe: '/api/dsh-taichi-imagegen/settings/describe',
+  mutate: '/api/dsh-taichi-imagegen/settings/mutate',
 } as const
 
 /** Subscription account login and status routes. */
 export const SUBSCRIPTION_API = {
-  status: '/api/dsh-imagegen/subscription/status',
-  login: '/api/dsh-imagegen/subscription/login',
+  status: '/api/dsh-taichi-imagegen/subscription/status',
+  login: '/api/dsh-taichi-imagegen/subscription/login',
 } as const
 
 /** Official/subscription-backed image providers. */
@@ -102,57 +102,57 @@ export function isSubscriptionProvider(value: unknown): value is SubscriptionPro
 }
 
 /** The image-generation proxy route. */
-export const GENERATE_API = '/api/dsh-imagegen/generate'
+export const GENERATE_API = '/api/dsh-taichi-imagegen/generate'
 
 /** Host-mediated OpenAI-compatible prompt enhancement endpoints. */
 export const PROMPT_ENHANCE_API = {
-  models: '/api/dsh-imagegen/prompt-enhance/models',
-  enhance: '/api/dsh-imagegen/prompt-enhance',
+  models: '/api/dsh-taichi-imagegen/prompt-enhance/models',
+  enhance: '/api/dsh-taichi-imagegen/prompt-enhance',
 } as const
 
 /** Host-mediated candidate discovery for the configured image API. */
 export const IMAGE_MODEL_API = {
-  models: '/api/dsh-imagegen/image-models',
+  models: '/api/dsh-taichi-imagegen/image-models',
 } as const
 
 /** Host-served built-in provider catalog (channels the user can instantiate). */
-export const PRESETS_API = '/api/dsh-imagegen/presets' as const
+export const PRESETS_API = '/api/dsh-taichi-imagegen/presets' as const
 
 /** Host-served static GLBs for the director's standard body. */
-export const STAGE_ASSETS_API = '/api/dsh-imagegen/stage-assets' as const
+export const STAGE_ASSETS_API = '/api/dsh-taichi-imagegen/stage-assets' as const
 
 /** Loopback-only image reader for Agent tool-result previews. */
-export const AGENT_IMAGE_API = '/api/dsh-imagegen/agent-image' as const
+export const AGENT_IMAGE_API = '/api/dsh-taichi-imagegen/agent-image' as const
 
-/** Store the current composer image for the direct edit_image command. */
-export const CONVERSATION_IMAGE_API = '/api/dsh-imagegen/conversation-image' as const
+/** Store the current composer image for the direct taichi_edit_image command. */
+export const CONVERSATION_IMAGE_API = '/api/dsh-taichi-imagegen/conversation-image' as const
 
 /**
  * Host-computed per-channel usage counters (generation-count badges in the
  * settings card): entries are tallied from the persisted history and gallery
  * by channel + model alias.
  */
-export const USAGE_API = '/api/dsh-imagegen/usage' as const
+export const USAGE_API = '/api/dsh-taichi-imagegen/usage' as const
 
 /** Host-resident generation queue endpoints. */
 export const TASK_API = {
-  submit: '/api/dsh-imagegen/tasks/submit',
-  list: '/api/dsh-imagegen/tasks/list',
-  get: '/api/dsh-imagegen/tasks/get',
-  cancel: '/api/dsh-imagegen/tasks/cancel',
-  retry: '/api/dsh-imagegen/tasks/retry',
+  submit: '/api/dsh-taichi-imagegen/tasks/submit',
+  list: '/api/dsh-taichi-imagegen/tasks/list',
+  get: '/api/dsh-taichi-imagegen/tasks/get',
+  cancel: '/api/dsh-taichi-imagegen/tasks/cancel',
+  retry: '/api/dsh-taichi-imagegen/tasks/retry',
 } as const
 
 /** Reveal the host data directory (saved images) in the OS file manager. */
-export const DATA_FOLDER_API = '/api/dsh-imagegen/data-folder/open' as const
+export const DATA_FOLDER_API = '/api/dsh-taichi-imagegen/data-folder/open' as const
 
 /**
  * Generation diagnostics (#38): the retained record of upstream attempts, so a
  * failure can be explained after the fact instead of only being toasted once.
  */
 export const DIAGNOSTICS_API = {
-  list: '/api/dsh-imagegen/diagnostics/list',
-  clear: '/api/dsh-imagegen/diagnostics/clear',
+  list: '/api/dsh-taichi-imagegen/diagnostics/list',
+  clear: '/api/dsh-taichi-imagegen/diagnostics/clear',
 } as const
 
 /**
@@ -168,11 +168,11 @@ export const DIAGNOSTICS_API = {
  * what is and is not written.
  */
 export const SIGNALS_API = {
-  list: '/api/dsh-imagegen/signals/list',
-  record: '/api/dsh-imagegen/signals/record',
-  report: '/api/dsh-imagegen/signals/report',
-  export: '/api/dsh-imagegen/signals/export',
-  clear: '/api/dsh-imagegen/signals/clear',
+  list: '/api/dsh-taichi-imagegen/signals/list',
+  record: '/api/dsh-taichi-imagegen/signals/record',
+  report: '/api/dsh-taichi-imagegen/signals/report',
+  export: '/api/dsh-taichi-imagegen/signals/export',
+  clear: '/api/dsh-taichi-imagegen/signals/clear',
 } as const
 
 /**
@@ -296,42 +296,42 @@ export interface SignalMonthSummary {
 
 /** Probe the configured S3-compatible object storage. */
 export const STORAGE_API = {
-  test: '/api/dsh-imagegen/storage/test',
+  test: '/api/dsh-taichi-imagegen/storage/test',
 } as const
 
 /** Retired self-update routes. Both refuse: this plugin ships with Taichi Desktop. */
 export const UPDATE_API = {
-  check: '/api/dsh-imagegen/update/check',
-  apply: '/api/dsh-imagegen/update/apply',
+  check: '/api/dsh-taichi-imagegen/update/check',
+  apply: '/api/dsh-taichi-imagegen/update/apply',
 } as const
 
 /**
  * Video generation route family. Video is asynchronous upstream (submit →
  * poll → download), so it keeps its own endpoints rather than reusing the
  * synchronous image generate route. Finished clips are persisted as files
- * under ~/.dsh/dsh-imagegen/videos/ and served through the `file` prefix
+ * under ~/.dsh/dsh-taichi-imagegen/videos/ and served through the `file` prefix
  * route, so neither list nor submit responses ever carry video bytes.
  */
 export const VIDEO_API = {
   /** Submit one video generation and wait for the finished file. */
-  generate: '/api/dsh-imagegen/video/generate',
+  generate: '/api/dsh-taichi-imagegen/video/generate',
   /** Host-resident video task queue (submit / list / get / cancel / retry). */
-  submit: '/api/dsh-imagegen/video/tasks/submit',
-  list: '/api/dsh-imagegen/video/tasks/list',
-  get: '/api/dsh-imagegen/video/tasks/get',
-  cancel: '/api/dsh-imagegen/video/tasks/cancel',
-  retry: '/api/dsh-imagegen/video/tasks/retry',
+  submit: '/api/dsh-taichi-imagegen/video/tasks/submit',
+  list: '/api/dsh-taichi-imagegen/video/tasks/list',
+  get: '/api/dsh-taichi-imagegen/video/tasks/get',
+  cancel: '/api/dsh-taichi-imagegen/video/tasks/cancel',
+  retry: '/api/dsh-taichi-imagegen/video/tasks/retry',
   /**
    * Persisted video history. There is deliberately no `append` endpoint: the
    * host owns the clip bytes, so the runtime persists a finished video itself.
    * A client can never submit video content, which keeps the store free of
    * client-supplied binaries.
    */
-  historyList: '/api/dsh-imagegen/video/history/list',
-  historyRemove: '/api/dsh-imagegen/video/history/remove',
-  historyClear: '/api/dsh-imagegen/video/history/clear',
+  historyList: '/api/dsh-taichi-imagegen/video/history/list',
+  historyRemove: '/api/dsh-taichi-imagegen/video/history/remove',
+  historyClear: '/api/dsh-taichi-imagegen/video/history/clear',
   /** Prefix route serving one stored clip: `${file}/<file>`. */
-  file: '/api/dsh-imagegen/video/file',
+  file: '/api/dsh-taichi-imagegen/video/file',
   /**
    * Preview the director plan without rendering anything.
    *
@@ -339,7 +339,7 @@ export const VIDEO_API = {
    * so this exists for the one thing a submit cannot do: show the user what
    * the planner decided BEFORE minutes of render time are spent.
    */
-  plan: '/api/dsh-imagegen/video/plan',
+  plan: '/api/dsh-taichi-imagegen/video/plan',
 } as const
 
 /**
@@ -360,32 +360,32 @@ export const CODE_RENDER_API = {
    * placeholder and history behaviour as a model render instead of growing a
    * second pipeline that would drift from the first.
    */
-  probe: '/api/dsh-imagegen/code/probe',
+  probe: '/api/dsh-taichi-imagegen/code/probe',
 } as const
 
 /**
  * Same-origin route family for the host-persisted generation history. Images
- * live as files under ~/.dsh/dsh-imagegen/images/ and are served back through
+ * live as files under ~/.dsh/dsh-taichi-imagegen/images/ and are served back through
  * the `image` prefix route, so list responses carry metadata only (never
  * base64) and the browser loads thumbnails/previews lazily.
  */
 export const HISTORY_API = {
-  list: '/api/dsh-imagegen/history/list',
-  append: '/api/dsh-imagegen/history/append',
-  remove: '/api/dsh-imagegen/history/remove',
-  clear: '/api/dsh-imagegen/history/clear',
-  image: '/api/dsh-imagegen/history/image',
+  list: '/api/dsh-taichi-imagegen/history/list',
+  append: '/api/dsh-taichi-imagegen/history/append',
+  remove: '/api/dsh-taichi-imagegen/history/remove',
+  clear: '/api/dsh-taichi-imagegen/history/clear',
+  image: '/api/dsh-taichi-imagegen/history/image',
 } as const
 
 /**
  * Same-origin route family for the user-curated gallery (favorites). Entries
- * reuse the history wire shape and persist under ~/.dsh/dsh-imagegen/gallery/;
+ * reuse the history wire shape and persist under ~/.dsh/dsh-taichi-imagegen/gallery/;
  * unlike history there is no size cap — the user adds images on purpose.
  *
  * Every response that can change the trash carries it as a second field next
  * to `entries`: the same two lists are always what the client renders.
  */
-export const MODEL_API = { list: '/api/dsh-imagegen/models/list', save: '/api/dsh-imagegen/models/save', image: '/api/dsh-imagegen/models/image' } as const
+export const MODEL_API = { list: '/api/dsh-taichi-imagegen/models/list', save: '/api/dsh-taichi-imagegen/models/save', image: '/api/dsh-taichi-imagegen/models/image' } as const
 
 /** How long a soft-deleted gallery entry stays recoverable. The client copy
  *  interpolates the day count so the three dictionaries cannot drift from it. */
@@ -393,22 +393,22 @@ export const GALLERY_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 export const GALLERY_TRASH_RETENTION_DAYS = GALLERY_TRASH_RETENTION_MS / (24 * 60 * 60 * 1000)
 
 export const GALLERY_API = {
-  list: '/api/dsh-imagegen/gallery/list',
-  append: '/api/dsh-imagegen/gallery/append',
-  remove: '/api/dsh-imagegen/gallery/remove',
+  list: '/api/dsh-taichi-imagegen/gallery/list',
+  append: '/api/dsh-taichi-imagegen/gallery/append',
+  remove: '/api/dsh-taichi-imagegen/gallery/remove',
   /** Bring one soft-deleted entry back out of the trash. */
-  restore: '/api/dsh-imagegen/gallery/restore',
+  restore: '/api/dsh-taichi-imagegen/gallery/restore',
   /** Permanently delete every trashed entry and its files. */
-  purge: '/api/dsh-imagegen/gallery/purge',
+  purge: '/api/dsh-taichi-imagegen/gallery/purge',
   /** Permanently delete one trashed entry and its files. */
-  purgeOne: '/api/dsh-imagegen/gallery/purge-one',
-  clear: '/api/dsh-imagegen/gallery/clear',
-  tags: '/api/dsh-imagegen/gallery/tags',
-  image: '/api/dsh-imagegen/gallery/image',
+  purgeOne: '/api/dsh-taichi-imagegen/gallery/purge-one',
+  clear: '/api/dsh-taichi-imagegen/gallery/clear',
+  tags: '/api/dsh-taichi-imagegen/gallery/tags',
+  image: '/api/dsh-taichi-imagegen/gallery/image',
   /** Favorite a finished clip (the host copies it out of the video store). */
-  video: '/api/dsh-imagegen/gallery/video',
+  video: '/api/dsh-taichi-imagegen/gallery/video',
   /** Prefix route serving one favorited clip: `${videoFile}/<file>`. */
-  videoFile: '/api/dsh-imagegen/gallery/video-file',
+  videoFile: '/api/dsh-taichi-imagegen/gallery/video-file',
 } as const
 
 /** Host-persisted infinite canvas projects and their content-addressed assets. */
@@ -529,28 +529,28 @@ export interface CanvasProposalCounts {
 }
 
 export const CANVAS_API = {
-  list: '/api/dsh-imagegen/canvas/list',
-  create: '/api/dsh-imagegen/canvas/create',
-  read: '/api/dsh-imagegen/canvas/read',
-  save: '/api/dsh-imagegen/canvas/save',
-  remove: '/api/dsh-imagegen/canvas/remove',
-  favorite: '/api/dsh-imagegen/canvas/favorite',
-  assetUpload: '/api/dsh-imagegen/canvas/asset/upload',
-  assetImport: '/api/dsh-imagegen/canvas/asset/import',
-  asset: '/api/dsh-imagegen/canvas/asset',
+  list: '/api/dsh-taichi-imagegen/canvas/list',
+  create: '/api/dsh-taichi-imagegen/canvas/create',
+  read: '/api/dsh-taichi-imagegen/canvas/read',
+  save: '/api/dsh-taichi-imagegen/canvas/save',
+  remove: '/api/dsh-taichi-imagegen/canvas/remove',
+  favorite: '/api/dsh-taichi-imagegen/canvas/favorite',
+  assetUpload: '/api/dsh-taichi-imagegen/canvas/asset/upload',
+  assetImport: '/api/dsh-taichi-imagegen/canvas/asset/import',
+  asset: '/api/dsh-taichi-imagegen/canvas/asset',
   /** Vision-model layer decomposition for the canvas layer-split tool. */
-  layers: '/api/dsh-imagegen/canvas/layers',
+  layers: '/api/dsh-taichi-imagegen/canvas/layers',
   /** Raw-binary upload for arbitrary canvas file nodes (no base64 inflation). */
-  fileUpload: '/api/dsh-imagegen/canvas/file/upload',
+  fileUpload: '/api/dsh-taichi-imagegen/canvas/file/upload',
   /** Structured content preview (text / table / office / archive) of one asset. */
-  filePreview: '/api/dsh-imagegen/canvas/file/preview',
+  filePreview: '/api/dsh-taichi-imagegen/canvas/file/preview',
   /**
    * 待确认的 Agent 改动。Agent 的写工具只产出提案，用户在这里看到并接受或
    * 丢弃；三者都不碰画布本身，只有 accept 会经由 canvas/save 的乐观锁写入。
    */
-  proposals: '/api/dsh-imagegen/canvas/proposals',
-  proposalAccept: '/api/dsh-imagegen/canvas/proposal/accept',
-  proposalDiscard: '/api/dsh-imagegen/canvas/proposal/discard',
+  proposals: '/api/dsh-taichi-imagegen/canvas/proposals',
+  proposalAccept: '/api/dsh-taichi-imagegen/canvas/proposal/accept',
+  proposalDiscard: '/api/dsh-taichi-imagegen/canvas/proposal/discard',
   /**
    * 导演台导出视频：客户端把逐帧 PNG 逐块 POST 到这里，宿主拼成 mp4 并返回
    * 一条可落成视频节点的引用。
@@ -560,15 +560,15 @@ export const CANVAS_API = {
    * 本来就有 ffmpeg（见 `src/clip-compose.ts`）。逐帧交给宿主，画幅和时长
    * 都不受编码器能力表约束。
    */
-  stageFrame: '/api/dsh-imagegen/canvas/stage/frame',
-  stageEncode: '/api/dsh-imagegen/canvas/stage/encode',
+  stageFrame: '/api/dsh-taichi-imagegen/canvas/stage/frame',
+  stageEncode: '/api/dsh-taichi-imagegen/canvas/stage/encode',
   /**
    * 读用户工作区里的一集 oh-story 短剧：三份 Markdown 与它们引用到的图片。
    *
    * 只读、只读固定文件名、只在调用方声明的工作区根目录之内。解析不在这里
    * 做——宿主只交字节，格式归浏览器侧（`client/storyboard-markdown.ts`）。
    */
-  dramaProject: '/api/dsh-imagegen/canvas/drama/project',
+  dramaProject: '/api/dsh-taichi-imagegen/canvas/drama/project',
   /**
    * 把项目里的一张参考图读成 data URL 交给浏览器。
    *
@@ -576,7 +576,7 @@ export const CANVAS_API = {
    * 就要把这张图显示在节点上）。量完尺寸后走已有的 `canvasUpload` 入库——
    * 一条上传通道，不是两条。
    */
-  dramaImage: '/api/dsh-imagegen/canvas/drama/image',
+  dramaImage: '/api/dsh-taichi-imagegen/canvas/drama/image',
   /**
    * 把画布做出来的一个产出文件写回 `剧集/<EP>/制作成果/`。
    *
@@ -586,9 +586,9 @@ export const CANVAS_API = {
    * 一次一个文件：单条视频上限 50MB，base64 之后约 67MB，与文档回写那条
    * 共用路由会把文本请求也放开到同一个内存上限。
    */
-  dramaWriteFile: '/api/dsh-imagegen/canvas/drama/write-file',
+  dramaWriteFile: '/api/dsh-taichi-imagegen/canvas/drama/write-file',
   /** 把改好的《分镜.md》写回去（先备份，内容没变就不写）。 */
-  dramaWriteDocument: '/api/dsh-imagegen/canvas/drama/write-document',
+  dramaWriteDocument: '/api/dsh-taichi-imagegen/canvas/drama/write-document',
 } as const
 
 /** 导演台逐帧导出的线上形状。 */
@@ -659,21 +659,21 @@ export interface DramaProjectRead {
 
 /** Same-origin route family for canvas skills (catalog + run control). */
 export const CANVAS_SKILL_API = {
-  pptRun: '/api/dsh-imagegen/ppt/run',
-  pptTasks: '/api/dsh-imagegen/ppt/tasks',
-  pptRuntime: '/api/dsh-imagegen/ppt/runtime',
-  list: '/api/dsh-imagegen/canvas/skills/list',
-  run: '/api/dsh-imagegen/canvas/skills/run',
-  task: '/api/dsh-imagegen/canvas/skills/task',
-  cancel: '/api/dsh-imagegen/canvas/skills/cancel',
+  pptRun: '/api/dsh-taichi-imagegen/ppt/run',
+  pptTasks: '/api/dsh-taichi-imagegen/ppt/tasks',
+  pptRuntime: '/api/dsh-taichi-imagegen/ppt/runtime',
+  list: '/api/dsh-taichi-imagegen/canvas/skills/list',
+  run: '/api/dsh-taichi-imagegen/canvas/skills/run',
+  task: '/api/dsh-taichi-imagegen/canvas/skills/task',
+  cancel: '/api/dsh-taichi-imagegen/canvas/skills/cancel',
   /** Local skill library (`~/.dsh/skills`): inspect, install, remove. */
-  library: '/api/dsh-imagegen/canvas/skills/library',
-  install: '/api/dsh-imagegen/canvas/skills/install',
-  remove: '/api/dsh-imagegen/canvas/skills/remove',
+  library: '/api/dsh-taichi-imagegen/canvas/skills/library',
+  install: '/api/dsh-taichi-imagegen/canvas/skills/install',
+  remove: '/api/dsh-taichi-imagegen/canvas/skills/remove',
   /** Per-skill configuration values declared by `skill.config.json` (or a recipe). */
-  configSave: '/api/dsh-imagegen/canvas/skills/config/save',
+  configSave: '/api/dsh-taichi-imagegen/canvas/skills/config/save',
   /** Run a declaration's `apply` steps (commands / files) with the saved values. */
-  configApply: '/api/dsh-imagegen/canvas/skills/config/apply',
+  configApply: '/api/dsh-taichi-imagegen/canvas/skills/config/apply',
 } as const
 
 /** Maximum number of history entries retained host-side (oldest evicted). */
@@ -688,17 +688,17 @@ export const HISTORY_MAX = 50
  * the network again.
  */
 export const TEMPLATES_API = {
-  list: '/api/dsh-imagegen/templates/list',
-  refresh: '/api/dsh-imagegen/templates/refresh',
-  sample: '/api/dsh-imagegen/templates/sample',
-  image: '/api/dsh-imagegen/templates/image',
+  list: '/api/dsh-taichi-imagegen/templates/list',
+  refresh: '/api/dsh-taichi-imagegen/templates/refresh',
+  sample: '/api/dsh-taichi-imagegen/templates/sample',
+  image: '/api/dsh-taichi-imagegen/templates/image',
 } as const
 
 /** Same-origin route family for the user's saved (favorited) templates. */
 export const TEMPLATE_FAVORITES_API = {
-  list: '/api/dsh-imagegen/templates/favorites/list',
-  add: '/api/dsh-imagegen/templates/favorites/add',
-  remove: '/api/dsh-imagegen/templates/favorites/remove',
+  list: '/api/dsh-taichi-imagegen/templates/favorites/list',
+  add: '/api/dsh-taichi-imagegen/templates/favorites/add',
+  remove: '/api/dsh-taichi-imagegen/templates/favorites/remove',
 } as const
 
 /** One prompt-template library source (a tab in the library overlay). */
@@ -2544,9 +2544,9 @@ export interface ProductSetDraft {
 }
 
 /** Host-mediated product-listing copy generation endpoint. */
-export const LISTING_COPY_API = '/api/dsh-imagegen/listing-copy' as const
+export const LISTING_COPY_API = '/api/dsh-taichi-imagegen/listing-copy' as const
 /** Host-side product page extraction endpoint. */
-export const ECOMMERCE_LINK_API = '/api/dsh-imagegen/ecommerce/fetch-link' as const
+export const ECOMMERCE_LINK_API = '/api/dsh-taichi-imagegen/ecommerce/fetch-link' as const
 export interface EcommerceLinkResult {
   ok: boolean
   title?: string

@@ -1,5 +1,5 @@
 /**
- * dsh-imagegen studio styles. Scoped by the plugin's own data attributes so
+ * dsh-taichi-imagegen studio styles. Scoped by the plugin's own data attributes so
  * nothing leaks into the rest of the GUI; colors ride the dsh --dsw-* tokens
  * and interactive controls reuse the system primitives (Button / Pill), so
  * the studio follows the active theme (light/dark and skins) by construction.
@@ -154,7 +154,7 @@
    AppFrame class-based column ([class*="centerCol"]) — without a positioned
    ancestor the absolutely-positioned view resolves against the frame. */
 [data-pane='conversation'],
-[data-dsh-imagegen-center-col] {
+[data-dsh-taichi-imagegen-center-col] {
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -162,7 +162,7 @@
 
 /* The panel container rides inside the conversation grid item as an extra
    trailing child; hidden unless the panel is active. */
-[data-dsh-imagegen-view] {
+[data-dsh-taichi-imagegen-view] {
   position: relative;
   grid-column: 1;
   grid-row: 1;
@@ -176,21 +176,21 @@
 /* The center column is single-occupant; the :not() guards keep the sibling
    panels (task board / ssh) from fighting over visibility if both activation
    attributes ever coexist. */
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-imagegen-center-col] {
+html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
+html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-taichi-imagegen-center-col] {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) 8px minmax(320px, clamp(320px, var(--dsh-imagegen-chat-width, 36%), 70%));
+  grid-template-columns: minmax(0, 1fr) 8px minmax(320px, clamp(320px, var(--dsh-taichi-imagegen-chat-width, 36%), 70%));
   grid-template-rows: minmax(0, 1fr);
   gap: 1px;
   overflow: hidden;
   background: var(--dsw-alias-border-l1);
 }
 
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-imagegen-view] {
+html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-taichi-imagegen-view] {
   display: block;
 }
 
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='conversation'] {
+html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='conversation'] {
   grid-column: 3;
   grid-row: 1;
   align-items: stretch;
@@ -206,8 +206,8 @@ html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ss
    Stretch it to the complete chat column so its hero composer
    can center itself inside the resized pane instead of leaving a blank rail
    on the right. */
-html[data-dsh-imagegen-active] [data-slot='conversation'] > [data-phase],
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main.conversation'] > [data-phase] {
+html[data-dsh-taichi-imagegen-active] [data-slot='conversation'] > [data-phase],
+html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main.conversation'] > [data-phase] {
   align-self: stretch;
   flex: 1 1 auto;
   width: 100%;
@@ -221,7 +221,7 @@ html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ss
    Both anchors are layout-neutral (`display: contents`) by contract: the
    Conversation root itself is the grid item, so the chat track places it
    directly instead of re-boxing the shell's anchors. */
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main.conversation'] > [data-phase] {
+html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main.conversation'] > [data-phase] {
   grid-column: 3;
   grid-row: 1;
   min-width: 0;
@@ -230,7 +230,7 @@ html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ss
   background: var(--dsw-alias-bg-base);
 }
 
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-imagegen-chat-resizer] {
+html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-taichi-imagegen-chat-resizer] {
   grid-column: 2;
   grid-row: 1;
 }
@@ -267,15 +267,15 @@ html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ss
 
 /* Keep the handle above shell defaults: some skins set display:none on
    unrecognised children of the conversation frame. */
-html[data-dsh-imagegen-active] [data-dsh-imagegen-chat-resizer] {
+html[data-dsh-taichi-imagegen-active] [data-dsh-taichi-imagegen-chat-resizer] {
   display: flex !important;
 }
 
 /* Hide unrelated center-column plugin children on the `>` direct-child axis.
    The keyed `main` anchor is deliberately let through: the Conversation lives
    inside it, and the rule below then hides whichever entry is NOT the chat. */
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'] > :not([data-dsh-imagegen-view]):not([data-slot='conversation']):not([data-slot='main']):not([data-dsh-imagegen-chat-resizer]),
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-imagegen-center-col] > :not([data-dsh-imagegen-view]):not([data-slot='conversation']):not([data-slot='main']):not([data-dsh-imagegen-chat-resizer]) {
+html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'] > :not([data-dsh-taichi-imagegen-view]):not([data-slot='conversation']):not([data-slot='main']):not([data-dsh-taichi-imagegen-chat-resizer]),
+html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-taichi-imagegen-center-col] > :not([data-dsh-taichi-imagegen-view]):not([data-slot='conversation']):not([data-slot='main']):not([data-dsh-taichi-imagegen-chat-resizer]) {
   display: none !important;
 }
 
@@ -305,7 +305,7 @@ html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ss
    hides the conversation while the chat track stays an empty column. The frame
    is spared the same way as `main.conversation`; a real shell panel is still a
    direct child of `main` and still matches this rule. */
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main'] > :not([data-dsh-imagegen-view]):not([data-phase]):not([data-slot='main.conversation']):not([data-slot='desktop.workbench.frame']) {
+html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main'] > :not([data-dsh-taichi-imagegen-view]):not([data-phase]):not([data-slot='main.conversation']):not([data-slot='desktop.workbench.frame']) {
   display: none !important;
 }
 
@@ -318,7 +318,7 @@ html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ss
    fully intact, instead of losing whole rows to a rule it cannot satisfy.
    Windows titlebar shells are that case — they do not render the brand row —
    so the session chrome below is hidden by its own seats, not by this rule. */
-html[data-dsh-imagegen-active] [data-dsh-imagegen-sidebar-root][data-dsh-imagegen-shell-blocks] > :not([data-dsh-imagegen-session-tabs]):not([data-dsh-imagegen-sidebar-block]) {
+html[data-dsh-taichi-imagegen-active] [data-dsh-taichi-imagegen-sidebar-root][data-dsh-taichi-imagegen-shell-blocks] > :not([data-dsh-taichi-imagegen-session-tabs]):not([data-dsh-taichi-imagegen-sidebar-block]) {
   display: none !important;
 }
 
@@ -327,9 +327,9 @@ html[data-dsh-imagegen-active] [data-dsh-imagegen-sidebar-root][data-dsh-imagege
    studio restores them, and they are hidden only while the studio is open.
    Slot anchors are `display: contents`; `!important` overrides that inline
    style so the contribution inside the anchor hides with it. */
-html[data-dsh-imagegen-active] [data-dsh-sidebar-new-session],
-html[data-dsh-imagegen-active] [data-slot='sidebar.quickSwitcher'],
-html[data-dsh-imagegen-active] [data-slot='sidebar.primaryNavigation'] {
+html[data-dsh-taichi-imagegen-active] [data-dsh-sidebar-new-session],
+html[data-dsh-taichi-imagegen-active] [data-slot='sidebar.quickSwitcher'],
+html[data-dsh-taichi-imagegen-active] [data-slot='sidebar.primaryNavigation'] {
   display: none !important;
 }
 
@@ -339,13 +339,13 @@ html[data-dsh-imagegen-active] [data-slot='sidebar.primaryNavigation'] {
    lives inside the region, next to the panel navigation inside the same
    container; hiding the navigation at its own level keeps both the header
    chrome and the history surface. */
-html[data-dsh-imagegen-active] [data-dsh-imagegen-sidebar-root][data-dsh-imagegen-shell-blocks] [data-dsh-imagegen-sidebar-hide] {
+html[data-dsh-taichi-imagegen-active] [data-dsh-taichi-imagegen-sidebar-root][data-dsh-taichi-imagegen-shell-blocks] [data-dsh-taichi-imagegen-sidebar-hide] {
   display: none !important;
 }
 
 @media (max-width: 760px) {
-  html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
-  html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-imagegen-center-col] {
+  html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
+  html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-taichi-imagegen-center-col] {
     grid-template-columns: minmax(0, 1fr);
     /* The chat row used to claim `minmax(340px, 0.9fr)` even when the chat was
        collapsed and nothing rendered in it. At 664×768 that left the studio
@@ -356,8 +356,8 @@ html[data-dsh-imagegen-active] [data-dsh-imagegen-sidebar-root][data-dsh-imagege
     overflow-y: auto;
   }
 
-  html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='conversation'],
-  html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main.conversation'] > [data-phase] {
+  html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='conversation'],
+  html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main.conversation'] > [data-phase] {
     grid-column: 1;
     grid-row: 2;
     min-height: 0;
@@ -365,11 +365,11 @@ html[data-dsh-imagegen-active] [data-dsh-imagegen-sidebar-root][data-dsh-imagege
 
   /* An open chat keeps a usable height without stealing the studio's; the
      studio keeps at least one screen's worth of the column. */
-  html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='conversation'] {
+  html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='conversation'] {
     min-height: min(340px, 45vh);
   }
 
-  html[data-dsh-imagegen-active] [data-dsh-imagegen-chat-resizer] {
+  html[data-dsh-taichi-imagegen-active] [data-dsh-taichi-imagegen-chat-resizer] {
     display: none !important;
   }
 }
@@ -451,7 +451,7 @@ html[data-dsh-imagegen-active] [data-dsh-imagegen-sidebar-root][data-dsh-imagege
    child instead. There is no New Session button to align with, so the inline
    inset `alignToSeat` writes is cleared here and the switcher spans the column;
    the 8px gap below is shared with the seated row. */
-.sessionTabs[data-dsh-imagegen-tabs-seat='top'] {
+.sessionTabs[data-dsh-taichi-imagegen-tabs-seat='top'] {
   margin-inline: 0 !important;
 }
 
@@ -525,14 +525,14 @@ html[data-dsh-imagegen-active] [data-dsh-imagegen-sidebar-root][data-dsh-imagege
    remaining column — otherwise it stops at the old tree height (~264px) and
    leaves the lower half of the sidebar blank (desktop and drawer alike). Only
    the active studio is touched: the session view keeps the shell's own rows. */
-html[data-dsh-imagegen-active] [data-dsh-imagegen-sidebar-root] [data-sidebar-scrollport] {
+html[data-dsh-taichi-imagegen-active] [data-dsh-taichi-imagegen-sidebar-root] [data-sidebar-scrollport] {
   grid-template-rows: 8px max-content 2px minmax(0, 1fr);
 }
 
 /* The history surface occupies the shell's workspace/session region while
    image generation is active. The shell's own tree stays mounted underneath
    so closing the tab restores it without a React remount. */
-[data-dsh-imagegen-sidebar-region] {
+[data-dsh-taichi-imagegen-sidebar-region] {
   position: relative;
   min-height: 0;
 }
@@ -555,7 +555,7 @@ html[data-dsh-imagegen-active] [data-dsh-imagegen-sidebar-root] [data-sidebar-sc
     linear-gradient(var(--dsw-alias-bg-layer-1, Canvas), var(--dsw-alias-bg-layer-1, Canvas));
 }
 
-html[data-dsh-imagegen-active] .sidebarHistoryHost {
+html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
   display: flex;
 }
 
@@ -625,7 +625,7 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
    ("a main panel whose content reaches the top-left corner pads by it so
    nothing lands under the lights or the controls"). 48px is the seat's own
    bottom edge plus a hair, and the value is the shell's, not a guess. */
-[data-platform='darwin'] [data-sidebar-collapsed] [data-dsh-imagegen-view] .panel {
+[data-platform='darwin'] [data-sidebar-collapsed] [data-dsh-taichi-imagegen-view] .panel {
   padding-top: calc(14px + var(--dsh-frame-top-clearance, 48px));
 }
 
@@ -921,7 +921,7 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
   gap: 12px;
   flex: none;
   position: relative;
-  width: clamp(240px, var(--dsh-imagegen-config-width, 300px), 480px);
+  width: clamp(240px, var(--dsh-taichi-imagegen-config-width, 300px), 480px);
   min-width: 240px;
   max-width: 480px;
   height: 100%;
@@ -2448,8 +2448,8 @@ html[data-dsh-imagegen-active] .sidebarHistoryHost {
 }
 
 /* Drop the conversation column entirely while the chat toggle is collapsed. */
-html[data-dsh-imagegen-chat-collapsed][data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
-html[data-dsh-imagegen-chat-collapsed][data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-imagegen-center-col] {
+html[data-dsh-taichi-imagegen-chat-collapsed][data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
+html[data-dsh-taichi-imagegen-chat-collapsed][data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-taichi-imagegen-center-col] {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -2457,12 +2457,12 @@ html[data-dsh-imagegen-chat-collapsed][data-dsh-imagegen-active]:not([data-dsh-t
    generations are hidden here: the legacy slot anchor, and the 0.1.5+ slot
    pair's Conversation root (its `display: contents` anchors draw nothing on
    their own). This must out-specify the base chat-track placement. */
-html[data-dsh-imagegen-chat-collapsed][data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='conversation'],
-html[data-dsh-imagegen-chat-collapsed][data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main.conversation'] > [data-phase] {
+html[data-dsh-taichi-imagegen-chat-collapsed][data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='conversation'],
+html[data-dsh-taichi-imagegen-chat-collapsed][data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main.conversation'] > [data-phase] {
   display: none !important;
 }
 
-html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
+html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-resizer] {
   display: none !important;
 }
 
@@ -4522,16 +4522,16 @@ a.galleryCardAction {
  *    panel reserves the corner row for it (it was painted under the panel).
  */
 @media (max-width: 760px) {
-  html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
-  html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-imagegen-center-col] {
+  html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
+  html[data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-taichi-imagegen-center-col] {
     grid-template-rows: minmax(0, 1fr) minmax(min(340px, 45vh), 45vh);
   }
 
-  html[data-dsh-imagegen-chat-collapsed][data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
-  html[data-dsh-imagegen-chat-collapsed][data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-imagegen-center-col] {
+  html[data-dsh-taichi-imagegen-chat-collapsed][data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-pane='conversation'],
+  html[data-dsh-taichi-imagegen-chat-collapsed][data-dsh-taichi-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-dsh-taichi-imagegen-center-col] {
     grid-template-rows: minmax(0, 1fr) 0px;
   }
-  html[data-dsh-imagegen-chat-collapsed][data-dsh-imagegen-active] [data-slot='conversation'] { display: none; }
+  html[data-dsh-taichi-imagegen-chat-collapsed][data-dsh-taichi-imagegen-active] [data-slot='conversation'] { display: none; }
 
   .panelHeader {
     flex-wrap: wrap;
@@ -4563,15 +4563,15 @@ a.galleryCardAction {
    * (z 60) paints over it. The seat itself is absolutely positioned at z 15,
    * so the button's own z-index cannot escape that stacking context — lift
    * the seat (:has over the stable shell slot) and reserve the corner row. */
-  html[data-dsh-imagegen-active] [data-sidebar-opener='true'] {
+  html[data-dsh-taichi-imagegen-active] [data-sidebar-opener='true'] {
     position: relative;
     z-index: var(--z-shell-seat);
   }
-  html[data-dsh-imagegen-active] div:has(> [data-slot='shell.leading']) { z-index: var(--z-shell-seat); }
-  html[data-dsh-imagegen-active] .panel { padding-top: 46px; }
+  html[data-dsh-taichi-imagegen-active] div:has(> [data-slot='shell.leading']) { z-index: var(--z-shell-seat); }
+  html[data-dsh-taichi-imagegen-active] .panel { padding-top: 46px; }
 }
 
-/* dsh-imagegen-mobile-9 (canvas fills the studio): the ≤760px studio is the
+/* dsh-taichi-imagegen-mobile-9 (canvas fills the studio): the ≤760px studio is the
  * scrollport and the canvas/ppt generation block was sized height:auto with a
  * 560px floor, so on an ~874px phone the canvas stopped ~180px short of the
  * panel bottom and that strip stayed dead blank below the dock. These two

@@ -8,7 +8,7 @@ describe('application menu', () => {
     expect(updateMenuLabel('zh-CN')).toBe('检查更新…')
     expect(updateMenuLabel('en-US')).toBe('Check for Updates…')
     expect(aboutMenuLabel('zh-CN')).toBe('关于 太极-dsh')
-    expect(aboutMenuLabel('en-US')).toBe('About taichi-dsh')
+    expect(aboutMenuLabel('en-US')).toBe('About 太极-dsh')
     expect(safeModeMenuLabel('zh-CN')).toBe('以安全模式重启…')
     expect(safeModeMenuLabel('en-US')).toBe('Restart as Safe Mode…')
     expect(aboutUsesPage('dsh-app://app/', 'dsh-app')).toBe(true)
@@ -43,7 +43,7 @@ describe('application menu', () => {
       quit
     })
     const submenu = menu[0]?.submenu ?? []
-    expect(submenu[0]?.label).toBe(locale.startsWith('zh') ? '关于 太极-dsh' : 'About taichi-dsh')
+    expect(submenu[0]?.label).toBe(locale.startsWith('zh') ? '关于 太极-dsh' : 'About 太极-dsh')
     expect(submenu[1]?.label).toBe(locale.startsWith('zh') ? '检查更新…' : 'Check for Updates…')
     expect(submenu[1]?.accelerator).toBe('CmdOrCtrl+U')
     expect(submenu.map(item => item.label)).not.toContain(locale.startsWith('zh') ? '了解企业版' : 'Explore Enterprise')

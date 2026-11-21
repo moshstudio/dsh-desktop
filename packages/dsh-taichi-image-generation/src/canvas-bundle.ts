@@ -22,15 +22,21 @@
 import type { CanvasDocument, CanvasNode } from './protocol.ts'
 
 /** Marker written into every bundle; a file without it is not ours. */
-export const CANVAS_BUNDLE_FORMAT = 'dsh-imagegen-canvas-bundle'
+export const CANVAS_BUNDLE_FORMAT = 'dsh-taichi-imagegen-canvas-bundle'
+/** Bundles exported before the format id was split from the original plugin. */
+const LEGACY_CANVAS_BUNDLE_FORMAT = 'dsh-imagegen-canvas-bundle'
+
+function isCanvasBundleFormat(value: unknown): boolean {
+  return value === CANVAS_BUNDLE_FORMAT || value === LEGACY_CANVAS_BUNDLE_FORMAT
+}
 
 /** Bundle schema version. Bumped only when an older importer would misread one. */
 export const CANVAS_BUNDLE_VERSION = 1
 
 /** Routes serving bundle export/import (client and host agree through these). */
 export const CANVAS_BUNDLE_API = {
-  export: '/api/dsh-imagegen/canvas/bundle/export',
-  import: '/api/dsh-imagegen/canvas/bundle/import',
+  export: '/api/dsh-taichi-imagegen/canvas/bundle/export',
+  import: '/api/dsh-taichi-imagegen/canvas/bundle/import',
 } as const
 
 /**
@@ -348,7 +354,7 @@ function fail(code: string, message: string): CanvasBundleParseResult {
 export function parseCanvasBundle(value: unknown): CanvasBundleParseResult {
   if (value === null || typeof value !== 'object') return fail('bad-bundle', '这不是一个画布文件')
   const bundle = value as Record<string, unknown>
-  if (bundle.format !== CANVAS_BUNDLE_FORMAT) return fail('bad-format', '这不是本插件导出的画布文件')
+  if (!isCanvasBundleFormat(bundle.format)) return fail('bad-format', '这不是本插件导出的画布文件')
   if (bundle.version !== CANVAS_BUNDLE_VERSION) {
     return fail('unsupported-version', `画布文件版本 ${String(bundle.version)} 不受支持，请升级插件后再导入`)
   }

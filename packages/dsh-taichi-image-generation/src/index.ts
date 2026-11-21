@@ -1,7 +1,7 @@
 /**
- * dsh-imagegen — host half. Mounts the plugin's settings section (channels
+ * dsh-taichi-imagegen — host half. Mounts the plugin's settings section (channels
  * with per-channel model catalogs on the host settings seam), the
- * /api/dsh-imagegen route family (loopback-only settings bridge + presets /
+ * /api/dsh-taichi-imagegen route family (loopback-only settings bridge + presets /
  * usage / image-generation proxy that keeps every API key host-side), and a
  * system-prompt announcement. The browser half (./client) renders the sidebar
  * entry and the split-pane generation studio.
@@ -43,7 +43,7 @@ import { setStorageSyncHandler, putObject, type StorageSyncConfig } from './stor
  */
 interface CanvasSkillAgent {
   readonly session: { deriveMessages: () => readonly unknown[]; readonly seq?: number; eventAt?: (seq: number) => unknown }
-  followup: (message: { id: string; role: 'user'; content: Array<{ type: 'text'; text: string }>; source: { kind: 'plugin:dsh-imagegen' } }) => void
+  followup: (message: { id: string; role: 'user'; content: Array<{ type: 'text'; text: string }>; source: { kind: 'plugin:dsh-taichi-imagegen' } }) => void
   whenIdle: () => Promise<void>
   /** Durable cancellation cause; `user` is the canvas cancel button. */
   cancel: (cause: { kind: 'user' }) => void
@@ -198,7 +198,7 @@ export async function createCanvasSkillAgent(options: CanvasSkillAgentOptions): 
       // registered, so the body never shadows the composition it runs inside.
       if (options.presets !== undefined && presetId !== undefined) await options.presets.mount(agentCtx, presetId)
       agentCtx.systemPrompt.section({
-        name: 'plugin:dsh-imagegen:canvas-skill',
+        name: 'plugin:dsh-taichi-imagegen:canvas-skill',
         order: SECTION_ORDER,
         text: options.systemPrompt,
       })
@@ -212,7 +212,7 @@ export async function createCanvasSkillAgent(options: CanvasSkillAgentOptions): 
         id: `canvas-skill-${Date.now().toString(36)}`,
         role: 'user',
         content: [{ type: 'text', text: body }],
-        source: { kind: 'plugin:dsh-imagegen' },
+        source: { kind: 'plugin:dsh-taichi-imagegen' },
       })
     },
     whenIdle: async () => {
@@ -331,7 +331,7 @@ import { canvasStore } from './canvas-store.ts'
 import { imageGenLanguageOf, interpolate } from './locale-tables.ts'
 
 /** Stable cordis plugin name. */
-export const name = 'imagegen'
+export const name = 'taichi-imagegen'
 
 /** Services required before the surfaces can mount. */
 export const inject = ['webServer', 'systemPrompt', 'commands']
@@ -427,7 +427,7 @@ export interface Config {
   storageEndpoint?: string
   /** Provider region for SigV4 scope, e.g. ap-guangzhou / oss-cn-hangzhou. */
   storageRegion?: string
-  /** Object key prefix, default 'dsh-imagegen'. */
+  /** Object key prefix, default 'dsh-taichi-imagegen'. */
   storagePrefix?: string
   /** S3 access key id. */
   storageAccessKey?: string
@@ -508,7 +508,7 @@ const configSchema = z.object({
   storageEnabled: z.boolean().default(false).volatile(),
   storageEndpoint: z.string().default('').volatile(),
   storageRegion: z.string().default('').volatile(),
-  storagePrefix: z.string().default('dsh-imagegen').volatile(),
+  storagePrefix: z.string().default('dsh-taichi-imagegen').volatile(),
   storageAccessKey: z.string().default('').volatile(),
   storageSecretKey: z.string().role('secret').default('').volatile(),
   storageSyncGallery: z.boolean().default(true).volatile(),
@@ -580,6 +580,15 @@ function catalogGuidance(): string {
 }
 
 const SIGN_IN_GUIDANCE = '使用图像和视频前需要先登录。请告诉用户：请先登录后再使用。'
+const LEGACY_STORAGE_PREFIX = 'dsh-imagegen'
+const DEFAULT_STORAGE_PREFIX = 'dsh-taichi-imagegen'
+
+/** Keep a saved copy of the original plugin's default prefix from writing the same object keys. */
+function storagePrefixOf(value: unknown): string {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  if (trimmed === '' || trimmed === LEGACY_STORAGE_PREFIX) return DEFAULT_STORAGE_PREFIX
+  return trimmed
+}
 
 /** Append the live model list so an Agent can honor user choices. */
 function guidanceFor(channels: RuntimeChannel[], defaultChannelId: string, defaultModel: string, defaultVideoModel = ''): string {
@@ -588,7 +597,7 @@ function guidanceFor(channels: RuntimeChannel[], defaultChannelId: string, defau
     const names = taichi.models.map(model => model.alias).join('、')
     if (taichi.apiKey === '' || names === '') return SIGN_IN_GUIDANCE
     const fallback = defaultModel || names.split('、')[0]
-    return `使用图像和视频前需要先登录。可用生图模型：${names}。未指定模型时使用「${fallback}」。generate_image 做文生图；edit_image 带一张参考图做改图。工作台和画布可以在同一次请求里提交多张参考图。比例、清晰度、渲染质量、背景和输出格式只用该模型列出的选项。${catalogGuidance()}`
+    return `使用图像和视频前需要先登录。可用生图模型：${names}。未指定模型时使用「${fallback}」。taichi_generate_image 做文生图；taichi_edit_image 带一张参考图做改图。工作台和画布可以在同一次请求里提交多张参考图。比例、清晰度、渲染质量、背景和输出格式只用该模型列出的选项。${catalogGuidance()}`
   }
   if (channels.length === 0) return SIGN_IN_GUIDANCE
   const table = channels.map(channel => {
@@ -747,7 +756,7 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
         region: typeof value.storageRegion === 'string' ? value.storageRegion.trim() : '',
         accessKey: typeof value.storageAccessKey === 'string' ? value.storageAccessKey.trim() : '',
         secretKey: typeof value.storageSecretKey === 'string' ? value.storageSecretKey.trim() : '',
-        prefix: typeof value.storagePrefix === 'string' && value.storagePrefix.trim() !== '' ? value.storagePrefix.trim() : 'dsh-imagegen',
+        prefix: storagePrefixOf(value.storagePrefix),
         syncGallery: value.storageSyncGallery ?? true,
         syncHistory: value.storageSyncHistory ?? false,
       },
@@ -794,7 +803,7 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
   })
 
   return () => setStorageSyncHandler(undefined)
-  }, 'dsh-imagegen: storage sync')
+  }, 'dsh-taichi-imagegen: storage sync')
   })
 
   // Browser endpoints and Agent tools share the exact same serial queue. This
@@ -1136,7 +1145,7 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
         },
       })
       return () => { skillRunner?.attach({}); hostServices = undefined }
-    }, 'dsh-imagegen: canvas skills')
+    }, 'dsh-taichi-imagegen: canvas skills')
     void unregister
   })
 
@@ -1188,7 +1197,7 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
         const disposeRoutes = sctx.provide(ROUTE_SERVICE, { routes })
         const disposers = routes.filter(route => routeComponent(route.path) === 'core').map(route => sctx.webServer.register(route))
         return () => { disposeRoutes(); for (const dispose of disposers) dispose() }
-      }, 'dsh-imagegen: core routes',
+      }, 'dsh-taichi-imagegen: core routes',
     )
   })
 
@@ -1213,7 +1222,7 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
           clearInterval(syncTimer)
         }
       },
-      'dsh-imagegen: template sync',
+      'dsh-taichi-imagegen: template sync',
     )
   })
 
@@ -1260,7 +1269,7 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
         disposeCommand()
         disposeTools()
       }
-    }, 'dsh-imagegen: ' + feature + ' agent tools')
+    }, 'dsh-taichi-imagegen: ' + feature + ' agent tools')
   })
 
   })
@@ -1278,7 +1287,7 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
     const value = resolve()
     if (!value.enabled || !value.announceToAgent) return
     disposeSection = ctx.systemPrompt.section({
-      name: 'plugin:dsh-imagegen',
+      name: 'plugin:dsh-taichi-imagegen',
       order: SECTION_ORDER,
       text: guidanceFor(value.channels, value.defaultChannelId, value.defaultModel, value.defaultVideoModel),
     })

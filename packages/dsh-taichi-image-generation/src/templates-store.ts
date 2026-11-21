@@ -16,8 +16,8 @@
  * <data root>/template-images/<sourceId>/, and served from there on every
  * later view.
  *
- * `<data root>` is `imageDataRoot()`, i.e. `$DSH_HOME/dsh-imagegen` (defaulting
- * to `~/.dsh/dsh-imagegen`) unless the plugin's `localStoragePath` setting
+ * `<data root>` is `imageDataRoot()`, i.e. `$DSH_HOME/dsh-taichi-imagegen` (defaulting
+ * to `~/.dsh/dsh-taichi-imagegen`) unless the plugin's `localStoragePath` setting
  * overrides it. Every path below is resolved per call rather than captured at
  * import time: the host applies that setting while resolving the plugin, which
  * happens after this module is loaded.
@@ -146,7 +146,7 @@ const CATEGORY_ZH: Record<string, string> = {
  * The host calls `setImageDataRoot()` while it resolves the plugin (honouring
  * `DSH_HOME` and the profile's `localStoragePath`), which happens *after* this
  * module is evaluated. A module-level constant would therefore capture the
- * default `~/.dsh/dsh-imagegen` and then disagree with history, gallery, video
+ * default `~/.dsh/dsh-taichi-imagegen` and then disagree with history, gallery, video
  * and canvas — which read `imageDataRoot()` per call — about where the user's
  * data lives.
  */

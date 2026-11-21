@@ -71,9 +71,9 @@ describe('desktop update presentation at the IPC boundary', () => {
     expect(ui.shadow.querySelector('.primary')?.textContent).toBe('更新')
     ui.showAbout()
     ipc.handlers.get('desktop:ui-locale')?.({}, 'fr')
-    expect(ui.aboutShadow.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('À propos de taichi-dsh')
+    expect(ui.aboutShadow.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('À propos de 太极-dsh')
     expect(ui.aboutShadow.querySelector('.version-switch')?.textContent).toBe('Changer de version')
-    expect(ui.aboutShadow.querySelector('.tooltip')?.textContent).toBe('Harness est mis à jour avec taichi-dsh.')
+    expect(ui.aboutShadow.querySelector('.tooltip')?.textContent).toBe('Harness est mis à jour avec 太极-dsh.')
   })
   it('translates a missing Harness version at render time when About changes language', async () => {
     const ui = await mount(Promise.resolve(status('idle', { manual: false })))

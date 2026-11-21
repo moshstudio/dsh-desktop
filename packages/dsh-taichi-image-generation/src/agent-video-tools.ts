@@ -172,7 +172,7 @@ export function waitForAgentVideoTask(runtime: ImageGenerationRuntime, id: strin
     if (settled) return
     unsubscribe = runtime.videoQueue.subscribe(task => { if (task.id === id) inspect() })
     timer = setTimeout(() => {
-      reject(new VideoGenError(`Video generation did not finish within ${Math.round(AGENT_VIDEO_TIMEOUT_MS / 60_000)} minutes. The task is still running on the host; query it again with get_video_generation_task.`, 'video-timeout'))
+      reject(new VideoGenError(`Video generation did not finish within ${Math.round(AGENT_VIDEO_TIMEOUT_MS / 60_000)} minutes. The task is still running on the host; query it again with taichi_get_video_generation_task.`, 'video-timeout'))
     }, AGENT_VIDEO_TIMEOUT_MS)
   })
 }
@@ -258,8 +258,8 @@ export function registerAgentVideoTools(ctx: Context, runtime: ImageGenerationRu
 
   const disposers = [
     ctx.tools.register(defineTool({
-      name: 'generate_video',
-      description: 'Generate a video (text-to-video). The user must be signed in first; if they are not, tell them to sign in and do not describe the service. Video rendering is asynchronous and usually takes several minutes, so by default this tool call stays pending until the task settles; set wait_for_completion to false for background mode and then use get_video_generation_task. The finished clip is saved as a file on the host and returned as a same-origin URL (it is never attached to the conversation). Omit model to use the configured default video model.',
+      name: 'taichi_generate_video',
+      description: 'Generate a video (text-to-video). The user must be signed in first; if they are not, tell them to sign in and do not describe the service. Video rendering is asynchronous and usually takes several minutes, so by default this tool call stays pending until the task settles; set wait_for_completion to false for background mode and then use taichi_get_video_generation_task. The finished clip is saved as a file on the host and returned as a same-origin URL (it is never attached to the conversation). Omit model to use the configured default video model.',
       parameters: {
         prompt: { type: 'string', required: true, description: 'Detailed video prompt: subject, action, camera movement, lighting and mood.' },
         model: { type: 'string', description: 'One of the configured video models. Defaults to the configured default video model.' },
@@ -281,8 +281,8 @@ export function registerAgentVideoTools(ctx: Context, runtime: ImageGenerationRu
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'generate_video_from_image',
-      description: 'Generate a video from reference image(s). The user must be signed in first; if they are not, tell them to sign in and do not describe the service. Use mode "image" for one reference frame, "keyframe" for first/last-frame interpolation, or "reference" for one or more style/subject references. Reference images must be image references returned by a completed generation or get_video_generation_task; pass that entire object unchanged. Rendering is asynchronous and usually takes minutes; by default this tool call stays pending until the task settles.',
+      name: 'taichi_generate_video_from_image',
+      description: 'Generate a video from reference image(s). The user must be signed in first; if they are not, tell them to sign in and do not describe the service. Use mode "image" for one reference frame, "keyframe" for first/last-frame interpolation, or "reference" for one or more style/subject references. Reference images must be image references returned by a completed generation or taichi_get_video_generation_task; pass that entire object unchanged. Rendering is asynchronous and usually takes minutes; by default this tool call stays pending until the task settles.',
       parameters: {
         prompt: { type: 'string', required: true, description: 'Detailed video prompt describing the motion and mood.' },
         mode: { type: 'string', required: true, description: 'image (one reference), keyframe (first/last frame) or reference (multiple references).' },
@@ -327,9 +327,9 @@ export function registerAgentVideoTools(ctx: Context, runtime: ImageGenerationRu
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'get_video_generation_task',
+      name: 'taichi_get_video_generation_task',
       description: 'Check a video-generation task status. Completed tasks return the served clip URL. Video renders usually take several minutes, so use this for polling or recovery instead of re-submitting; do not poll in a tight loop.',
-      parameters: { task_id: { type: 'string', required: true, description: 'Task id returned by generate_video or generate_video_from_image.' } },
+      parameters: { task_id: { type: 'string', required: true, description: 'Task id returned by taichi_generate_video or taichi_generate_video_from_image.' } },
       output: {
         schema: videoTaskResultSchema,
         render: (_args, value) => renderVideoTaskResult(value),
@@ -340,9 +340,9 @@ export function registerAgentVideoTools(ctx: Context, runtime: ImageGenerationRu
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'cancel_video_generation_task',
+      name: 'taichi_cancel_video_generation_task',
       description: 'Cancel a queued or running video generation task.',
-      parameters: { task_id: { type: 'string', required: true, description: 'Task id returned by generate_video or generate_video_from_image.' } },
+      parameters: { task_id: { type: 'string', required: true, description: 'Task id returned by taichi_generate_video or taichi_generate_video_from_image.' } },
       output: {
         schema: videoTaskResultSchema,
         render: (_args, value) => renderVideoTaskResult(value),
@@ -361,7 +361,7 @@ export function registerAgentVideoTools(ctx: Context, runtime: ImageGenerationRu
 }
 
 /** Tool names this module registers (used by the host to gate announcements). */
-export const AGENT_VIDEO_TOOL_NAMES = ['generate_video', 'generate_video_from_image', 'get_video_generation_task', 'cancel_video_generation_task'] as const
+export const AGENT_VIDEO_TOOL_NAMES = ['taichi_generate_video', 'taichi_generate_video_from_image', 'taichi_get_video_generation_task', 'taichi_cancel_video_generation_task'] as const
 
 
 /** Whether a media type is one the host accepts as a reference frame. */

@@ -1,6 +1,6 @@
 /**
  * Host-persisted gallery (user-curated favorites): mirrors the history store
- * (image files + an index.json under ~/.dsh/dsh-imagegen/gallery/) but with no
+ * (image files + an index.json under ~/.dsh/dsh-taichi-imagegen/gallery/) but with no
  * size cap — every entry is an explicit user choice. Appends are deduplicated
  * by image content so adding the same generated image twice is a no-op.
  *
@@ -295,7 +295,7 @@ function toWire(entry: StoredEntry): HistoryEntry {
     detail: entry.detail,
     n: entry.n,
     images: entry.images.map(image => ({
-      url: `/api/dsh-imagegen/gallery/image/${image.file}`,
+      url: `/api/dsh-taichi-imagegen/gallery/image/${image.file}`,
       mime: image.mime,
       ...image.revisedPrompt === undefined ? {} : { revisedPrompt: image.revisedPrompt },
     })),

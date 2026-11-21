@@ -2,7 +2,7 @@
  * Favorites store for the prompt-template library.
  *
  * The user's starred templates persist host-side as full case snapshots under
- * ~/.dsh/dsh-imagegen/templates/favorites.json, keyed by
+ * ~/.dsh/dsh-taichi-imagegen/templates/favorites.json, keyed by
  * `${sourceId}:${caseId}` — the snapshot means a favorite stays usable even
  * after the upstream list drops or renumbers the case. Framework-free
  * (node:fs only) so the route layer and tests can drive it directly.
@@ -16,7 +16,7 @@ import { isTemplateSourceId, type TemplateCase, type TemplateFavorite } from './
 /**
  * Resolved lazily on every use: the host calls `setImageDataRoot()` while
  * resolving the plugin, after this module is evaluated, so a module-level
- * constant would keep pointing at the default `~/.dsh/dsh-imagegen` even when
+ * constant would keep pointing at the default `~/.dsh/dsh-taichi-imagegen` even when
  * the profile stores its data elsewhere.
  */
 function favoritesPath(): string { return path.join(imageDataRoot(), 'templates', 'favorites.json') }

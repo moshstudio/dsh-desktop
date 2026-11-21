@@ -75,7 +75,7 @@ const clip = (id, extra = {}) => node({
   id,
   metadata: {
     status: 'success',
-    video: { url: `/api/dsh-imagegen/videos/file/${id}.mp4`, mime: 'video/mp4', duration: 5, entryId: `entry-${id}` },
+    video: { url: `/api/dsh-taichi-imagegen/videos/file/${id}.mp4`, mime: 'video/mp4', duration: 5, entryId: `entry-${id}` },
     ...extra,
   },
 })
@@ -340,7 +340,7 @@ await check('P7 a carry re-run invalidates every downstream clip, after a succes
   assert.deepEqual(state.storyboardClipIds(next, landed), ['c1'], 'an invalidated clip is not handed to the stitch')
   // The file itself is kept: invalid is not the same as deleted, the user may
   // still want to watch that take.
-  assert.equal(afterSubmit[1].metadata.video.url, '/api/dsh-imagegen/videos/file/c2.mp4', 'the old clip stays on the node')
+  assert.equal(afterSubmit[1].metadata.video.url, '/api/dsh-taichi-imagegen/videos/file/c2.mp4', 'the old clip stays on the node')
   assert.equal(board.shots[1].stale, undefined, 'the input board is not mutated')
 
   // A downstream shot that never produced anything has nothing to invalidate;

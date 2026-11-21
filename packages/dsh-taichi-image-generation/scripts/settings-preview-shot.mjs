@@ -179,7 +179,7 @@ const server = createServer((request, response) => {
     createReadStream(BUNDLE).pipe(response)
     return
   }
-  if (url === '/api/dsh-imagegen/presets') {
+  if (url === '/api/dsh-taichi-imagegen/presets') {
     response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
     response.end(JSON.stringify({ ok: true, presets: PRESETS }))
     return
@@ -232,11 +232,11 @@ const shoot = async name => {
 
 try {
   await page.send('Page.enable', {})
-  await waitFor('document.querySelector("[data-dsh-imagegen-settings-panel]") !== null', 'the settings card')
+  await waitFor('document.querySelector("[data-dsh-taichi-imagegen-settings-panel]") !== null', 'the settings card')
   await waitFor('document.fonts.status === "loaded"', 'fonts')
 
   const audit = await page.evaluate(`(() => {
-    const card = document.querySelector('[data-dsh-imagegen-settings-panel]')
+    const card = document.querySelector('[data-dsh-taichi-imagegen-settings-panel]')
     const pane = document.querySelector('.pane')
     const cr = card.getBoundingClientRect()
     const pr = pane.getBoundingClientRect()
@@ -278,7 +278,7 @@ try {
   await shoot('editor-video')
 
   await page.send('Page.navigate', { url: `http://127.0.0.1:${serverPort}/?state=new` })
-  await waitFor('document.querySelector("[data-dsh-imagegen-settings-panel]") !== null', 'the empty settings card')
+  await waitFor('document.querySelector("[data-dsh-taichi-imagegen-settings-panel]") !== null', 'the empty settings card')
   await waitFor('document.fonts.status === "loaded"', 'fonts after navigation')
   await shoot('new-user')
   const addService = await page.evaluate(`(() => {

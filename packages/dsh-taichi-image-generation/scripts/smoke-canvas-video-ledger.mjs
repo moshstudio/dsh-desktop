@@ -38,7 +38,7 @@ const historyEntry = (id, overrides = {}) => ({
   aspectRatio: '16:9',
   resolution: '768P',
   seconds: 10,
-  videos: [{ url: `/api/dsh-imagegen/video/file/${id}-0.mp4`, mime: 'video/mp4' }],
+  videos: [{ url: `/api/dsh-taichi-imagegen/video/file/${id}-0.mp4`, mime: 'video/mp4' }],
   ...overrides,
 })
 
@@ -82,7 +82,7 @@ check('L1 用户截图那一类：节点被判「丢失」但历史里有 lineag
   assert.equal(claims.length, 1, '有落盘归属的成片必须被认领')
   assert.equal(claims[0].nodeId, 'node-lost')
   assert.equal(claims[0].video.entryId, '6c9472d1')
-  assert.equal(claims[0].video.url, '/api/dsh-imagegen/video/file/6c9472d1-0.mp4')
+  assert.equal(claims[0].video.url, '/api/dsh-taichi-imagegen/video/file/6c9472d1-0.mp4')
 })
 
 check('L2 lineage 认领不依赖 prompt/model 是否对得上：归属是写下来的事实', () => {
@@ -171,7 +171,7 @@ check('L7 已经有片段的节点不被改写，它引用的历史也不再分�
       model: 'MiniMax-H3',
       videoMode: 'text',
       seconds: 5,
-      video: { url: '/api/dsh-imagegen/video/file/e1-0.mp4', mime: 'video/mp4', entryId: 'e1' },
+      video: { url: '/api/dsh-taichi-imagegen/video/file/e1-0.mp4', mime: 'video/mp4', entryId: 'e1' },
     }),
     videoNode('node-lost', {
       status: 'error', taskId: 't', prompt: '嗨', model: 'MiniMax-H3', videoMode: 'text', seconds: 5, error: LOST,

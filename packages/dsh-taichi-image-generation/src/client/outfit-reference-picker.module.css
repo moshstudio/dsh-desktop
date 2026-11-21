@@ -109,7 +109,7 @@
   .content { flex: none; height: min(290px, 46dvh); min-height: 240px; }
 }
 
-/* dsh-imagegen-mobile-8 (phone picker placeholder): in the ≤680px stacked
+/* dsh-taichi-imagegen-mobile-8 (phone picker placeholder): in the ≤680px stacked
  * layout the detail pane shows only the “点选左侧素材…” placeholder until an
  * item is picked, yet its grid row still reserved minmax(160px, .9fr) — near
  * half the dialog as dead blank. While nothing is picked, collapse the pane
@@ -126,7 +126,7 @@
   .content[data-picker-state='empty'] { grid-template-rows: minmax(160px, 1fr); }
 }
 
-/* dsh-imagegen-mobile-10 (selected detail dominates): once an item is picked,
+/* dsh-taichi-imagegen-mobile-10 (selected detail dominates): once an item is picked,
  * the stacked ≤680px layout gave the detail row minmax(160px, .9fr) and its
  * meta text ate that height first — the garment preview rendered as a ~64px
  * thumbnail under a wall of text. Flip the emphasis while the preview image is

@@ -1,5 +1,5 @@
 /**
- * The dsh-imagegen settings card. The first screen is a three-step newcomer
+ * The dsh-taichi-imagegen settings card. The first screen is a three-step newcomer
  * path: connect a model service, choose the image and video catalogs
  * separately, then save. Professional options stay in the advanced block.
  * The service editor keeps the model-catalog alias → upstream mapping and
@@ -114,7 +114,7 @@ export class ImageGenSettingsCardController {
   private readonly form: CardForm<ImageGenSettings>
   private readonly channelsForm: ChannelsForm
 
-  /** @param scope - the bound bridge scope for the dsh-imagegen namespace. */
+  /** @param scope - the bound bridge scope for the dsh-taichi-imagegen namespace. */
   constructor(private readonly scope: ImageGenScope) {
     this.form = new CardForm(scope, [
       booleanField('enabled'),
@@ -191,7 +191,7 @@ export class ImageGenSettingsCardController {
       storageTest: async (): Promise<StorageTestOutcome> => {
         await this.form.save()
         try {
-          const response = await fetch('/api/dsh-imagegen/storage/test', { method: 'POST' })
+          const response = await fetch('/api/dsh-taichi-imagegen/storage/test', { method: 'POST' })
           const body = await response.json() as { ok?: unknown; ms?: unknown; message?: unknown }
           if (body.ok === true) return { ok: true, ms: typeof body.ms === 'number' ? body.ms : undefined }
           return { ok: false, message: typeof body.message === 'string' ? body.message : `HTTP ${response.status}` }
@@ -207,7 +207,7 @@ export class ImageGenSettingsCardController {
 /** Props the renderer binds for this Settings navigation section. */
 export type ImageGenSettingsSectionProps =
   PropsRuntime<'settings.section'>
-  & PropsLocale<'dsh-imagegen'>
+  & PropsLocale<'dsh-taichi-imagegen'>
   & InjectFace<ImageGenSettingsCardFace>
 
 /** Host-computed usage counters (generation-count badges). */
@@ -232,7 +232,7 @@ function SettingsSection(props: {
   onToggle: () => void
   children: ReactNode
 }) {
-  const contentId = `dsh-imagegen-settings-${props.id}`
+  const contentId = `dsh-taichi-imagegen-settings-${props.id}`
   return (
     <section className={css.settingsSection} data-open={props.expanded ? '' : undefined}>
       <button
@@ -563,7 +563,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
           ? t('channels.fixBeforeSave', { n: 0 })
           : `${t(`channels.${first.code}` as never)} · ${t('channels.fixBeforeSave', { n: list.length })}`,
       })
-      const fieldId = first?.field === 'apiUrl' ? `dsh-imagegen-channel-url-${channelId}` : `dsh-imagegen-channel-models-${channelId}`
+      const fieldId = first?.field === 'apiUrl' ? `dsh-taichi-imagegen-channel-url-${channelId}` : `dsh-taichi-imagegen-channel-models-${channelId}`
       const field = document.getElementById(fieldId)
       if (field !== null) {
         field.scrollIntoView?.({ block: 'center' })
@@ -592,7 +592,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
     return (
       <section
         className={css.card}
-        data-dsh-imagegen-settings-panel
+        data-dsh-taichi-imagegen-settings-panel
         role="dialog"
         aria-modal="true"
         aria-label={t('settings.title')}
@@ -712,7 +712,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
   return (
     <section
       className={css.card}
-      data-dsh-imagegen-settings-panel
+      data-dsh-taichi-imagegen-settings-panel
       role="dialog"
       aria-modal="true"
       aria-label={t('settings.title')}
@@ -736,11 +736,11 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
           <div className={css.body}>
             {!state.writable ? <p className={css.readOnly} role="status">{t('settings.readOnly')}</p> : null}
 
-            <section className={css.quickSetup} aria-labelledby="dsh-imagegen-quick-start-title">
+            <section className={css.quickSetup} aria-labelledby="dsh-taichi-imagegen-quick-start-title">
               <header className={css.quickHead}>
                 <div className={css.quickHeadText}>
                   <span className={css.quickEyebrow}>{t('settings.quickStart')}</span>
-                  <h3 id="dsh-imagegen-quick-start-title" className={css.quickTitle}>{t('settings.quickStartTitle')}</h3>
+                  <h3 id="dsh-taichi-imagegen-quick-start-title" className={css.quickTitle}>{t('settings.quickStartTitle')}</h3>
                   <p className={css.quickHint}>{t('settings.quickStartHint')}</p>
                 </div>
                 <span className={css.healthBadge} data-state={pluginEnabled && overallReady ? 'ready' : 'attention'}>
@@ -945,7 +945,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
                 type="button"
                 className={css.advancedToggle}
                 aria-expanded={advancedOpen}
-                aria-controls="dsh-imagegen-advanced-settings"
+                aria-controls="dsh-taichi-imagegen-advanced-settings"
                 onClick={() => { setAdvancedOpen(value => !value) }}
               >
                 <span className={css.advancedToggleText}>
@@ -957,7 +957,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
                   <span aria-hidden="true">{advancedOpen ? '⌃' : '⌄'}</span>
                 </span>
               </button>
-              {advancedOpen ? <div id="dsh-imagegen-advanced-settings" className={css.advancedContent}>
+              {advancedOpen ? <div id="dsh-taichi-imagegen-advanced-settings" className={css.advancedContent}>
             <SettingsSection
               id="prompt"
               title={t('settings.promptEnhanceTitle')}
@@ -1035,7 +1035,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
             </button>
             {promptApiOpen ? <div className={css.optionalContent}>
             <ValueField
-              id="dsh-imagegen-settings-prompt-apiurl"
+              id="dsh-taichi-imagegen-settings-prompt-apiurl"
               label={t('settings.promptApiUrl')}
               hint={t('settings.promptApiUrlHint')}
               placeholder="https://api.openai.com/v1"
@@ -1045,7 +1045,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('promptApiUrl') }}
             />
             <ValueField
-              id="dsh-imagegen-settings-prompt-apikey"
+              id="dsh-taichi-imagegen-settings-prompt-apikey"
               label={t('settings.promptApiKey')}
               hint={t('settings.promptApiKeyHint')}
               placeholder="sk-…"
@@ -1069,17 +1069,17 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onToggle={() => { setActiveSection(activeSection === 'storage' ? null : 'storage') }}
             >
             <ValueField
-              id="dsh-imagegen-settings-local-storage-path"
+              id="dsh-taichi-imagegen-settings-local-storage-path"
               label={t('settings.localStoragePath')}
               hint={t('settings.localStoragePathHint')}
-              placeholder="E:\\dsh-imagegen-data"
+              placeholder="E:\\dsh-taichi-imagegen-data"
               {...fieldProps}
               {...state.localStoragePath}
               onEdit={(text) => { props.edit('localStoragePath', text) }}
               onReset={() => { props.resetField('localStoragePath') }}
             />
             <BooleanField
-              id="dsh-imagegen-settings-storage-enabled"
+              id="dsh-taichi-imagegen-settings-storage-enabled"
               label={t('settings.storageEnabled')}
               hint={t('settings.storageHint')}
               inheritLabel={t('settings.inherit')}
@@ -1091,7 +1091,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('storageEnabled') }}
             />
             <ValueField
-              id="dsh-imagegen-settings-storage-endpoint"
+              id="dsh-taichi-imagegen-settings-storage-endpoint"
               label={t('settings.storageEndpoint')}
               hint={t('settings.storageEndpointHint')}
               placeholder="https://bucket-appid.cos.ap-guangzhou.myqcloud.com"
@@ -1101,7 +1101,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('storageEndpoint') }}
             />
             <ValueField
-              id="dsh-imagegen-settings-storage-region"
+              id="dsh-taichi-imagegen-settings-storage-region"
               label={t('settings.storageRegion')}
               hint={t('settings.storageRegionHint')}
               placeholder="ap-guangzhou"
@@ -1111,17 +1111,17 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('storageRegion') }}
             />
             <ValueField
-              id="dsh-imagegen-settings-storage-prefix"
+              id="dsh-taichi-imagegen-settings-storage-prefix"
               label={t('settings.storagePrefix')}
               hint={t('settings.storagePrefixHint')}
-              placeholder="dsh-imagegen"
+              placeholder="dsh-taichi-imagegen"
               {...fieldProps}
               {...state.storagePrefix}
               onEdit={(text) => { props.edit('storagePrefix', text) }}
               onReset={() => { props.resetField('storagePrefix') }}
             />
             <ValueField
-              id="dsh-imagegen-settings-storage-accesskey"
+              id="dsh-taichi-imagegen-settings-storage-accesskey"
               label={t('settings.storageAccessKey')}
               hint={t('settings.storageAccessKeyHint')}
               placeholder="AKID…"
@@ -1131,7 +1131,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('storageAccessKey') }}
             />
             <ValueField
-              id="dsh-imagegen-settings-storage-secretkey"
+              id="dsh-taichi-imagegen-settings-storage-secretkey"
               label={t('settings.storageSecretKey')}
               hint={t('settings.storageSecretKeyHint')}
               placeholder="…"
@@ -1143,7 +1143,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('storageSecretKey') }}
             />
             <BooleanField
-              id="dsh-imagegen-settings-storage-gallery"
+              id="dsh-taichi-imagegen-settings-storage-gallery"
               label={t('settings.storageSyncGallery')}
               hint={t('settings.storageSyncGalleryHint')}
               inheritLabel={t('settings.inherit')}
@@ -1155,7 +1155,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('storageSyncGallery') }}
             />
             <BooleanField
-              id="dsh-imagegen-settings-storage-history"
+              id="dsh-taichi-imagegen-settings-storage-history"
               label={t('settings.storageSyncHistory')}
               hint={t('settings.storageSyncHistoryHint')}
               inheritLabel={t('settings.inherit')}
@@ -1209,7 +1209,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onToggle={() => { setActiveSection(activeSection === 'skills' ? null : 'skills') }}
             >
             <BooleanField
-              id="dsh-imagegen-settings-skills-enabled"
+              id="dsh-taichi-imagegen-settings-skills-enabled"
               label={t('settings.skillsEnabled')}
               hint={t('settings.skillsEnabledHint')}
               inheritLabel={t('settings.inherit')}
@@ -1221,7 +1221,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('skillsEnabled') }}
             />
             <BooleanField
-              id="dsh-imagegen-settings-skills-heavy"
+              id="dsh-taichi-imagegen-settings-skills-heavy"
               label={t('settings.allowHeavySkills')}
               hint={t('settings.allowHeavySkillsHint')}
               inheritLabel={t('settings.inherit')}
@@ -1233,7 +1233,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('allowHeavySkills') }}
             />
             <ValueField
-              id="dsh-imagegen-settings-skills-allowlist"
+              id="dsh-taichi-imagegen-settings-skills-allowlist"
               label={t('settings.skillAllowlist')}
               hint={t('settings.skillAllowlistHint')}
               placeholder="extract-content, image-to-editable-ppt"
@@ -1243,7 +1243,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('skillAllowlist') }}
             />
             <ValueField
-              id="dsh-imagegen-settings-skills-output"
+              id="dsh-taichi-imagegen-settings-skills-output"
               label={t('settings.skillOutputDir')}
               hint={t('settings.skillOutputDirHint')}
               placeholder=""
@@ -1253,7 +1253,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('skillOutputDir') }}
             />
             <ValueField
-              id="dsh-imagegen-settings-skills-timeout"
+              id="dsh-taichi-imagegen-settings-skills-timeout"
               label={t('settings.skillHeavyTimeout')}
               hint={t('settings.skillHeavyTimeoutHint')}
               placeholder="20"
@@ -1263,7 +1263,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('skillHeavyTimeoutMinutes') }}
             />
             <ValueField
-              id="dsh-imagegen-settings-skills-preset"
+              id="dsh-taichi-imagegen-settings-skills-preset"
               label={t('settings.skillAgentPreset')}
               hint={t('settings.skillAgentPresetHint')}
               placeholder=""
@@ -1309,7 +1309,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onToggle={() => { setActiveSection(activeSection === 'general' ? null : 'general') }}
             >
             <BooleanField
-              id="dsh-imagegen-settings-enabled"
+              id="dsh-taichi-imagegen-settings-enabled"
               label={t('settings.enabled')}
               hint={t('settings.enabledHint')}
               inheritLabel={t('settings.inherit')}
@@ -1321,7 +1321,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('enabled') }}
             />
             <BooleanField
-              id="dsh-imagegen-settings-announce"
+              id="dsh-taichi-imagegen-settings-announce"
               label={t('settings.announceToAgent')}
               hint={t('settings.announceToAgentHint')}
               inheritLabel={t('settings.inherit')}
@@ -1333,7 +1333,7 @@ export function ImageGenSettingsSection(props: ImageGenSettingsSectionProps) {
               onReset={() => { props.resetField('announceToAgent') }}
             />
             <BooleanField
-              id="dsh-imagegen-settings-agent-generation"
+              id="dsh-taichi-imagegen-settings-agent-generation"
               label={t('settings.allowAgentImageGeneration')}
               hint={t('settings.allowAgentImageGenerationHint')}
               inheritLabel={t('settings.inherit')}
@@ -1844,18 +1844,18 @@ function ChannelEditor(props: {
           </div>
         </div>
         <div className={css.editorField}>
-          <label className={css.label} htmlFor="dsh-imagegen-channel-url">{t('channels.apiUrl')}</label>
-          <input id="dsh-imagegen-channel-url" data-channel-url={props.channel.id} aria-invalid={props.issues.some(issue => issue.field === 'apiUrl')} aria-describedby={props.issues.some(issue => issue.field === 'apiUrl') ? 'dsh-imagegen-channel-url-error' : undefined} className={css.input} value={channel.apiUrl} placeholder={channel.apiUrlFull ? 'https://api.example.com/v1/wand/si-image/generation' : 'https://api.example.com/v1'} disabled={!props.writable} onChange={event => {
+          <label className={css.label} htmlFor="dsh-taichi-imagegen-channel-url">{t('channels.apiUrl')}</label>
+          <input id="dsh-taichi-imagegen-channel-url" data-channel-url={props.channel.id} aria-invalid={props.issues.some(issue => issue.field === 'apiUrl')} aria-describedby={props.issues.some(issue => issue.field === 'apiUrl') ? 'dsh-taichi-imagegen-channel-url-error' : undefined} className={css.input} value={channel.apiUrl} placeholder={channel.apiUrlFull ? 'https://api.example.com/v1/wand/si-image/generation' : 'https://api.example.com/v1'} disabled={!props.writable} onChange={event => {
             const apiUrl = event.target.value
             props.onPatch({ apiUrl, ...isChatCompletionsUrl(apiUrl) ? { apiUrlFull: true } : {} })
           }} />
           {props.issues.filter(issue => issue.field === 'apiUrl').map(issue => (
-            <p key={issue.code} id="dsh-imagegen-channel-url-error" className={css.fieldError} role="alert">{t(`channels.${issue.code}` as never)}</p>
+            <p key={issue.code} id="dsh-taichi-imagegen-channel-url-error" className={css.fieldError} role="alert">{t(`channels.${issue.code}` as never)}</p>
           ))}
         </div>
         <div className={css.editorField}>
           <div className={css.head}>
-            <label className={css.label} htmlFor="dsh-imagegen-channel-key">{t('channels.apiKey')}</label>
+            <label className={css.label} htmlFor="dsh-taichi-imagegen-channel-key">{t('channels.apiKey')}</label>
             <div className={css.keyActions}>
               <span className={css.keyState} data-set={props.keyHeld || keyDraft !== '' ? '' : undefined}>
                 {props.keyHeld || keyDraft !== '' ? t('channels.keySet') : t('channels.keyMissing')}
@@ -1869,7 +1869,7 @@ function ChannelEditor(props: {
           </div>
           <div className={css.keyInputRow}>
             <Input
-              id="dsh-imagegen-channel-key"
+              id="dsh-taichi-imagegen-channel-key"
               className={css.control}
               type={showKey ? 'text' : 'password'}
               autoComplete="off"
@@ -1896,13 +1896,13 @@ function ChannelEditor(props: {
         {advancedOpen ? <div className={css.editorAdvancedFields}>
           <div className={css.editorGrid}>
             <div className={css.editorField}>
-              <label className={css.label} htmlFor="dsh-imagegen-channel-name">{t('channels.displayName')}</label>
-              <input id="dsh-imagegen-channel-name" className={css.input} value={channel.name} placeholder={t('channels.untitled')} disabled={!props.writable} onChange={event => { props.onPatch({ name: event.target.value }) }} />
+              <label className={css.label} htmlFor="dsh-taichi-imagegen-channel-name">{t('channels.displayName')}</label>
+              <input id="dsh-taichi-imagegen-channel-name" className={css.input} value={channel.name} placeholder={t('channels.untitled')} disabled={!props.writable} onChange={event => { props.onPatch({ name: event.target.value }) }} />
             </div>
             <div className={css.editorField}>
-              <label className={css.label} htmlFor="dsh-imagegen-channel-auth">{t('channels.authMode')}</label>
+              <label className={css.label} htmlFor="dsh-taichi-imagegen-channel-auth">{t('channels.authMode')}</label>
               <Select
-                id="dsh-imagegen-channel-auth"
+                id="dsh-taichi-imagegen-channel-auth"
                 className={css.select}
                 value={channel.auth ?? 'api-key'}
                 disabled={!props.writable}
@@ -1923,9 +1923,9 @@ function ChannelEditor(props: {
           </div>
           <div className={css.editorGrid}>
             <div className={css.editorField}>
-              <label className={css.label} htmlFor="dsh-imagegen-channel-protocol">{t('channels.protocol')}</label>
+              <label className={css.label} htmlFor="dsh-taichi-imagegen-channel-protocol">{t('channels.protocol')}</label>
               <Select
-                id="dsh-imagegen-channel-protocol"
+                id="dsh-taichi-imagegen-channel-protocol"
                 className={css.input}
                 value={channel.protocol ?? 'auto'}
                 disabled={!props.writable}
@@ -1959,12 +1959,12 @@ function ChannelEditor(props: {
             <p className={css.editorStageHint}>{t('channels.modelStepHint')}</p>
           </div>
         </div>
-        <div className={css.catalogTabs} id={`dsh-imagegen-channel-models-${props.channel.id}`} role="tablist" aria-label={t('channels.modelStep')} tabIndex={-1}>
+        <div className={css.catalogTabs} id={`dsh-taichi-imagegen-channel-models-${props.channel.id}`} role="tablist" aria-label={t('channels.modelStep')} tabIndex={-1}>
           <button
             type="button"
             role="tab"
-            id={`dsh-imagegen-model-tab-image-${props.channel.id}`}
-            aria-controls={`dsh-imagegen-model-panel-image-${props.channel.id}`}
+            id={`dsh-taichi-imagegen-model-tab-image-${props.channel.id}`}
+            aria-controls={`dsh-taichi-imagegen-model-panel-image-${props.channel.id}`}
             aria-selected={catalogTab === 'image'}
             data-active={catalogTab === 'image' ? '' : undefined}
             tabIndex={tabIndexFor(catalogTab === 'image')}
@@ -1977,8 +1977,8 @@ function ChannelEditor(props: {
           <button
             type="button"
             role="tab"
-            id={`dsh-imagegen-model-tab-video-${props.channel.id}`}
-            aria-controls={`dsh-imagegen-model-panel-video-${props.channel.id}`}
+            id={`dsh-taichi-imagegen-model-tab-video-${props.channel.id}`}
+            aria-controls={`dsh-taichi-imagegen-model-panel-video-${props.channel.id}`}
             aria-selected={catalogTab === 'video'}
             data-active={catalogTab === 'video' ? '' : undefined}
             tabIndex={tabIndexFor(catalogTab === 'video')}
@@ -1996,9 +1996,9 @@ function ChannelEditor(props: {
         {catalogTab === 'image' ? (
         <div
           className={css.modelCatalog}
-          id={`dsh-imagegen-model-panel-image-${props.channel.id}`}
+          id={`dsh-taichi-imagegen-model-panel-image-${props.channel.id}`}
           role="tabpanel"
-          aria-labelledby={`dsh-imagegen-model-tab-image-${props.channel.id}`}
+          aria-labelledby={`dsh-taichi-imagegen-model-tab-image-${props.channel.id}`}
         >
         <div className={css.editorSectionHeader}>
           <div>
@@ -2116,9 +2116,9 @@ function ChannelEditor(props: {
         ) : (
         <div
           className={css.modelCatalog}
-          id={`dsh-imagegen-model-panel-video-${props.channel.id}`}
+          id={`dsh-taichi-imagegen-model-panel-video-${props.channel.id}`}
           role="tabpanel"
-          aria-labelledby={`dsh-imagegen-model-tab-video-${props.channel.id}`}
+          aria-labelledby={`dsh-taichi-imagegen-model-tab-video-${props.channel.id}`}
         >
           <div className={css.editorSectionHeader}>
             <div>

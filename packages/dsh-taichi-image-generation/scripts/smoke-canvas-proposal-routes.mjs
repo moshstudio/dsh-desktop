@@ -45,10 +45,10 @@ for (const route of routes) {
   if (typeof route.path === 'string') byPath.set(route.path, route)
 }
 
-const LIST = '/api/dsh-imagegen/canvas/list'
-const PROPOSALS = '/api/dsh-imagegen/canvas/proposals'
-const ACCEPT = '/api/dsh-imagegen/canvas/proposal/accept'
-const DISCARD = '/api/dsh-imagegen/canvas/proposal/discard'
+const LIST = '/api/dsh-taichi-imagegen/canvas/list'
+const PROPOSALS = '/api/dsh-taichi-imagegen/canvas/proposals'
+const ACCEPT = '/api/dsh-taichi-imagegen/canvas/proposal/accept'
+const DISCARD = '/api/dsh-taichi-imagegen/canvas/proposal/discard'
 for (const path of [PROPOSALS, ACCEPT, DISCARD]) {
   if (!byPath.has(path)) {
     console.error(`FAIL: 路由表里没有 ${path}——端点没挂上，画布拿不到待确认的改动`)
@@ -118,8 +118,8 @@ const check = (name, fn) => checks.push({ name, fn })
 async function seed (title) {
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title }, {})
-  const view = await registered.get('add_canvas_node').execute({
+  const created = await registered.get('taichi_create_canvas').execute({ title }, {})
+  const view = await registered.get('taichi_add_canvas_node').execute({
     canvas_id: created.id, type: 'config', title: '出图', prompt: '凌晨的海面',
   }, {})
   return { canvasId: created.id, proposalId: view.proposalId, nodeId: view.nodes.find(node => node.title === '出图').id }
@@ -133,7 +133,7 @@ check('R1 list returns the pending change and nothing has been written', async (
   assert.equal(listed.ok, true, `list should succeed: ${JSON.stringify(listed)}`)
   assert.equal(listed.proposals.length, 1)
   assert.equal(listed.proposals[0].id, proposalId)
-  assert.equal(listed.proposals[0].tool, 'add_canvas_node')
+  assert.equal(listed.proposals[0].tool, 'taichi_add_canvas_node')
   assert.match(listed.proposals[0].summary, /节点/, 'the summary is user-facing copy, not a tool name')
   // 关键：列一次不该顺带落盘。
   assert.equal((await canvasStore.read(canvasId)).nodes.length, 0, 'listing must not touch the canvas')
@@ -195,12 +195,12 @@ check('R5 accepting one of several proposals does not invalidate the rest', asyn
   // `apply` 的增量语义 + `save(next, current.revision)` 的乐观锁分别负责。
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title: '三条' }, {})
-  let view = await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
+  const created = await registered.get('taichi_create_canvas').execute({ title: '三条' }, {})
+  let view = await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
   const a = view.nodes.find(node => node.title === 'A').id
-  view = await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: 'C' }, {})
+  view = await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: 'C' }, {})
   const c = view.nodes.find(node => node.title === 'C').id
-  await registered.get('connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: c }, {})
+  await registered.get('taichi_connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: c }, {})
 
   const pending = await post(PROPOSALS, { canvasId: created.id })
   assert.equal(pending.proposals.length, 3, 'three separate steps')
@@ -225,8 +225,8 @@ check('R5b a user edit made after the proposal is not reverted by accepting it',
   // 这是去掉那道比较之后唯一真正的风险点。
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title: '不覆盖' }, {})
-  const view = await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'Agent 想加的' }, {})
+  const created = await registered.get('taichi_create_canvas').execute({ title: '不覆盖' }, {})
+  const view = await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'Agent 想加的' }, {})
   const proposalId = view.proposalId
 
   // 用户在接受之前：改标题、并另加一个自己的节点。
@@ -251,13 +251,13 @@ check('R5c a proposal whose node was deleted is still refused', async () => {
   // 这是现在唯一还会被判「过期」的情形：提案点名的节点已经不在了。
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title: '幽灵2' }, {})
+  const created = await registered.get('taichi_create_canvas').execute({ title: '幽灵2' }, {})
   const before = await canvasStore.read(created.id)
   const seeded = await canvasStore.save({
     ...before,
     nodes: [{ id: 'gone', type: 'text', title: '会被删掉', x: 0, y: 0, width: 200, height: 80 }],
   }, before.revision)
-  await registered.get('update_canvas_node').execute({ canvas_id: created.id, node_id: 'gone', title: '改过的' }, {})
+  await registered.get('taichi_update_canvas_node').execute({ canvas_id: created.id, node_id: 'gone', title: '改过的' }, {})
 
   // 用户在接受之前把它删了。
   await canvasStore.save({ ...seeded, nodes: [] }, seeded.revision)
@@ -281,7 +281,7 @@ check('R5d a stale proposal no longer blocks the ones queued behind it', async (
   // 移除**换来**的东西：后面的提案立刻能应用。
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title: '队首卡住' }, {})
+  const created = await registered.get('taichi_create_canvas').execute({ title: '队首卡住' }, {})
   const before = await canvasStore.read(created.id)
   const seeded = await canvasStore.save({
     ...before,
@@ -289,15 +289,15 @@ check('R5d a stale proposal no longer blocks the ones queued behind it', async (
   }, before.revision)
 
   // 第 1 条：改那个即将被删的节点。第 2 条：加一个新节点（本身没问题）。
-  await registered.get('update_canvas_node').execute({ canvas_id: created.id, node_id: 'doomed', title: '改过的' }, {})
-  await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '后来的' }, {})
+  await registered.get('taichi_update_canvas_node').execute({ canvas_id: created.id, node_id: 'doomed', title: '改过的' }, {})
+  await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '后来的' }, {})
 
   // 用户删掉 doomed，第 1 条于是永远对不上。
   await canvasStore.save({ ...seeded, nodes: [] }, seeded.revision)
 
   const queue = (await post(PROPOSALS, { canvasId: created.id })).proposals
   assert.equal(queue.length, 2)
-  assert.equal(queue[0].tool, 'update_canvas_node', 'the stale one is at the head')
+  assert.equal(queue[0].tool, 'taichi_update_canvas_node', 'the stale one is at the head')
 
   const refused = await post(ACCEPT, { canvasId: created.id, proposalId: queue[0].id })
   assert.equal(refused.ok, false)
@@ -320,10 +320,10 @@ check('R5f a proposal with a non-string title never reaches the queue', async ()
   // 它。它永久占着队首，用户点多少次都是同一条错误，后面本来能用的提案全被
   // 挡住。现在读取时就按坏文件跳过。
   const { canvasId, proposalId } = await seed('坏标题')
-  const dir = join(home, 'dsh-imagegen', 'canvas', 'proposals')
+  const dir = join(home, 'dsh-taichi-imagegen', 'canvas', 'proposals')
   const document = await canvasStore.read(canvasId)
   writeFileSync(join(dir, 'bad-title.json'), JSON.stringify({
-    id: 'bad-title', canvasId, tool: 'update_canvas_node',
+    id: 'bad-title', canvasId, tool: 'taichi_update_canvas_node',
     summary: '改名为「3」', counts: { title: 3 },
     baseRevision: document.revision, createdAt: Date.now() - 1000,
     change: { title: 3 },
@@ -352,7 +352,7 @@ check('R5g a proposal whose result would be an invalid document is removed, not 
   // 补丁要改的节点必须真的在画布上，否则 `apply` 会因为「节点不存在」先返回
   // undefined，第二道校验根本执行不到——那样这条用例测的就不是它要测的东西。
   const { canvasId, proposalId } = await seed('坏补丁')
-  const dir = join(home, 'dsh-imagegen', 'canvas', 'proposals')
+  const dir = join(home, 'dsh-taichi-imagegen', 'canvas', 'proposals')
   const seeded = await canvasStore.read(canvasId)
   await canvasStore.save({
     ...seeded,
@@ -363,7 +363,7 @@ check('R5g a proposal whose result would be an invalid document is removed, not 
   const addedNodeId = (await proposalStore.list(canvasId))[0].change.addedNodes[0].id
   // createdAt 更小 → 排在健康那条前面，正是会堵住队列的位置。
   writeFileSync(join(dir, 'bad-patch.json'), JSON.stringify({
-    id: 'bad-patch', canvasId, tool: 'update_canvas_node',
+    id: 'bad-patch', canvasId, tool: 'taichi_update_canvas_node',
     summary: '重命名节点', counts: { updatedNodes: 1 },
     baseRevision: document.revision, createdAt: Date.now() - 1000,
     change: { updatedNodes: [{ id: 'target', fields: { title: 3 } }] },
@@ -397,10 +397,10 @@ check('R5h a connection patch naming a role this build does not know is skipped 
   // 渲染只会把它当 `input`（`roleOf` 的兜底），用户看不到任何报错，却也没拿到
   // 自己设的角色。
   const { canvasId, proposalId } = await seed('坏角色')
-  const dir = join(home, 'dsh-imagegen', 'canvas', 'proposals')
+  const dir = join(home, 'dsh-taichi-imagegen', 'canvas', 'proposals')
   const document = await canvasStore.read(canvasId)
   writeFileSync(join(dir, 'bad-role.json'), JSON.stringify({
-    id: 'bad-role', canvasId, tool: 'connect_canvas_nodes',
+    id: 'bad-role', canvasId, tool: 'taichi_connect_canvas_nodes',
     summary: '改角色', counts: { updatedConnections: 1 },
     baseRevision: document.revision, createdAt: Date.now() - 1000,
     change: { updatedConnections: [{ id: 'edge-x', role: 'middle' }] },
@@ -418,9 +418,9 @@ check('F17 removing a node also drops it from any group it belonged to', async (
   // 路径漏了它。
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title: '分组' }, {})
+  const created = await registered.get('taichi_create_canvas').execute({ title: '分组' }, {})
   for (const title of ['A', 'B']) {
-    const view = await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title }, {})
+    const view = await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title }, {})
     await proposalStore.acceptOne(created.id, view.proposalId)
   }
   const seeded = await canvasStore.read(created.id)
@@ -430,7 +430,7 @@ check('F17 removing a node also drops it from any group it belonged to', async (
     groups: [{ id: 'g1', title: '镜头一', nodeIds: ids }],
   }, seeded.revision)
 
-  const removed = await registered.get('remove_canvas_node').execute({ canvas_id: created.id, node_id: ids[0] }, {})
+  const removed = await registered.get('taichi_remove_canvas_node').execute({ canvas_id: created.id, node_id: ids[0] }, {})
   assert.equal((await proposalStore.acceptOne(created.id, removed.proposalId)).ok, true)
 
   const after = await canvasStore.read(created.id)
@@ -438,7 +438,7 @@ check('F17 removing a node also drops it from any group it belonged to', async (
 
   // 组里最后一个成员也删掉时，整个组该消失（`pruneGroups` 的语义），而不是
   // 留下一个零成员的框。
-  const last = await registered.get('remove_canvas_node').execute({ canvas_id: created.id, node_id: ids[1] }, {})
+  const last = await registered.get('taichi_remove_canvas_node').execute({ canvas_id: created.id, node_id: ids[1] }, {})
   await proposalStore.acceptOne(created.id, last.proposalId)
   assert.equal((await canvasStore.read(created.id)).groups, undefined, 'an emptied group leaves no field behind')
 })
@@ -448,13 +448,13 @@ check('F18 pruning groups never invents the field on a canvas that never had one
   // 等于改写了每一份用户文档——这与 `withRole(x, 'input')` 删字段同一策略。
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title: '没分组' }, {})
-  const added = await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'A' }, {})
+  const created = await registered.get('taichi_create_canvas').execute({ title: '没分组' }, {})
+  const added = await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'A' }, {})
   await proposalStore.acceptOne(created.id, added.proposalId)
   const nodeId = (await canvasStore.read(created.id)).nodes[0].id
   assert.equal((await canvasStore.read(created.id)).groups, undefined)
 
-  const removed = await registered.get('remove_canvas_node').execute({ canvas_id: created.id, node_id: nodeId }, {})
+  const removed = await registered.get('taichi_remove_canvas_node').execute({ canvas_id: created.id, node_id: nodeId }, {})
   await proposalStore.acceptOne(created.id, removed.proposalId)
   const after = await canvasStore.read(created.id)
   assert.equal(after.groups, undefined, 'no groups key appeared')
@@ -467,36 +467,36 @@ check('F19 omitting x/y puts the node in a new column instead of stacking at the
   // 是 (0,0)，Agent 加几个用户就只能看到最上面那一个。
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title: '摆放' }, {})
-  const first = await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'A' }, {})
+  const created = await registered.get('taichi_create_canvas').execute({ title: '摆放' }, {})
+  const first = await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'A' }, {})
   await proposalStore.acceptOne(created.id, first.proposalId)
   assert.equal(first.nodes[0].x, 0, 'the first node starts at the origin')
 
-  const second = await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})
+  const second = await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})
   const b = second.nodes.find(node => node.title === 'B')
   assert.ok(b.x > first.nodes[0].x + first.nodes[0].width, `B must land to the right of A, not on top of it: ${b.x}`)
   assert.equal(b.y, 0)
 
   // 模型给了坐标就照用，不能被自动摆放覆盖。
-  const placed = await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'C', x: -400, y: 250 }, {})
+  const placed = await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'C', x: -400, y: 250 }, {})
   const c = placed.nodes.find(node => node.title === 'C')
   assert.equal(c.x, -400)
   assert.equal(c.y, 250)
 })
 
 check('F20 the size arguments the node builder honours are declared in the schema', async () => {
-  // `createNode` 一直在读 `width` / `height`，但 `add_canvas_node` 的 schema 里
+  // `createNode` 一直在读 `width` / `height`，但 `taichi_add_canvas_node` 的 schema 里
   // 没有它们。这不是「能不能用」的问题——传了确实生效——而是模型只能靠猜。
   // 声明与实现的这一处偏差，测的是「模型读得到的契约」与「代码真正接受的
   // 参数」是同一份。
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const properties = registered.get('add_canvas_node').parameters.properties
+  const properties = registered.get('taichi_add_canvas_node').parameters.properties
   assert.equal(properties.width?.type, 'number', 'width is honoured, so it must be declared')
   assert.equal(properties.height?.type, 'number', 'height is honoured, so it must be declared')
 
-  const created = await registered.get('create_canvas').execute({ title: '尺寸' }, {})
-  const view = await registered.get('add_canvas_node').execute({
+  const created = await registered.get('taichi_create_canvas').execute({ title: '尺寸' }, {})
+  const view = await registered.get('taichi_add_canvas_node').execute({
     canvas_id: created.id, type: 'image', title: '宽一点', width: 900, height: 600,
   }, {})
   assert.equal(view.nodes[0].width, 900, 'the declared argument actually takes effect')
@@ -510,20 +510,20 @@ check('F21 a config node says what it produces, and the Agent can make a video o
   // 于是恒为真，Agent 根本造不出视频配置节点。
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title: '模式' }, {})
+  const created = await registered.get('taichi_create_canvas').execute({ title: '模式' }, {})
 
-  const plain = await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '出图', prompt: '灯塔' }, {})
+  const plain = await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '出图', prompt: '灯塔' }, {})
   assert.equal(plain.nodes[0].mode, 'image', 'the default still reads as image')
 
-  const video = await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '插帧', mode: 'video' }, {})
+  const video = await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '插帧', mode: 'video' }, {})
   assert.equal(video.nodes.find(node => node.title === '插帧').mode, 'video', 'a video config node is expressible')
-  assert.equal((await registered.get('read_canvas').execute({ canvas_id: created.id }, {})).nodes.find(node => node.title === '插帧').mode, 'video',
-    'and read_canvas reports it back')
+  assert.equal((await registered.get('taichi_read_canvas').execute({ canvas_id: created.id }, {})).nodes.find(node => node.title === '插帧').mode, 'video',
+    'and taichi_read_canvas reports it back')
 
   // 非法值由参数 schema 的 enum 挡下（宿主在调用前就拒），比工具里再校验
   // 更早。这里断言的是「有东西挡住了」，具体措辞交给框架。
   await assert.rejects(
-    async () => await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '错的', mode: 'audio' }, {}),
+    async () => await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '错的', mode: 'audio' }, {}),
     /mode.*(image|enum)|Unknown config mode/,
   )
 })
@@ -535,10 +535,10 @@ check('R5e proposals made back to back come back in the order they were proposed
   // 「先连线、后加节点」。
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title: '连续提案' }, {})
+  const created = await registered.get('taichi_create_canvas').execute({ title: '连续提案' }, {})
   const titles = ['第一步', '第二步', '第三步', '第四步', '第五步']
   for (const title of titles) {
-    await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title }, {})
+    await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title }, {})
   }
   const queue = (await post(PROPOSALS, { canvasId: created.id })).proposals
   assert.deepEqual(
@@ -567,10 +567,10 @@ check('R6 a proposal cannot be accepted onto another canvas', async () => {
 check('R7 discard removes one, discard-all removes the rest, canvas never changes', async () => {
   const registered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { registered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const created = await registered.get('create_canvas').execute({ title: '丢弃' }, {})
-  await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '一' }, {})
-  await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '二' }, {})
-  await registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '三' }, {})
+  const created = await registered.get('taichi_create_canvas').execute({ title: '丢弃' }, {})
+  await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '一' }, {})
+  await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '二' }, {})
+  await registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '三' }, {})
   const before = await post(PROPOSALS, { canvasId: created.id })
   assert.equal(before.proposals.length, 3)
 
@@ -615,7 +615,7 @@ check('R10 the project list carries how many changes are waiting per canvas', as
   // 会先提一条，于是「安静」的画布自己就带着 1 条。用工具直接建一个空画布。
   const quietRegistered = new Map()
   registerAgentCanvasTools({ tools: { register (definition) { quietRegistered.set(definition.name, definition); return () => {} } } }, () => ({ enabled: true }))
-  const quiet = await quietRegistered.get('create_canvas').execute({ title: '安静的' }, {})
+  const quiet = await quietRegistered.get('taichi_create_canvas').execute({ title: '安静的' }, {})
 
   const listed = await post(LIST, {})
   assert.equal(listed.ok, true, `list should succeed: ${JSON.stringify(listed)}`)

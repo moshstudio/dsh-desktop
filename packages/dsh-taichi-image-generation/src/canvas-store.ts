@@ -909,7 +909,7 @@ export class CanvasStore {
     try { await fs.access(target) } catch { await fs.writeFile(target, input.data) }
     return {
       assetId: file,
-      url: `/api/dsh-imagegen/canvas/asset/${file}`,
+      url: `/api/dsh-taichi-imagegen/canvas/asset/${file}`,
       mime: input.mime,
       bytes: input.data.byteLength,
       ...input.ref,

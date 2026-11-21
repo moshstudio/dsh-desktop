@@ -142,7 +142,7 @@ def build_notification(version: str, installers: list[tuple[str, Path]], repo_id
     if changes:
         details += f"\n\n[完整提测说明]({download_url(repo_id, prefix, 'test-changes.md')})"
     return (
-        f"**DSH Desktop {version} 测试打包完成**\n\n"
+        f"**太极-dsh {version} 测试打包完成**\n\n"
         f"**下载地址**\n{links}"
         + details
         + f"\n\n{TEST_SUGGESTIONS}"
@@ -167,7 +167,7 @@ def main() -> None:
     repository_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
     changes = build_test_changes(repository_url)
     changes_file = args.directory / "test-changes.md"
-    changes_file.write_text(f"# DSH Desktop {args.version} 提测说明\n\n{changes}\n", encoding="utf-8")
+    changes_file.write_text(f"# 太极-dsh {args.version} 提测说明\n\n{changes}\n", encoding="utf-8")
     # Import the SDK only for uploads; the notification and selection logic is independently testable.
     from modelscope.hub.api import HubApi
 

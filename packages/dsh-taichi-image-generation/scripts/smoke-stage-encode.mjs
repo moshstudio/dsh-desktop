@@ -27,7 +27,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
  *
  * WHY 这条在这里而不是「以后再说」：`E9` 真的调 `stageEncodeSession()`，而它在
  * 编码成功后会把成片写进视频库（`appendVideoHistory`）。不设 `DSH_HOME`，
- * `image-storage-path.ts` 就解析成 `~/.dsh/dsh-imagegen` —— 用户真实的库。
+ * `image-storage-path.ts` 就解析成 `~/.dsh/dsh-taichi-imagegen` —— 用户真实的库。
  *
  * 后果不是多几条垃圾：条目 id 是固定的 `stage-e9-real`（由会话 id 派生），
  * 于是每跑一次 `pnpm test` 就往真实历史里**追加一条同 id 的 64×64 蓝帧**。

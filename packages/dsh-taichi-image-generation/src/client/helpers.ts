@@ -1,5 +1,5 @@
 /**
- * Shared panel helpers: the active-dictionary pick bound to the dsh-imagegen
+ * Shared panel helpers: the active-dictionary pick bound to the dsh-taichi-imagegen
  * interpolator, the plugin locale that follows the DSH interface language
  * (bridged in client/index.ts from ctx.locale — the plugin ships zh / en / ru
  * and registers itself as a DSH language pack for Русский), plus a small

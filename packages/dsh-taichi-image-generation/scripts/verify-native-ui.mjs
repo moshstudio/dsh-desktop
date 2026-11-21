@@ -155,7 +155,7 @@ for (const file of CSS_FILES) {
   }
 
   // 1c. No host theme attribute selectors. Alias tokens follow the theme;
-  //     a split that tokens cannot express is data-dsh-imagegen-scheme.
+  //     a split that tokens cannot express is data-dsh-taichi-imagegen-scheme.
   for (const match of text.matchAll(/body\[data-ds-dark-theme\]|data-ds-theme-source|data-theme\s*=\s*['"](?:light|dark)['"]/g)) {
     violate('no-host-theme-branch', file, lineOf(text, match.index), match[0])
   }
@@ -280,7 +280,7 @@ if (definedTokens.size > 0) {
 const RULE_TEXT = {
   'no-literal-color': 'literal color — use a --dsw-alias-* or documented --dsw-static-* token, with no hex fallback',
   'no-ds-prefix': 'new --ds-* variable — only --ds-font-family-code is allowed (host code font; no --dsw equivalent)',
-  'no-host-theme-branch': 'host theme selector — alias tokens follow the theme; use data-dsh-imagegen-scheme when a token cannot',
+  'no-host-theme-branch': 'host theme selector — alias tokens follow the theme; use data-dsh-taichi-imagegen-scheme when a token cannot',
   'no-literal-shadow': 'literal shadow — use --dsw-shadow-lv1|lv2|lv3 or --dsw-elevation-soft|panel|prominent',
   'radius-from-token': 'hardcoded radius — use --dsw-radius-xs|sm|md|lg|xl|panel (999px allowed)',
   'font-size-on-scale': 'font-size not on the host scale — use 10|11|12|13|14|15|16|18|20|22|24|26|28px, or var(--dsh-content-font-size)',

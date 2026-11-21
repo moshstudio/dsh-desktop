@@ -1,6 +1,6 @@
 /**
  * Issue #50: a LAN bind (`192.168.x.y:port`) used to answer every
- * /api/dsh-imagegen request with 403 `forbidden: loopback-only`, because the
+ * /api/dsh-taichi-imagegen request with 403 `forbidden: loopback-only`, because the
  * guard demanded a loopback `remoteAddress` — which a browser pointed at the
  * listener's own NIC address can never have.
  *
@@ -20,7 +20,7 @@ import { mkdtempSync } from 'node:fs'
 import { networkInterfaces, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-imagegen-lan-auth-'))
+process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-taichi-imagegen-lan-auth-'))
 
 const host = await import('../lib/index.js')
 
@@ -103,7 +103,7 @@ function post(port, address, path, headers) {
   })
 }
 
-const PATH = '/api/dsh-imagegen/history/list'
+const PATH = '/api/dsh-taichi-imagegen/history/list'
 const results = []
 function check(name, condition, detail) {
   results.push({ name, ok: condition, detail })

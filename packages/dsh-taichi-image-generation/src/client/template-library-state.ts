@@ -3,8 +3,8 @@ import { TEMPLATE_SOURCES, type TemplateCase } from '../protocol.ts'
 
 export type TemplateApplyMode = 'replace' | 'append'
 export interface TemplateEntry { sourceId: string; item: TemplateCase }
-export const RECENT_TEMPLATES_KEY = 'dsh-imagegen-template-recents-v1'
-export const DRAWER_WIDTH_KEY = 'dsh-imagegen-template-drawer-width'
+export const RECENT_TEMPLATES_KEY = 'dsh-taichi-imagegen-template-recents-v1'
+export const DRAWER_WIDTH_KEY = 'dsh-taichi-imagegen-template-drawer-width'
 const MAX_RECENTS = 24
 
 export function readRecentTemplates(): TemplateEntry[] {

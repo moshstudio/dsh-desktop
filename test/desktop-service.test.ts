@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DesktopService, desktopPlatform, isPrereleaseVersion, tailLog, SERVICE_URL } from '../src/main/desktop-service/service'
+import { updatePolicyUrl } from '../src/main/update/version-catalog'
 import { attachDiagnostics } from '../src/main/desktop-service/diagnostics'
 const roots: string[] = []
 const disposers: Array<() => void> = []
@@ -191,7 +192,7 @@ describe('desktop service', () => {
   ])('sends manual=true only for user-initiated rollout bypass checks on %s/%s', async (platform, arch, expectedPlatform) => {
     const { options, request } = fixture()
     const service = new DesktopService({ ...options, platform, arch })
-    const selected = { updateAvailable: true, version: '0.9.0', feedUrl: 'https://dshdesktop.com/updates/archive/0.9.0/' }
+    const selected = { updateAvailable: true, version: '0.9.0', feedUrl: 'https://taichi-gateway.moshangwangluo.com/updates/archive/0.9.0/' }
     let policy: { updateAvailable: false } | typeof selected = { updateAvailable: false }
     request.mockImplementation(async (address, init) => {
       const url = new URL(address)
@@ -201,7 +202,7 @@ describe('desktop service', () => {
       if ([...url.searchParams.keys()].some(key => !allowed.includes(key))) {
         return Response.json({ error: 'unrecognized_keys' }, { status: 400 })
       }
-      expect(url.origin + url.pathname).toBe(`${SERVICE_URL}/v1/updates/check`)
+      expect(url.origin + url.pathname).toBe(updatePolicyUrl())
       const expected = { installationId: service.installationId, currentVersion: options.version, platform: expectedPlatform }
       if (url.searchParams.get('manual') === 'true') Object.assign(expected, { manual: 'true' })
       expect(Object.fromEntries(url.searchParams)).toEqual(expected)
@@ -226,7 +227,7 @@ describe('desktop service', () => {
       new Response('unavailable', { status: 503 }),
       new Response('malformed JSON'),
       Response.json({ updateAvailable: true, version: '0.9.0', feedUrl: 'https://evil.test/' }),
-      Response.json({ updateAvailable: true, version: '0.7.0', feedUrl: 'https://dshdesktop.com/updates/archive/0.7.0/' })
+      Response.json({ updateAvailable: true, version: '0.7.0', feedUrl: 'https://taichi-gateway.moshangwangluo.com/updates/archive/0.7.0/' })
     ]) {
       request.mockClear()
       request.mockResolvedValueOnce(response)
@@ -234,7 +235,7 @@ describe('desktop service', () => {
       expect(request).toHaveBeenCalledTimes(1)
       const call = request.mock.calls[0]
       if (!call) throw new Error('Expected an update policy request')
-      expect(new URL(call[0]).pathname).toBe('/crash/v1/updates/check')
+      expect(new URL(call[0]).pathname).toBe('/v1/updates/check')
     }
     request.mockClear()
     const timeout = new DOMException('Update policy request timed out', 'TimeoutError')
@@ -243,7 +244,7 @@ describe('desktop service', () => {
     expect(request).toHaveBeenCalledTimes(1)
     const call = request.mock.calls[0]
     if (!call) throw new Error('Expected an update policy request')
-    expect(new URL(call[0]).pathname).toBe('/crash/v1/updates/check')
+    expect(new URL(call[0]).pathname).toBe('/v1/updates/check')
   })
   it('queries with no channel/arch and rejects invalid or downgraded policy responses', async () => {
     const { service, request } = fixture()
@@ -256,12 +257,12 @@ describe('desktop service', () => {
     expect(new URL(request.mock.calls.at(-1)![0]).searchParams.get('manual')).toBe('true')
     expect(url.searchParams.get('platform')).toBe('mac'); expect(url.searchParams.has('channel')).toBe(false); expect(url.searchParams.has('arch')).toBe(false)
     for (const version of ['0.7.0', '0.8.0', '0.9.0-rc.1', '../../evil', '0.9.0-01']) {
-      request.mockResolvedValue(new Response(JSON.stringify({ updateAvailable: true, version, feedUrl: `https://dshdesktop.com/updates/archive/${version}/` })))
+      request.mockResolvedValue(new Response(JSON.stringify({ updateAvailable: true, version, feedUrl: `https://taichi-gateway.moshangwangluo.com/updates/archive/${version}/` })))
       await expect(service.checkUpdate()).rejects.toThrow('Invalid')
     }
     request.mockResolvedValue(new Response(JSON.stringify({ updateAvailable: true, version: '0.9.0', feedUrl: 'https://evil.test/' })))
     await expect(service.checkUpdate()).rejects.toThrow('Invalid')
-    request.mockResolvedValue(new Response(JSON.stringify({ updateAvailable: true, version: '0.9.0', feedUrl: 'https://dshdesktop.com/updates/archive/0.9.0/' })))
+    request.mockResolvedValue(new Response(JSON.stringify({ updateAvailable: true, version: '0.9.0', feedUrl: 'https://taichi-gateway.moshangwangluo.com/updates/archive/0.9.0/' })))
     expect(await service.checkUpdate()).toMatchObject({ updateAvailable: true, version: '0.9.0' })
   })
 })

@@ -473,7 +473,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
 
   const load = async (canvasId: string): Promise<CanvasDocument> => {
     const document = await canvasStore.read(canvasId)
-    if (document === undefined) throw new Error(`Canvas ${canvasId} was not found. Use list_canvases to see the ids.`)
+    if (document === undefined) throw new Error(`Canvas ${canvasId} was not found. Use taichi_list_canvases to see the ids.`)
     return document
   }
 
@@ -482,7 +482,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
    *
    * 读与写必须用同一个起点。`mutate` 早就在这份叠加后的草稿上算（否则连着
    * 两步操作里第二步会报「节点不存在」，因为它要连的节点还在提案里），但
-   * `read_canvas` 当时走的是只读真实文档的 `load()`——于是 Agent 刚刚提议加了
+   * `taichi_read_canvas` 当时走的是只读真实文档的 `load()`——于是 Agent 刚刚提议加了
    * 一个节点，回头一读却是「This canvas is empty」的空白画布，很可能再添加
    * 一遍。探针实测：add → read（0 个节点）→ 再 add，同一个标题落进两条提案。
    *
@@ -491,8 +491,8 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
    *
    * 此前写路径是抛错的，理由是「起点不确定时继续算，会把坏掉的差异固化进新
    * 提案里」。但这么做的代价是整张画布对 Agent 失效：探针实测，用户随手删掉
-   * 一个提案点名的节点之后，`add_canvas_node` / `update_canvas_node` /
-   * `connect_canvas_nodes` **全部**失败，只有用户碰巧去点「接受」才能恢复。
+   * 一个提案点名的节点之后，`taichi_add_canvas_node` / `taichi_update_canvas_node` /
+   * `taichi_connect_canvas_nodes` **全部**失败，只有用户碰巧去点「接受」才能恢复。
    * 而 `acceptOne` 对同一条提案的判断是：它不可能再生效（`apply` 是纯函数，
    * 只要文档还缺那个节点，以后每一次都会失败），留着只会挡住队列，所以直接
    * 移除。两边对同一件事有两种判断，没有道理——按 `acceptOne` 那条来。
@@ -524,7 +524,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
    * 一条新提案。
    *
    * 为什么要先叠加已有提案：Agent 一次任务里通常连着几步——先
-   * `add_canvas_node`，再 `connect_canvas_nodes`。第二步要连的那个节点 id
+   * `taichi_add_canvas_node`，再 `taichi_connect_canvas_nodes`。第二步要连的那个节点 id
    * 还不存在于真实文档里（它只在提案里），不叠加就会报「节点不存在」，一整
    * 串操作只有第一步能成立。
    *
@@ -619,7 +619,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
 
   const disposers = [
     ctx.tools.register(defineTool({
-      name: 'list_canvases',
+      name: 'taichi_list_canvases',
       description: 'List the user\'s infinite-canvas projects with their ids, node counts and revision. Use this to find the canvas to read or edit.',
       parameters: {},
       output: {
@@ -633,7 +633,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
         ensureEnabled()
         const values = await canvasStore.list()
         // `nodeCount` 只数已保存的节点。Agent 刚提议的节点不在里面，而
-        // `read_canvas` 看得到——两个数字打架，模型会以为自己提议失败，再提
+        // `taichi_read_canvas` 看得到——两个数字打架，模型会以为自己提议失败，再提
         // 一遍（探针实测：list 说 1 个、read 说 2 个）。所以这里一并带出待确认
         // 条数，让模型一眼看出「那个画布上还有我说了但用户没点头的东西」。
         // 一次遍历拿到每份画布的待确认条数：`countByCanvas` 就是下拉的
@@ -650,9 +650,9 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'read_canvas',
+      name: 'taichi_read_canvas',
       description: 'Read one canvas as a node graph: every node\'s id, type, title, position, prompt/model/text, plus the connections between them. Use the returned ids with the other canvas tools. Includes the changes you proposed that the user has not accepted yet (the same starting point the write tools use), so read it again after proposing instead of assuming your proposal is already on the canvas. This never starts a render.',
-      parameters: { canvas_id: { type: 'string', required: true, description: 'Canvas id from list_canvases.' } },
+      parameters: { canvas_id: { type: 'string', required: true, description: 'Canvas id from taichi_list_canvases.' } },
       output: {
         schema: canvasViewSchema,
         render: (_args, value) => renderCanvasView(value as unknown as AgentCanvasView),
@@ -685,8 +685,8 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'create_canvas',
-      description: 'Create a new empty canvas project. Returns its id; add nodes to it with add_canvas_node.',
+      name: 'taichi_create_canvas',
+      description: 'Create a new empty canvas project. Returns its id; add nodes to it with taichi_add_canvas_node.',
       parameters: { title: { type: 'string', description: 'Canvas title. Defaults to a generic name.' } },
       output: {
         schema: canvasViewSchema,
@@ -698,7 +698,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'add_canvas_node',
+      name: 'taichi_add_canvas_node',
       description: 'Add one node to a canvas. A config node holds a prompt and model and waits for the user to press run — adding a node never spends money. Omit x/y to place it in a free column to the right of the existing nodes.',
       parameters: {
         canvas_id: { type: 'string', required: true, description: 'Canvas id.' },
@@ -721,7 +721,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
       async execute(args) {
         ensureEnabled()
-        return await mutate(args.canvas_id, 'add_canvas_node', document => {
+        return await mutate(args.canvas_id, 'taichi_add_canvas_node', document => {
           const node = createNode(args as Record<string, unknown>)
           if (document.nodes.some(existing => existing.id === node.id)) throw new Error(`A node with id ${node.id} already exists on this canvas.`)
           // 说明写着「省略 x/y 就放到现有节点右边」，而 `createNode` 的缺省是
@@ -735,18 +735,18 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'update_canvas_node',
+      name: 'taichi_update_canvas_node',
       description: 'Change one node\'s title, prompt, model, plain text, position, size, or (config nodes only) what pressing run should produce. Only the fields you pass are touched.',
       parameters: {
         canvas_id: { type: 'string', required: true, description: 'Canvas id.' },
-        node_id: { type: 'string', required: true, description: 'Node id from read_canvas.' },
+        node_id: { type: 'string', required: true, description: 'Node id from taichi_read_canvas.' },
         title: { type: 'string', description: 'New title.' },
         prompt: { type: 'string', description: 'New prompt.' },
         model: { type: 'string', description: 'New model id.' },
         text: { type: 'string', description: 'New body text (text nodes).' },
         x: { type: 'number', description: 'New x position.' },
         y: { type: 'number', description: 'New y position.' },
-        // 与 `add_canvas_node` 对齐：它三个都收，这里原先一个都不收，于是
+        // 与 `taichi_add_canvas_node` 对齐：它三个都收，这里原先一个都不收，于是
         // 「加的时候选错了」只能删了重建——而重建会换掉节点 id、坐标和已经
         // 连好的线。探针实测：update 传 mode/width/height 全部被静默忽略，
         // 工具还回一句「This call changed nothing」。
@@ -760,7 +760,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
       async execute(args) {
         ensureEnabled()
-        return await mutate(args.canvas_id, 'update_canvas_node', document => {
+        return await mutate(args.canvas_id, 'taichi_update_canvas_node', document => {
           const node = document.nodes.find(candidate => candidate.id === args.node_id)
           if (node === undefined) throw new Error(`Node ${args.node_id} was not found. Read the canvas again for current ids.`)
           if (typeof args.title === 'string') node.title = args.title
@@ -783,11 +783,11 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'remove_canvas_node',
+      name: 'taichi_remove_canvas_node',
       description: 'Remove one node and every connection touching it.',
       parameters: {
         canvas_id: { type: 'string', required: true, description: 'Canvas id.' },
-        node_id: { type: 'string', required: true, description: 'Node id from read_canvas.' },
+        node_id: { type: 'string', required: true, description: 'Node id from taichi_read_canvas.' },
       },
       output: {
         schema: canvasViewSchema,
@@ -795,7 +795,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
       async execute(args) {
         ensureEnabled()
-        return await mutate(args.canvas_id, 'remove_canvas_node', document => {
+        return await mutate(args.canvas_id, 'taichi_remove_canvas_node', document => {
           const before = document.nodes.length
           document.nodes = document.nodes.filter(node => node.id !== args.node_id)
           if (document.nodes.length === before) throw new Error(`Node ${args.node_id} was not found. Read the canvas again for current ids.`)
@@ -804,7 +804,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'connect_canvas_nodes',
+      name: 'taichi_connect_canvas_nodes',
       description: 'Connect one node\'s output to another node\'s input. This is what makes a canvas a runnable chain: the downstream node receives the upstream node\'s product as input.',
       parameters: {
         canvas_id: { type: 'string', required: true, description: 'Canvas id.' },
@@ -823,7 +823,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       async execute(args) {
         ensureEnabled()
         if (args.from_node_id === args.to_node_id) throw new Error('A node cannot connect to itself.')
-        return await mutate(args.canvas_id, 'connect_canvas_nodes', document => {
+        return await mutate(args.canvas_id, 'taichi_connect_canvas_nodes', document => {
           const ids = new Set(document.nodes.map(node => node.id))
           if (!ids.has(args.from_node_id)) throw new Error(`Node ${args.from_node_id} was not found.`)
           if (!ids.has(args.to_node_id)) throw new Error(`Node ${args.to_node_id} was not found.`)
@@ -852,7 +852,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'disconnect_canvas_nodes',
+      name: 'taichi_disconnect_canvas_nodes',
       description: 'Remove the connection between two nodes, if one exists.',
       parameters: {
         canvas_id: { type: 'string', required: true, description: 'Canvas id.' },
@@ -865,7 +865,7 @@ export function registerAgentCanvasTools(ctx: Context, config: () => { enabled: 
       },
       async execute(args) {
         ensureEnabled()
-        return await mutate(args.canvas_id, 'disconnect_canvas_nodes', document => {
+        return await mutate(args.canvas_id, 'taichi_disconnect_canvas_nodes', document => {
           document.connections = document.connections.filter(edge => !(edge.fromNodeId === args.from_node_id && edge.toNodeId === args.to_node_id))
         })
       },

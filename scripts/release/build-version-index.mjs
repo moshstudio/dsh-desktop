@@ -1,5 +1,19 @@
+import { readFileSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+const packagePath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json')
+
+/** Archive feeds follow the generic publish URL in package.json. */
+function archiveUrlFor(version) {
+  const pkg = JSON.parse(readFileSync(packagePath, 'utf8'))
+  const latest = pkg.build?.publish?.[0]?.url
+  if (typeof latest !== 'string' || !latest.endsWith('/updates/latest/')) {
+    throw new Error('Desktop publish URL must end with /updates/latest/')
+  }
+  return `${latest.slice(0, -'latest/'.length)}archive/${version}/`
+}
 
 const SEMVER = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/
 
@@ -46,7 +60,7 @@ function compare(a, b) {
 
 /**
  * Turn a list of `releases/archive/<name>` directory names into the version
- * index the desktop client reads from `dshdesktop.com/updates/versions.json`.
+ * index the desktop client reads from the publish host's `updates/versions.json`.
  * Non-semver names are dropped; the rest sort newest first.
  */
 export function buildVersionIndex(archiveDirNames, previous = { versions: [] }) {
@@ -60,7 +74,7 @@ export function buildVersionIndex(archiveDirNames, previous = { versions: [] }) 
     .map((version) => existing.get(version) ?? ({
       version,
       tag: `v${version}`,
-      archiveUrl: `https://dshdesktop.com/updates/archive/${version}/`
+      archiveUrl: archiveUrlFor(version)
     }))
   return { ...previous, generatedAt: new Date().toISOString(), versions }
 }

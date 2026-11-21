@@ -4,7 +4,7 @@ Packaged Desktop initializes this service after acquiring the single-instance lo
 
 ## Update contract
 
-`GET https://dshdesktop.com/crash/v1/updates/check` sends installationId, currentVersion and platform (`mac`, `mac-intel`, or `windows`). There is no channel/architecture field. The backend derives release type from SemVer.
+`GET https://taichi-gateway.moshangwangluo.com/v1/updates/check` sends installationId, currentVersion and platform (`mac`, `mac-intel`, or `windows`). There is no channel/architecture field. The backend derives release type from SemVer. Installer feeds for that decision are `https://taichi-gateway.moshangwangluo.com/updates/archive/<version>/`. A configured `TAICHI_GATEWAY_URL`, or a healthy local gateway, replaces this host for the same paths.
 
 Automatic checks and the normal manual check obey the same decision. No matching rule means **no update**, not full rollout. An unavailable/malformed policy fails the check without falling back to the public latest feed. A selected version pins the generic provider to `/updates/archive/<version>/`; mismatched metadata cannot enter the available/download UI. Downloads still require user acceptance. Explicit version-history installs retain their existing bypass and downgrade behavior.
 

@@ -78,12 +78,12 @@ export interface OutfitPreparedGeneration {
   referenceCount: number
 }
 export const OUTFIT_API = {
-  list: '/api/dsh-imagegen/outfit/list',
-  materialize: '/api/dsh-imagegen/outfit/materialize',
-  upload: '/api/dsh-imagegen/outfit/upload',
-  image: '/api/dsh-imagegen/outfit/image',
-  draft: '/api/dsh-imagegen/outfit/draft',
-  import: '/api/dsh-imagegen/outfit/import',
+  list: '/api/dsh-taichi-imagegen/outfit/list',
+  materialize: '/api/dsh-taichi-imagegen/outfit/materialize',
+  upload: '/api/dsh-taichi-imagegen/outfit/upload',
+  image: '/api/dsh-taichi-imagegen/outfit/image',
+  draft: '/api/dsh-taichi-imagegen/outfit/draft',
+  import: '/api/dsh-taichi-imagegen/outfit/import',
 } as const
 /** 前端接口独立于 ImageGenApi，方便三个并行模块共享。响应沿用宿主错误信封。 */
 export interface OutfitReferenceApi {

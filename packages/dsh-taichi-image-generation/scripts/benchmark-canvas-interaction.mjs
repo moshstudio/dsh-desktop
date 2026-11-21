@@ -293,7 +293,7 @@ function bundleOf (count) {
     }
   }
   return {
-    format: 'dsh-imagegen-canvas-bundle',
+    format: 'dsh-taichi-imagegen-canvas-bundle',
     version: 1,
     exportedAt: Date.now(),
     title: `bench-${count}`,

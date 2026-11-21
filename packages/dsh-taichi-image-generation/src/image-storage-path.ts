@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 import path from 'node:path'
 
-const DEFAULT_ROOT = path.join(process.env.DSH_HOME?.trim() || path.join(homedir(), '.dsh'), 'dsh-imagegen')
+const DEFAULT_ROOT = path.join(process.env.DSH_HOME?.trim() || path.join(homedir(), '.dsh'), 'dsh-taichi-imagegen')
 let root = DEFAULT_ROOT
 
 export function imageDataRoot(): string { return root }

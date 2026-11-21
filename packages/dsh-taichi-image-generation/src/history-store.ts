@@ -1,6 +1,6 @@
 /**
  * Host-persisted generation history: images are stored as individual files
- * under ~/.dsh/dsh-imagegen/images/ and an index.json keeps the metadata +
+ * under ~/.dsh/dsh-taichi-imagegen/images/ and an index.json keeps the metadata +
  * file names. This makes the history survive across browsers/devices that
  * connect to the same DSH host, and keeps list responses small (the browser
  * loads image bytes lazily through the history image route).
@@ -177,7 +177,7 @@ function toWire(entry: StoredEntry): HistoryEntry {
     ...entry.frameCount === undefined ? {} : { frameCount: entry.frameCount },
     ...entry.frameDurationMs === undefined ? {} : { frameDurationMs: entry.frameDurationMs },
     images: entry.images.map(image => ({
-      url: `/api/dsh-imagegen/history/image/${image.file}`,
+      url: `/api/dsh-taichi-imagegen/history/image/${image.file}`,
       mime: image.mime,
       ...image.revisedPrompt === undefined ? {} : { revisedPrompt: image.revisedPrompt },
     })),

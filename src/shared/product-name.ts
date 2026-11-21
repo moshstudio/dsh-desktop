@@ -1,15 +1,13 @@
-import { desktopLocale } from './desktop-locale'
-
-/** ASCII product name used for English UI, packages, and paths. */
+/** Filesystem and package identity. The name shown to people is PRODUCT_NAME_ZH. */
 export const PRODUCT_NAME_EN = 'taichi-dsh'
-/** Chinese UI name. Paths and package identity stay on the English name. */
+/** Display name in every interface language. */
 export const PRODUCT_NAME_ZH = '太极-dsh'
 
-/** Name to show for this process in the given interface language. */
-export function productDisplayName(locale: unknown, processName = PRODUCT_NAME_EN): string {
-  if (processName !== PRODUCT_NAME_EN && processName !== `${PRODUCT_NAME_EN} Dev`) return processName
-  const base = desktopLocale(locale) === 'zh' ? PRODUCT_NAME_ZH : PRODUCT_NAME_EN
-  return processName.endsWith(' Dev') ? `${base} Dev` : base
+/** Name to show for this process. The brand does not change with locale. */
+export function productDisplayName(_locale: unknown, processName = PRODUCT_NAME_EN): string {
+  if (processName === PRODUCT_NAME_EN) return PRODUCT_NAME_ZH
+  if (processName === `${PRODUCT_NAME_EN} Dev`) return `${PRODUCT_NAME_ZH} Dev`
+  return processName
 }
 
 /** Replace a catalog product token with the name this process should show. */

@@ -52,9 +52,9 @@ const run = async (registered, name, args) => registered.get(name).execute(args,
 
 /** 建一个画布，并把每个节点的一条提案立即接受，让它真的落进 pages/。 */
 async function seedAccepted (registered, title, nodeTitles) {
-  const created = await run(registered, 'create_canvas', { title })
+  const created = await run(registered, 'taichi_create_canvas', { title })
   for (const nodeTitle of nodeTitles) {
-    const view = await run(registered, 'add_canvas_node', { canvas_id: created.id, type: 'text', title: nodeTitle })
+    const view = await run(registered, 'taichi_add_canvas_node', { canvas_id: created.id, type: 'text', title: nodeTitle })
     await proposalStore.acceptOne(created.id, view.proposalId)
   }
   return created
@@ -64,8 +64,8 @@ async function seedAccepted (registered, title, nodeTitles) {
 
 check('S1 真实工具产出的提案带 counts，不只是句子', async () => {
   const registered = tools()
-  const created = await run(registered, 'create_canvas', { title: '计数' })
-  const added = await run(registered, 'add_canvas_node', { canvas_id: created.id, type: 'text', title: 'A' })
+  const created = await run(registered, 'taichi_create_canvas', { title: '计数' })
+  const added = await run(registered, 'taichi_add_canvas_node', { canvas_id: created.id, type: 'text', title: 'A' })
   const pending = (await proposalStore.list(created.id)).find(item => item.id === added.proposalId)
   // `summary` 仍然要写：旧客户端的画布窗口不认 counts，只认这一句。
   assert.equal(typeof pending.summary, 'string', '旧客户端要靠这句话兜底')
@@ -79,15 +79,15 @@ check('S2 各类改动各自报自己的键，不凭空多报', async () => {
   const aId = nodes.find(node => node.title === 'A').id
   const bId = nodes.find(node => node.title === 'B').id
 
-  const update = await run(registered, 'update_canvas_node', { canvas_id: created.id, node_id: aId, title: 'A2' })
+  const update = await run(registered, 'taichi_update_canvas_node', { canvas_id: created.id, node_id: aId, title: 'A2' })
   const updateProposal = (await proposalStore.list(created.id)).find(item => item.id === update.proposalId)
   assert.deepEqual(updateProposal.counts, { updatedNodes: 1 }, '一次改标题只报「改了一个」')
 
-  const wire = await run(registered, 'connect_canvas_nodes', { canvas_id: created.id, from_node_id: aId, to_node_id: bId })
+  const wire = await run(registered, 'taichi_connect_canvas_nodes', { canvas_id: created.id, from_node_id: aId, to_node_id: bId })
   const wireProposal = (await proposalStore.list(created.id)).find(item => item.id === wire.proposalId)
   assert.deepEqual(wireProposal.counts, { addedConnections: 1 }, '一次连线只报「连了一条」')
 
-  const removal = await run(registered, 'remove_canvas_node', { canvas_id: created.id, node_id: bId })
+  const removal = await run(registered, 'taichi_remove_canvas_node', { canvas_id: created.id, node_id: bId })
   const removalProposal = (await proposalStore.list(created.id)).find(item => item.id === removal.proposalId)
   assert.equal(removalProposal.counts.removedNodes, 1)
   // 删节点连带删它是 `apply` 的语义；用户没有单独要求断线，界面就不该报一条
@@ -119,7 +119,7 @@ check('S4 旧提案退回自己的 summary，而不是空字符串', () => {
   const legacy = {
     id: 'legacy-1',
     canvasId: 'canvas-x',
-    tool: 'add_canvas_node',
+    tool: 'taichi_add_canvas_node',
     summary: '添加 1 个节点',
     baseRevision: 1,
     createdAt: 0,
@@ -146,10 +146,10 @@ check('S6 改连线角色报自己的键，三种语言都说得清', async () =
   const nodes = (await canvasStore.read(created.id)).nodes
   const aId = nodes.find(node => node.title === 'A').id
   const bId = nodes.find(node => node.title === 'B').id
-  const wire = await run(registered, 'connect_canvas_nodes', { canvas_id: created.id, from_node_id: aId, to_node_id: bId })
+  const wire = await run(registered, 'taichi_connect_canvas_nodes', { canvas_id: created.id, from_node_id: aId, to_node_id: bId })
   await proposalStore.acceptOne(created.id, wire.proposalId)
 
-  const rerole = await run(registered, 'connect_canvas_nodes', { canvas_id: created.id, from_node_id: aId, to_node_id: bId, role: 'first' })
+  const rerole = await run(registered, 'taichi_connect_canvas_nodes', { canvas_id: created.id, from_node_id: aId, to_node_id: bId, role: 'first' })
   const counts = (await proposalStore.list(created.id)).find(item => item.id === rerole.proposalId).counts
   assert.deepEqual(counts, { updatedConnections: 1 }, '只报「改了一条线的角色」，不连带说「连了一条线」')
 

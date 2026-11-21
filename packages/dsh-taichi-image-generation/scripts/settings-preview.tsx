@@ -1,5 +1,5 @@
 /**
- * Visual-only entry for the dsh-imagegen settings card.
+ * Visual-only entry for the dsh-taichi-imagegen settings card.
  *
  * Renders the real `ImageGenSettingsSection` against an in-memory settings
  * scope, so the beginner setup path and the service editor can be checked in a

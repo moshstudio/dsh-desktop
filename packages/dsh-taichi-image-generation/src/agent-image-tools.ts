@@ -237,7 +237,7 @@ function renderTaskResult(value: AgentTaskResult): Array<{ type: 'text'; text: s
   // Generated images are presentation output, not model input. Keeping the
   // model-facing result textual lets image generation work with text-only
   // conversation models while preserving the attachment references needed by
-  // edit_image.
+  // taichi_edit_image.
   return [{ type: 'text', text: JSON.stringify(value) }]
 }
 
@@ -338,7 +338,7 @@ export function registerAgentImageTools(ctx: Context, runtime: ImageGenerationRu
       message: task.status === 'completed'
         ? slotErrors.length > 0
           ? `Generated ${images.length} image(s). ${slotErrors.length} failed: ${slotErrors.join('; ')}. The images that succeeded are shown beside this tool call.`
-          : 'Generation completed. The images are shown beside this tool call and can be reused as source_image in edit_image.'
+          : 'Generation completed. The images are shown beside this tool call and can be reused as source_image in taichi_edit_image.'
         : task.status === 'failed'
           ? 'Generation failed.'
           : task.status === 'cancelled'
@@ -356,7 +356,7 @@ export function registerAgentImageTools(ctx: Context, runtime: ImageGenerationRu
   const waitForTask = (id: string, signal: AbortSignal | undefined): Promise<GenerationTask> => waitForAgentImageTask(runtime, id, signal)
   const disposers = [
     ctx.tools.register(defineTool({
-      name: 'generate_image',
+      name: 'taichi_generate_image',
       description: 'Generate an image. The user must be signed in first; if they are not, tell them to sign in and do not describe the service. This tool call stays pending until the task reaches a final state; completed images are shown beside this tool call, while the model receives their attachment references, without creating a user message. count asks for 1 to 4 images and each image is a separate request. Only use models configured for this plugin; omit model to use the configured default image model (or the first model when none is configured). size, quality, render_quality, background and output_format must be values that model lists. Omit size or quality to use that model\'s first legal option. An unsupported value is rejected with the allowed list.',
       parameters: {
         prompt: { type: 'string', required: true, description: 'Detailed image-generation prompt.' },
@@ -392,17 +392,17 @@ export function registerAgentImageTools(ctx: Context, runtime: ImageGenerationRu
           ...args.output_format === 'gif' || args.output_format === 'svg' || args.output_format === 'png' ? { outputFormat: args.output_format } : {},
           n: Math.min(4, Math.max(1, args.count ?? 1)),
           detail: '',
-          agentTool: 'generate_image',
+          agentTool: 'taichi_generate_image',
         })
         return taskResult(await waitForTask(task.id, exec.signal))
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'edit_image',
-      description: 'Edit one image. The user must be signed in first; if they are not, tell them to sign in and do not describe the service. The source image is sent with the prompt on the same request. This tool call stays pending until the task reaches a final state; completed images are shown beside this tool call, while the model receives their attachment references, without creating a user message. source_image must be an image reference returned by a completed generation or get_image_generation_task; pass that entire object unchanged. Omit model to use the configured default image model (or the first model when none is configured).',
+      name: 'taichi_edit_image',
+      description: 'Edit one image. The user must be signed in first; if they are not, tell them to sign in and do not describe the service. The source image is sent with the prompt on the same request. This tool call stays pending until the task reaches a final state; completed images are shown beside this tool call, while the model receives their attachment references, without creating a user message. source_image must be an image reference returned by a completed generation or taichi_get_image_generation_task; pass that entire object unchanged. Omit model to use the configured default image model (or the first model when none is configured).',
       parameters: {
         prompt: { type: 'string', required: true, description: 'How to transform the source image.' },
-        source_image: { ...imageRefSchema, required: true, description: 'Image reference returned by a completed generation or get_image_generation_task.' },
+        source_image: { ...imageRefSchema, required: true, description: 'Image reference returned by a completed generation or taichi_get_image_generation_task.' },
         model: { type: 'string', description: 'One of the configured image models. Defaults to the configured default image model, or the first model when none is configured.' },
         size: { type: 'string', description: 'Aspect ratio published for the chosen model. Omit to use that model\'s first ratio.' },
         quality: { type: 'string', description: 'Resolution tier published for the chosen model: 1k, 2k, or 4k. Omit when the model has no tier.' },
@@ -434,7 +434,7 @@ export function registerAgentImageTools(ctx: Context, runtime: ImageGenerationRu
           ...args.background === 'transparent' ? { background: 'transparent' as const } : {},
           n: Math.min(4, Math.max(1, args.count ?? 1)),
           detail: '',
-          agentTool: 'edit_image',
+          agentTool: 'taichi_edit_image',
           image: imageDataUrl(reference),
           ...reference.ref.name === undefined ? {} : { refName: reference.ref.name },
         })
@@ -442,9 +442,9 @@ export function registerAgentImageTools(ctx: Context, runtime: ImageGenerationRu
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'get_image_generation_task',
-      description: 'Recover an image-generation task that is still in the local queue. Completed tasks return image references; their images are shown beside this tool call and the references can be passed to edit_image. Generation tools wait until the task finishes, so use this only after a disconnect.',
-      parameters: { task_id: { type: 'string', required: true, description: 'Task id returned by generate_image or edit_image.' } },
+      name: 'taichi_get_image_generation_task',
+      description: 'Recover an image-generation task that is still in the local queue. Completed tasks return image references; their images are shown beside this tool call and the references can be passed to taichi_edit_image. Generation tools wait until the task finishes, so use this only after a disconnect.',
+      parameters: { task_id: { type: 'string', required: true, description: 'Task id returned by taichi_generate_image or taichi_edit_image.' } },
       output: {
         schema: taskResultSchema,
         render: (_args, value) => renderTaskResult(value),
@@ -458,9 +458,9 @@ export function registerAgentImageTools(ctx: Context, runtime: ImageGenerationRu
       },
     })),
     ctx.tools.register(defineTool({
-      name: 'cancel_image_generation_task',
+      name: 'taichi_cancel_image_generation_task',
       description: 'Cancel a queued or running image generation task in the local queue.',
-      parameters: { task_id: { type: 'string', required: true, description: 'Task id returned by generate_image or edit_image.' } },
+      parameters: { task_id: { type: 'string', required: true, description: 'Task id returned by taichi_generate_image or taichi_edit_image.' } },
       output: {
         schema: taskResultSchema,
         render: (_args, value) => renderTaskResult(value),
@@ -493,6 +493,6 @@ function toSaveImage(image: GeneratedImage, taskId: string, index: number): { da
   return {
     data,
     mediaType,
-    name: `imagegen-${taskId}-${index + 1}.${mediaType === 'image/jpeg' ? 'jpg' : mediaType.slice('image/'.length)}`,
+    name: `taichi-imagegen-${taskId}-${index + 1}.${mediaType === 'image/jpeg' ? 'jpg' : mediaType.slice('image/'.length)}`,
   }
 }

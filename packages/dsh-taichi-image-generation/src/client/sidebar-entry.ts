@@ -42,9 +42,9 @@ import css from './panel.module.css'
 import { onTablistKeyDown, tabIndexFor } from './tablist.ts'
 
 /** Stable selector for the injected two-tab host. */
-export const ENTRY_SELECTOR = '[data-dsh-imagegen-session-tabs]'
+export const ENTRY_SELECTOR = '[data-dsh-taichi-imagegen-session-tabs]'
 /** Stable selector for the history surface in the shell region area. */
-export const HISTORY_HOST_SELECTOR = '[data-dsh-imagegen-history-host]'
+export const HISTORY_HOST_SELECTOR = '[data-dsh-taichi-imagegen-history-host]'
 
 /** Inline picture glyph kept deliberately small for the sidebar rail. */
 const IMAGE_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><circle cx="5.6" cy="5.8" r="1"/><path d="M2.5 12.5l3.6-3.4 2.4 2.2 3-3 2 2.4"/></svg>'
@@ -73,7 +73,7 @@ const SETTINGS_ANCHOR = '[data-slot="sidebar.settings"]'
  * these attributes, so a shell rename cannot silently un-hide another plugin's
  * entry (or hide the shell's own rows).
  */
-const BLOCK_ATTR = 'data-dsh-imagegen-sidebar-block'
+const BLOCK_ATTR = 'data-dsh-taichi-imagegen-sidebar-block'
 /**
  * Our own mark on sidebar blocks that must disappear while the studio is open.
  *
@@ -84,9 +84,9 @@ const BLOCK_ATTR = 'data-dsh-imagegen-sidebar-block'
  * marks let the stylesheet hide sibling branches (the panel nav) while the
  * branch that carries the region, and only that branch, stays painted.
  */
-const HIDE_ATTR = 'data-dsh-imagegen-sidebar-hide'
+const HIDE_ATTR = 'data-dsh-taichi-imagegen-sidebar-hide'
 /** Our own mark on the block the history host is seated in. */
-const REGION_ATTR = 'data-dsh-imagegen-sidebar-region'
+const REGION_ATTR = 'data-dsh-taichi-imagegen-sidebar-region'
 /**
  * Set on the shell root once every chrome block above has been resolved. The
  * stylesheet's "hide foreign entries" rule requires it: in a shell that does
@@ -94,7 +94,7 @@ const REGION_ATTR = 'data-dsh-imagegen-sidebar-region'
  * entry visible (cosmetic overlap) instead of hiding the shell's own brand row
  * or footer (a broken sidebar).
  */
-const BLOCKS_ATTR = 'data-dsh-imagegen-shell-blocks'
+const BLOCKS_ATTR = 'data-dsh-taichi-imagegen-shell-blocks'
 /**
  * Older shells marked the sidebar column directly instead of registering slot
  * anchors. Declared by DSH Desktop's own docs and kept as a read-only fallback
@@ -111,9 +111,9 @@ const LEGACY_SIDEBAR_PANE = '[data-pane="sidebar"]'
  * what tells a re-render that the listener is already installed — the host
  * element is reused across shell mutations.
  */
-const WHEEL_CONTAINER_ATTR = 'data-dsh-imagegen-wheel-owner'
+const WHEEL_CONTAINER_ATTR = 'data-dsh-taichi-imagegen-wheel-owner'
 /** Our own injected nodes, never candidates for the shell's seats. */
-const OWN_NODES = `${ENTRY_SELECTOR}, ${HISTORY_HOST_SELECTOR}, [data-dsh-imagegen-sidebar-root]`
+const OWN_NODES = `${ENTRY_SELECTOR}, ${HISTORY_HOST_SELECTOR}, [data-dsh-taichi-imagegen-sidebar-root]`
 
 /** Accessible names the shell gives its New Session affordance. */
 const NEW_SESSION_LABELS = ['new session', 'new chat', '新会话', '新建会话', '新对话', '新话题']
@@ -510,7 +510,7 @@ function createTabs(
   imageTooltip: string,
 ): HTMLDivElement {
   const tabs = document.createElement('div')
-  tabs.dataset.dshImagegenSessionTabs = ''
+  tabs.dataset.dshTaichiImagegenSessionTabs = ''
   tabs.className = css.sessionTabs
   tabs.setAttribute('role', 'tablist')
   // Name the switcher itself, not the image tab: its tooltip is a model list.
@@ -524,8 +524,8 @@ function createTabs(
 
   const sessionTab = makeTab(sessionLabel, sessionTooltip, SESSION_ICON, activateSession)
   const imageTab = makeTab(imageLabel, imageTooltip, IMAGE_ICON, activateImage)
-  sessionTab.dataset.dshImagegenTab = 'session'
-  imageTab.dataset.dshImagegenTab = 'image'
+  sessionTab.dataset.dshTaichiImagegenTab = 'session'
+  imageTab.dataset.dshTaichiImagegenTab = 'image'
 
   // `role="tablist"` plus `role="tab"` is a keyboard promise, not decoration:
   // only the selected tab stays in the Tab order and the arrow keys move
@@ -589,7 +589,7 @@ function alignToSeat(tabs: HTMLElement, seat: HTMLElement): void {
 }
 
 /** Seat marker for a switcher that had to fall back to the column itself. */
-const FALLBACK_SEAT_ATTR = 'dshImagegenTabsSeat'
+const FALLBACK_SEAT_ATTR = 'dshTaichiImagegenTabsSeat'
 const FALLBACK_SEAT_VALUE = 'top'
 
 /**
@@ -716,7 +716,7 @@ function placeHistoryHost(root: HTMLElement, region: HTMLElement | undefined): H
   }
   if (region === undefined) return undefined
   const host = document.createElement('div')
-  host.dataset.dshImagegenHistoryHost = ''
+  host.dataset.dshTaichiImagegenHistoryHost = ''
   host.className = css.sidebarHistoryHost
   containHistoryWheel(host)
   region.append(host)
@@ -767,15 +767,15 @@ export function mountSidebarEntry(
     if (warnedUnmounted || tabs !== undefined) return
     warnedUnmounted = true
     const reason = root === undefined ? 'sidebar root not found' : 'no seat for the switcher'
-    console.warn(`[dsh-imagegen] sidebar entry stayed unmounted (${reason}); shell probe: ${describeShell()}`)
+    console.warn(`[dsh-taichi-imagegen] sidebar entry stayed unmounted (${reason}); shell probe: ${describeShell()}`)
   }
 
   const unmountedTimer = window.setTimeout(warnUnmounted, 5000)
 
   const syncActive = (): void => {
     if (tabs === undefined) return
-    const sessionTab = tabs.querySelector<HTMLElement>('[data-dsh-imagegen-tab="session"]')
-    const imageTab = tabs.querySelector<HTMLElement>('[data-dsh-imagegen-tab="image"]')
+    const sessionTab = tabs.querySelector<HTMLElement>('[data-dsh-taichi-imagegen-tab="session"]')
+    const imageTab = tabs.querySelector<HTMLElement>('[data-dsh-taichi-imagegen-tab="image"]')
     const panelOpen = controller.getSnapshot().panelOpen
     for (const [tab, active] of [[sessionTab, !panelOpen], [imageTab, panelOpen]] as const) {
       if (tab === null) continue
@@ -794,7 +794,7 @@ export function mountSidebarEntry(
     // since replaced (the hidden mobile copy that lands before the desktop
     // column): recompute instead of writing the entry into an invisible box.
     if (root !== undefined && (!root.isConnected || !isVisible(root))) {
-      markedButton?.removeAttribute('data-dsh-imagegen-new-session')
+      markedButton?.removeAttribute('data-dsh-taichi-imagegen-new-session')
       markedButton = undefined
       for (const block of markedBlocks) {
         block.removeAttribute(BLOCK_ATTR)
@@ -809,24 +809,24 @@ export function mountSidebarEntry(
       historyHost?.remove()
       tabs = undefined
       historyHost = undefined
-      if (root.isConnected) delete root.dataset.dshImagegenSidebarRoot
+      if (root.isConnected) delete root.dataset.dshTaichiImagegenSidebarRoot
       root = undefined
     }
     root ??= sidebarRoot()
     if (root === undefined) return
-    root.dataset.dshImagegenSidebarRoot = ''
+    root.dataset.dshTaichiImagegenSidebarRoot = ''
     const button = newSessionButton(root)
     if (button !== undefined) {
-      if (markedButton !== button) markedButton?.removeAttribute('data-dsh-imagegen-new-session')
+      if (markedButton !== button) markedButton?.removeAttribute('data-dsh-taichi-imagegen-new-session')
       markedButton = button
-      if (!button.hasAttribute('data-dsh-imagegen-new-session')) {
-        button.setAttribute('data-dsh-imagegen-new-session', '')
+      if (!button.hasAttribute('data-dsh-taichi-imagegen-new-session')) {
+        button.setAttribute('data-dsh-taichi-imagegen-new-session', '')
       }
     } else if (markedButton !== undefined) {
       // The action this plugin used to mark is gone (another plugin hid or
       // replaced it): drop the mark so a stale attribute cannot keep a hidden
       // button styled for a seat that no longer exists.
-      markedButton.removeAttribute('data-dsh-imagegen-new-session')
+      markedButton.removeAttribute('data-dsh-taichi-imagegen-new-session')
       markedButton = undefined
     }
     tabs = placeTabs(root, button, controller, sessionLabel, sessionTooltip, imageLabel, imageTooltip)
@@ -928,7 +928,7 @@ export function mountSidebarEntry(
     unsubscribe()
     tabs?.remove()
     historyHost?.remove()
-    markedButton?.removeAttribute('data-dsh-imagegen-new-session')
+    markedButton?.removeAttribute('data-dsh-taichi-imagegen-new-session')
     for (const block of markedBlocks) {
       block.removeAttribute(BLOCK_ATTR)
       block.removeAttribute(HIDE_ATTR)
@@ -936,7 +936,7 @@ export function mountSidebarEntry(
     }
     markedBlocks = []
     if (root !== undefined) {
-      delete root.dataset.dshImagegenSidebarRoot
+      delete root.dataset.dshTaichiImagegenSidebarRoot
       root.removeAttribute(BLOCKS_ATTR)
     }
   }

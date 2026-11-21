@@ -32,7 +32,7 @@ interface PendingConversationImage {
  * an explicit target picker; list order is never treated as user intent.
  *
  * 这个 hook 只服务图片侧：视频片段走的是 `ImageGenPanel` 里自己的
- * `addClipToConversation`，那条链路没有 `/edit_image` 式的持久化暂存步骤，
+ * `addClipToConversation`，那条链路没有 `/taichi_edit_image` 式的持久化暂存步骤，
  * 硬塞进同一个 hook 会把两种语义压成一种。
  */
 export function useConversationImageAttachment(options: {

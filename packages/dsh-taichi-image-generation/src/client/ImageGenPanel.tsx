@@ -203,8 +203,8 @@ const PREVIEW_SCALE_STEP = 0.25
 /** Pointer travel below this stays a click. Issue #31 wanted drag-to-pan; a
  *  hand that moves one pixel while clicking must not pan instead. */
 const PREVIEW_DRAG_THRESHOLD = 3
-const CONFIG_COLLAPSED_STORAGE_KEY = 'dsh-imagegen-config-collapsed'
-const ECOMMERCE_DRAFT_STORAGE_KEY = 'dsh-imagegen-ecommerce-draft'
+const CONFIG_COLLAPSED_STORAGE_KEY = 'dsh-taichi-imagegen-config-collapsed'
+const ECOMMERCE_DRAFT_STORAGE_KEY = 'dsh-taichi-imagegen-ecommerce-draft'
 /** Reference roles an uploaded product asset can play (slot selections can
  *  also pick 'none'). 'layout' is the one role whose image is not a picture of
  *  the product: it is a composition template the result borrows zoning from. */
@@ -280,7 +280,7 @@ function readConfigCollapsed(): boolean {
   }
 }
 
-const CHAT_COLLAPSED_STORAGE_KEY = 'dsh-imagegen:chat-collapsed'
+const CHAT_COLLAPSED_STORAGE_KEY = 'dsh-taichi-imagegen:chat-collapsed'
 
 type SubscriptionChannelState = 'logged-in' | 'logged-out' | 'unknown'
 
@@ -290,7 +290,7 @@ const INITIAL_SUBSCRIPTION_STATES: Record<SubscriptionProvider, SubscriptionChan
   'google-sub': 'unknown',
   'openrouter-sub': 'unknown',
 }
-const CONFIG_WIDTH_STORAGE_KEY = 'dsh-imagegen:config-width'
+const CONFIG_WIDTH_STORAGE_KEY = 'dsh-taichi-imagegen:config-width'
 const CONFIG_WIDTH_MIN = 260
 const CONFIG_WIDTH_MAX = 480
 const CONFIG_WIDTH_DEFAULT = 300
@@ -550,11 +550,11 @@ function useCurrentWorkspace(sessions: ISessions | undefined): string | undefine
 /** Find the host mounted in the shell's left navigation region. */
 function useSidebarHistoryHost(): HTMLDivElement | null {
   const [host, setHost] = useState<HTMLDivElement | null>(() => (
-    document.querySelector<HTMLDivElement>('[data-dsh-imagegen-history-host]')
+    document.querySelector<HTMLDivElement>('[data-dsh-taichi-imagegen-history-host]')
   ))
   useEffect(() => {
     const sync = (): void => {
-      setHost(document.querySelector<HTMLDivElement>('[data-dsh-imagegen-history-host]'))
+      setHost(document.querySelector<HTMLDivElement>('[data-dsh-taichi-imagegen-history-host]'))
     }
     sync()
     const observer = new MutationObserver(sync)
@@ -1479,7 +1479,7 @@ export function ImageGenPanel(props: {
   /**
    * Image → conversation, with an explicit fallback when the host cannot say
    * which conversation is current. `addingToConversation` below is kept for the
-   * video clip path only: clips have no `/edit_image`-style pending attachment,
+   * video clip path only: clips have no `/taichi_edit_image`-style pending attachment,
    * so folding them into this hook would merge two different flows.
    */
   const conversationAttachment = useConversationImageAttachment({
@@ -1609,12 +1609,12 @@ export function ImageGenPanel(props: {
   // Chat-pane visibility rides a document-level attribute so the center-column
   // grid can drop the conversation entirely. Collapsed by default.
   useEffect(() => {
-    if (chatOpen) delete document.documentElement.dataset.dshImagegenChatCollapsed
-    else document.documentElement.dataset.dshImagegenChatCollapsed = '1'
+    if (chatOpen) delete document.documentElement.dataset.dshTaichiImagegenChatCollapsed
+    else document.documentElement.dataset.dshTaichiImagegenChatCollapsed = '1'
     try { window.localStorage.setItem(CHAT_COLLAPSED_STORAGE_KEY, chatOpen ? 'open' : 'collapsed') } catch { /* optional */ }
   }, [chatOpen])
 
-  useEffect(() => () => { delete document.documentElement.dataset.dshImagegenChatCollapsed }, [])
+  useEffect(() => () => { delete document.documentElement.dataset.dshTaichiImagegenChatCollapsed }, [])
 
   // Main-image anchor chain: when the main image task of a product set
   // completes, resubmit the remaining slots with the generated main image as
@@ -2968,8 +2968,8 @@ export function ImageGenPanel(props: {
    * Reuses the SAME draft bridge as images: the platform's composer accepts any
    * file (it drafts non-images as `kind: 'file'` and streams them itself), so a
    * clip needs no new host route and no base64 conversion. The only image-only
-   * step skipped is the `/edit_image` pending-attachment call, which exists so
-   * `/edit_image` can find the picture again — there is no `/edit_video`.
+   * step skipped is the `/taichi_edit_image` pending-attachment call, which exists so
+   * `/taichi_edit_image` can find the picture again — there is no `/edit_video`.
    */
   const addClipToConversation = async (url: string, actionKey: number | string): Promise<void> => {
         if (addingToConversation !== null) return
@@ -3210,7 +3210,7 @@ export function ImageGenPanel(props: {
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `dsh-imagegen-gallery-${new Date().toISOString().slice(0, 10)}.json`
+    anchor.download = `dsh-taichi-imagegen-gallery-${new Date().toISOString().slice(0, 10)}.json`
     anchor.click()
     URL.revokeObjectURL(url)
   }
@@ -3547,7 +3547,7 @@ export function ImageGenPanel(props: {
   // Render history into the shell sidebar so it remains a separate navigation
   // surface from both the image workspace and the native conversation.
   const historyPanel = (
-    <aside className={css.history} data-dsh-imagegen-history>
+    <aside className={css.history} data-dsh-taichi-imagegen-history>
       <header className={css.historyHeader}>
         <span className={css.historyTitle}>{tt('history.title')}</span>
         <div className={css.historyHeaderActions}>
@@ -3630,7 +3630,7 @@ export function ImageGenPanel(props: {
                 <button
                   type="button"
                   className={css.historyMain}
-                  data-dsh-imagegen-history-main=""
+                  data-dsh-taichi-imagegen-history-main=""
                   onClick={() => {
                     if (isCanvasRow) {
                       // Opening a canvas is not "viewing a result": it switches
@@ -3881,7 +3881,7 @@ export function ImageGenPanel(props: {
           <aside
             ref={configAsideRef}
             className={css.config}
-            style={{ '--dsh-imagegen-config-width': `${configWidth}px` } as CSSProperties}
+            style={{ '--dsh-taichi-imagegen-config-width': `${configWidth}px` } as CSSProperties}
             data-collapsed={configCollapsed ? 'true' : 'false'}
             data-gallery={workspace === 'normal' && tab === 'gallery' ? 'true' : undefined}
             data-video={isVideo ? 'true' : undefined}
@@ -3963,7 +3963,7 @@ export function ImageGenPanel(props: {
             {workspace === 'normal' && tab !== 'gallery' ? (
               <section className={css.card}>
                 <SegmentedControl
-                  id="dsh-imagegen-mode"
+                  id="dsh-taichi-imagegen-mode"
                   value={tab as (typeof MODE_TABS)[number]}
                   label={tt('panel.title')}
                   className={css.modeTabs}

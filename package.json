@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop",
   "version": "0.12.1",
-  "description": "A cross-platform desktop shell for DeepSeek Harness.",
+  "description": "太极-dsh，DeepSeek Harness 的跨平台桌面端。",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -9,10 +9,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dataelement/dsh-desktop.git"
+    "url": "git+https://github.com/moshstudio/dsh-desktop.git"
   },
   "bugs": {
-    "url": "https://github.com/dataelement/dsh-desktop/issues"
+    "url": "https://github.com/moshstudio/dsh-desktop/issues"
   },
   "homepage": "https://moshangwangluo.com",
   "keywords": [
@@ -24,8 +24,8 @@
   ],
   "scripts": {
     "postinstall": "patch-package && node scripts/release/install-brand-assets.mjs && install-electron --no",
-    "dev": "npm run office:prepare && npm run ppt:build && npm run imagegen:build && electron-vite dev",
-    "build": "npm run office:prepare && npm run ppt:build && npm run imagegen:build && electron-vite build",
+    "dev": "npm run office:prepare && npm run ppt:build && npm run imagegen:build && npm run account:build && electron-vite dev",
+    "build": "npm run office:prepare && npm run ppt:build && npm run imagegen:build && npm run account:build && electron-vite build",
     "icons:generate": "node scripts/release/generate-app-icons.mjs",
     "loader:generate": "node scripts/release/generate-loader-gifs.mjs",
     "preview": "electron-vite preview",
@@ -45,8 +45,9 @@
     "package:win": "node scripts/verify/verify-target.mjs win32 x64 && npm run build && node scripts/release/electron-builder-windows.mjs --win --x64 --publish never",
     "ppt:build": "node scripts/ppt/prepare-ppt-runtime.mjs",
     "imagegen:build": "npm --prefix packages/dsh-taichi-image-generation run build",
-    "pretest": "npm run office:prepare && npm run ppt:build",
-    "pretest:watch": "npm run office:prepare && npm run ppt:build",
+    "account:build": "npm --prefix packages/dsh-taichi-account run build",
+    "pretest": "npm run office:prepare && npm run ppt:build && npm run account:build",
+    "pretest:watch": "npm run office:prepare && npm run ppt:build && npm run account:build",
     "office:prepare": "node scripts/office-runtime/prepare.mjs && node scripts/office-runtime/prepare-templates.mjs"
   },
   "dependencies": {
@@ -326,7 +327,7 @@
   },
   "build": {
     "appId": "io.taichi.dsh",
-    "productName": "taichi-dsh",
+    "productName": "太极-dsh",
     "asar": true,
     "asarUnpack": [
       "**/*.{node,dylib,dll,so,exe}",
@@ -492,7 +493,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://dshdesktop.com/updates/latest/"
+        "url": "https://taichi-gateway.moshangwangluo.com/updates/latest/"
       }
     ],
     "detectUpdateChannel": false,
@@ -505,7 +506,7 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "taichi-dsh uses your microphone to transcribe speech into message drafts."
+        "NSMicrophoneUsageDescription": "太极-dsh uses your microphone to transcribe speech into message drafts."
       },
       "gatekeeperAssess": false,
       "signIgnore": [
@@ -547,9 +548,10 @@
     },
     "win": {
       "icon": "build/icon.ico",
+      "executableName": "taichi-dsh",
       "verifyUpdateCodeSignature": true,
       "signtoolOptions": {
-        "publisherName": "Beijing Shuju Xiangsu Intelligence Technology Co., Ltd.",
+        "publisherName": "陌上网络",
         "signingHashAlgorithms": [
           "sha256"
         ]

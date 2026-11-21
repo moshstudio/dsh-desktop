@@ -99,7 +99,7 @@ export async function putObject(config: StorageSyncConfig, key: string, data: Bu
 
 /** Upload a small probe object; used by the settings card's test button. */
 export async function testStorage(config: StorageSyncConfig): Promise<{ ms: number; key: string }> {
-  const key = `${config.prefix.trim() || 'dsh-imagegen'}/ping.txt`
-  const { ms } = await putObject(config, key, Buffer.from('dsh-imagegen storage ok', 'utf8'), 'text/plain')
+  const key = `${config.prefix.trim() || 'dsh-taichi-imagegen'}/ping.txt`
+  const { ms } = await putObject(config, key, Buffer.from('dsh-taichi-imagegen storage ok', 'utf8'), 'text/plain')
   return { ms, key }
 }

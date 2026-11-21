@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; img-src 'self' file:; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
     />
-    <title>taichi-dsh</title>
+    <title>太极-dsh</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -205,7 +205,7 @@
       if (navigator.platform.toLowerCase().startsWith('win')) {
         document.documentElement.dataset.platform = 'windows'
       }
-      document.title = model.heading || (model.locale === 'zh' ? '太极-dsh' : 'taichi-dsh')
+      document.title = model.heading || (model.locale === 'zh' ? '太极-dsh' : '太极-dsh')
       const setText = (id, value) => {
         const node = document.getElementById(id)
         if (node) node.textContent = value || ''

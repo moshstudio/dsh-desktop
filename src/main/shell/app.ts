@@ -18,7 +18,7 @@ import { RepairSessionStore } from '../recovery/repair-agent-sessions'
 import { LanMobileBridge } from '../mobile/lan-mobile-bridge'
 import { createFilePairingPinStore, pairingPinStorePath } from '../mobile/pairing-pin-store'
 import { ensureSafeModeProfile, SAFE_MODE_PROFILE } from '../recovery/safe-mode-profile'
-import { checkForUpdates, getUpdateStatus, registerUpdateHandlers, startUpdateManager } from '../update/update-manager'
+import { checkForUpdates, getUpdateStatus, registerUpdateHandlers, setDesktopUpdateOrigin, startUpdateManager } from '../update/update-manager'
 import { aboutDetail, bundledHarnessVersion, withPublishedHarnessVersion } from '../version-info'
 import {
   resolveHarnessLocale,
@@ -175,7 +175,7 @@ function configureDesktopIdentity(): void {
     process.execPath.toLowerCase().includes('bisheng') ||
     hasEnterprisePlugin()
   )
-  const defaultProdName = isBisheng ? 'BISHENG' : 'taichi-dsh'
+  const defaultProdName = isBisheng ? 'BISHENG' : '太极-dsh'
 
   const development = desktopDevelopmentBuild(metadata)
   const environment = developmentEnvironment(development, 43129)
@@ -195,7 +195,7 @@ function configureDesktopIdentity(): void {
     return
   }
   if (!isBisheng) {
-    app.setName('taichi-dsh')
+    app.setName('太极-dsh')
     // Own directory so this product does not share sessions with DSH Desktop.
     app.setPath('userData', join(app.getPath('appData'), 'taichi-dsh'))
     return
@@ -725,7 +725,7 @@ async function main(): Promise<void> {
   ipcMain.removeHandler('desktop-titlebar:set-theme')
   ipcMain.handle('desktop-titlebar:set-theme', (event, isDark: unknown) => {
     const owner = assertTitlebarOwner(event, true)
-    if (typeof isDark !== 'boolean') throw new Error('The DSH Desktop titlebar theme must be a boolean.')
+    if (typeof isDark !== 'boolean') throw new Error('The 太极-dsh titlebar theme must be a boolean.')
     if (usesDesktopCaption(process.platform)) owner.setBackgroundColor(windowsChromeBackground(isDark))
     return { ok: true }
   })
@@ -1055,6 +1055,9 @@ async function main(): Promise<void> {
     console.error(`[desktop] login shell: ${openedShell.failures.map(item => `${item.shell} (${item.reason})`).join('; ')}`)
   }
   const gatewayUrl = await resolveGatewayUrl(hostEnvironment)
+  if (!setDesktopUpdateOrigin(gatewayUrl)) {
+    console.warn('[updater] ignoring the account gateway for update checks; using the production gateway')
+  }
   const gatewayChoice = gatewayUrl === DEVELOPMENT_GATEWAY_URL ? 'local' : gatewayUrl === PRODUCTION_GATEWAY_URL ? 'production' : 'configured'
   console.info(`[account] gateway ${gatewayChoice}`)
   const account = new DesktopAccountService({
@@ -1503,7 +1506,7 @@ async function main(): Promise<void> {
           log: message => { console.info(message) }
         })
         if (result.failures.length > 0) {
-          throw new Error('Unable to stop background services before replacing DSH Desktop.')
+          throw new Error('Unable to stop background services before replacing 太极-dsh.')
         }
       },
       installFailed: async () => {

@@ -1693,7 +1693,7 @@ const canvasCss = read('canvas-workspace.module.css')
  * build strips. Dropped into a `<style>` tag verbatim it is an invalid selector,
  * so the whole rule is discarded — silently, with no console error. A fixture
  * that embeds the raw file therefore measures a page missing every `:global`
- * rule, and a `.root[data-dsh-imagegen-scheme='dark']` override simply does not
+ * rule, and a `.root[data-dsh-taichi-imagegen-scheme='dark']` override simply does not
  * exist: the dark theme renders the light values and the check reports a failure
  * that the real build does not have. Worse in the other direction too — a rule
  * that only works because of `:global` would look broken here and be "fixed"
@@ -2112,7 +2112,7 @@ const TABLIST_FILES = readdirSync(clientDir)
  * The `(?<!\[)` is load-bearing: `'[role="tablist"]'` inside a querySelector
  * call is a string that CONTAINS the same characters, so a plain substring test
  * counts a selector as a declaration. `index.ts` queries
- * `'[role="tablist"][data-dsh-imagegen-session-tabs]'` to relabel the switcher;
+ * `'[role="tablist"][data-dsh-taichi-imagegen-session-tabs]'` to relabel the switcher;
  * without the lookbehind that file looks like a tablist it never renders.
  */
 const declaresTablist = source => /(?<!\[)role="tablist"/.test(source)
@@ -2311,11 +2311,11 @@ const sidebarTabsPage = `<!doctype html><html><head><style>
   ${browserCss(read('panel.module.css'))}
 </style></head><body>
   <div id="root">
-    <div class="sessionTabs" id="tabs" data-dsh-imagegen-session-tabs role="tablist" aria-label="会话 / 生图">
+    <div class="sessionTabs" id="tabs" data-dsh-taichi-imagegen-session-tabs role="tablist" aria-label="会话 / 生图">
       <button class="sessionTab" id="tabSession" role="tab" aria-selected="true" tabindex="0"><span class="sessionTabIcon"></span><span class="sessionTabLabel">会话</span></button>
       <button class="sessionTab" id="tabImage" role="tab" aria-selected="false" tabindex="-1"><span class="sessionTabIcon"></span><span class="sessionTabLabel">生图</span></button>
     </div>
-    <button class="newSession" data-dsh-imagegen-new-session aria-label="新建会话">新建会话</button>
+    <button class="newSession" data-dsh-taichi-imagegen-new-session aria-label="新建会话">新建会话</button>
   </div>
   <script>
     // The REAL function, lifted out of sidebar-entry.ts and evaluated here. A
@@ -2404,7 +2404,7 @@ const historyWheelScript = (() => {
 // that owns the session tree, the region the tree sits in, and the plugin's
 // absolutely-positioned host on top of it. The list is tall enough to scroll
 // and the tree tall enough to prove it did not move instead.
-const historyScrollPage = `<!doctype html><html data-dsh-imagegen-active><head><style>
+const historyScrollPage = `<!doctype html><html data-dsh-taichi-imagegen-active><head><style>
   body { margin: 0;
     --dsw-alias-border-l1: #d9dade;
     --dsw-alias-border-l2: #e6e7ea;
@@ -2431,8 +2431,8 @@ const historyScrollPage = `<!doctype html><html data-dsh-imagegen-active><head><
   <div id="scrollport" data-sidebar-scrollport>
     <div id="tree"><div id="treeScroll">${Array.from({ length: 60 }, (_, i) => `<div>session ${i}</div>`).join('')}</div></div>
     <div id="region">
-      <div class="sidebarHistoryHost" id="host" data-dsh-imagegen-history-host>
-        <aside class="history" data-dsh-imagegen-history>
+      <div class="sidebarHistoryHost" id="host" data-dsh-taichi-imagegen-history-host>
+        <aside class="history" data-dsh-taichi-imagegen-history>
           <header class="historyHeader"><span class="historyTitle">历史记录</span></header>
           <div class="historyList" id="list">${Array.from({ length: 40 }, (_, i) => `<div class="historyItem"><span class="historyPrompt">第 ${i} 条记录，用来把列表撑到可以滚动的高度</span></div>`).join('')}</div>
         </aside>
@@ -2530,8 +2530,8 @@ const mainSlotPage = `<!doctype html><html><head><style>
   body { margin: 0; }
   ${scaleCss}
 </style></head><body>
-  <div id="centre" data-dsh-imagegen-center-col>
-    <div data-dsh-imagegen-view id="studio">studio</div>
+  <div id="centre" data-dsh-taichi-imagegen-center-col>
+    <div data-dsh-taichi-imagegen-view id="studio">studio</div>
     <div data-slot="main" style="display: contents">
       <div id="workbenchFrame" data-slot="desktop.workbench.frame" style="display: contents">
         <div data-slot="main.conversation" style="display: contents"><div id="conversation" data-phase="hero">conversation</div></div>
@@ -2688,7 +2688,7 @@ await send4('Runtime.enable', {})
 await new Promise(r => setTimeout(r, 300))
 const takeover = await send4('Runtime.evaluate', {
   expression: `(() => {
-    document.documentElement.setAttribute('data-dsh-imagegen-active', '')
+    document.documentElement.setAttribute('data-dsh-taichi-imagegen-active', '')
     const display = id => getComputedStyle(document.getElementById(id)).display
     return {
       shellPanel: display('shellPanel'),
@@ -2917,7 +2917,7 @@ console.log('sidebar switcher: same inset and one 8px gap against the shell butt
 const historyPage = await openPage(launched.port, `http://127.0.0.1:${port}/?historyscroll=1`)
 let historyReady = false
 for (let i = 0; i < 60; i++) {
-  historyReady = await historyPage.evaluate(`document.readyState === 'complete' && document.getElementById('list') !== null && document.getElementById('host').hasAttribute('data-dsh-imagegen-wheel-owner')`)
+  historyReady = await historyPage.evaluate(`document.readyState === 'complete' && document.getElementById('list') !== null && document.getElementById('host').hasAttribute('data-dsh-taichi-imagegen-wheel-owner')`)
   if (historyReady === true) break
   await new Promise(r => setTimeout(r, 50))
 }
@@ -3774,8 +3774,8 @@ if (rootVars.get('--canvas-node-surface') !== 'var(--dsw-alias-bg-layer-1)') {
 if (rootVars.get('--canvas-node-border') !== 'var(--dsw-alias-border-l1)') {
   nodeProblems.push(`\`--canvas-node-border\` is ${String(rootVars.get('--canvas-node-border'))}, not \`var(--dsw-alias-border-l1)\` — the LIGHT theme's resting ring has to stay what it shipped with`)
 }
-if (!/\.root\[data-dsh-imagegen-scheme='dark'\]\s*\{[\s\S]{0,500}?--canvas-node-surface:/.test(canvasCss)) {
-  nodeProblems.push('no `.root[data-dsh-imagegen-scheme=dark] { --canvas-node-surface }` override — the dark card would be the canvas colour again')
+if (!/\.root\[data-dsh-taichi-imagegen-scheme='dark'\]\s*\{[\s\S]{0,500}?--canvas-node-surface:/.test(canvasCss)) {
+  nodeProblems.push('no `.root[data-dsh-taichi-imagegen-scheme=dark] { --canvas-node-surface }` override — the dark card would be the canvas colour again')
 }
 if (selectedBorder === null) {
   nodeProblems.push('`.nodeSelected` no longer sets its own border-color, so selection cannot read above the default')
@@ -3787,7 +3787,7 @@ if (nodeProblems.length > 0) {
   for (const entry of nodeProblems) console.error(`  - ${entry}`)
   console.error('A dark card and the canvas it floats on must be two surfaces, and the light')
   console.error('theme must keep the one it had. Split the value at `.root` — the light theme')
-  console.error('keeps `bg-layer-1` exactly, and `.root[data-dsh-imagegen-scheme=dark]` overrides it.')
+  console.error('keeps `bg-layer-1` exactly, and `.root[data-dsh-taichi-imagegen-scheme=dark]` overrides it.')
   process.exit(1)
 }
 
@@ -3829,7 +3829,7 @@ body { ${palette.tokens} }
 html, body { margin: 0; height: 100%; }
 ${browserCss(canvasCss)}
 </style></head><body${palette.bodyAttr}>
-<div class="root" id="probeRoot" ${palette.name === 'dark' ? 'data-dsh-imagegen-scheme="dark"' : ''} style="height:320px">
+<div class="root" id="probeRoot" ${palette.name === 'dark' ? 'data-dsh-taichi-imagegen-scheme="dark"' : ''} style="height:320px">
   <div class="viewport" id="probeViewport">
     <div class="node" id="probeNode" style="left:40px;top:40px;width:200px;height:120px"></div>
   </div>

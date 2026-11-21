@@ -44,7 +44,7 @@ const assetRef = (value: unknown): value is CanvasAssetRef => {
   const asset = value as CanvasAssetRef
   // Recipes may only point at immutable host canvas assets, never inline bytes or remote URLs.
   return typeof asset.assetId === 'string' && /^[a-f0-9]{64}\.(png|jpg|jpeg|webp|gif)$/.test(asset.assetId)
-    && asset.url === `/api/dsh-imagegen/canvas/asset/${asset.assetId}`
+    && asset.url === `/api/dsh-taichi-imagegen/canvas/asset/${asset.assetId}`
     && /^image\/(png|jpeg|webp|gif)$/.test(asset.mime) && finite(asset.bytes) && asset.bytes >= 0
     && finite(asset.width) && asset.width > 0 && finite(asset.height) && asset.height > 0
 }

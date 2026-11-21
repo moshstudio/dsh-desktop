@@ -1,5 +1,5 @@
 /**
- * Browser-side API client for the /api/dsh-imagegen route family. The only
+ * Browser-side API client for the /api/dsh-taichi-imagegen route family. The only
  * data access path the panel uses — plain fetch, same origin.
  */
 
@@ -250,7 +250,7 @@ export class ImageGenApi {
     return (await readEnvelope<ListingCopyResult>(response))
   }
 
-  /** Stage a generated image as a durable reference for `/edit_image`. */
+  /** Stage a generated image as a durable reference for `/taichi_edit_image`. */
   async attachConversationImage(sessionId: string, dataUrl: string, name: string): Promise<void> {
     const response = await fetch(CONVERSATION_IMAGE_API, {
       method: 'POST',

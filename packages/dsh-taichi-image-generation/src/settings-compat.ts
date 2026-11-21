@@ -82,8 +82,8 @@ export function settingsNamespaceCompat(value: string): SettingsNamespace {
  * Older settings providers register a caller-chosen namespace through the
  * module helper or `provider.installSection`. The managed-forms provider used
  * by DSH 0.1.7 derives forms from the plugin's profile entry instead, so its
- * namespace is the entry id (`imagegen`) rather than the legacy display id
- * (`dsh-imagegen`). The bridge keeps the legacy id on its public wire contract
+ * namespace is the entry id (`taichi-imagegen`) rather than the legacy display id
+ * (`dsh-taichi-imagegen`). The bridge keeps the legacy id on its public wire contract
  * and translates it to this internal namespace.
  */
 export function resolveSettingsNamespaceCompat(

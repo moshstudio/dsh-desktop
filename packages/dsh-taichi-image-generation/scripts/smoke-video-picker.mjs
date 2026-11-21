@@ -74,9 +74,9 @@ const check = createCheckHarness({ results })
 
 // --------------------------------------------------------------- fixtures
 
-const VIDEO_FILE = '/api/dsh-imagegen/video/file'
-const GALLERY_FILE = '/api/dsh-imagegen/gallery/video-file'
-const CANVAS_ASSET = `/api/dsh-imagegen/canvas/asset/${'c'.repeat(64)}.mp4`
+const VIDEO_FILE = '/api/dsh-taichi-imagegen/video/file'
+const GALLERY_FILE = '/api/dsh-taichi-imagegen/gallery/video-file'
+const CANVAS_ASSET = `/api/dsh-taichi-imagegen/canvas/asset/${'c'.repeat(64)}.mp4`
 
 /** Two history entries holding three playable files between them. */
 const HISTORY_FIXTURE = [
@@ -109,7 +109,7 @@ const GALLERY_FIXTURE = [
   {
     id: 'gal-image-1', createdAt: 2, mode: 'text', model: 'gpt-image-2',
     prompt: 'a picture, not a clip', size: '1:1', quality: 'auto', detail: '', n: 1,
-    images: [{ url: '/api/dsh-imagegen/gallery/image/pic.png', mime: 'image/png' }],
+    images: [{ url: '/api/dsh-taichi-imagegen/gallery/image/pic.png', mime: 'image/png' }],
   },
   {
     id: 'gal-clip-2', createdAt: 3, mode: 'video', model: 'agnes-video-2.5-flash',
@@ -235,7 +235,7 @@ await check('C1 the dock menu offers 添加视频 and the picker opens with thre
       return json({
         ok: true,
         value: {
-          namespaces: [{ ns: 'dsh-imagegen', value: configState, revision: 0, secrets: [{ path: ['channelSecrets', 'default'], set: true }] }],
+          namespaces: [{ ns: 'dsh-taichi-imagegen', value: configState, revision: 0, secrets: [{ path: ['channelSecrets', 'default'], set: true }] }],
           writable: true,
         },
       })
@@ -275,7 +275,7 @@ await check('C1 the dock menu offers 添加视频 and the picker opens with thre
     if (path.endsWith('/templates/sample')) return json({ ok: true, samples: [] })
     if (path.endsWith('/templates/list')) return json({ ok: true, sourceId: 'vibeui', cases: [], total: 0, origin: 'bundled', repository: '', fetchedAt: '' })
     if (path.endsWith('/templates/favorites/list')) return json({ ok: true, favorites: [] })
-    if (path.endsWith('/settings/mutate')) return json({ ok: true, value: { ns: 'dsh-imagegen', value: configState, revision: 1, secrets: [] } })
+    if (path.endsWith('/settings/mutate')) return json({ ok: true, value: { ns: 'dsh-taichi-imagegen', value: configState, revision: 1, secrets: [] } })
     if (path.includes('/video/file/')) {
       return { ok: true, status: 200, blob: async () => new jsdomWindow.Blob([new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112])], { type: 'video/mp4' }) }
     }
@@ -438,10 +438,10 @@ await check('C1 the dock menu offers 添加视频 and the picker opens with thre
   })
 
   exportsOf.apply(ctx)
-  await waitForSelector(jsdomDocument, '[data-dsh-imagegen-session-tabs]')
-  click('[data-dsh-imagegen-tab="image"]')
-  await waitForSelector(jsdomDocument, '[data-dsh-imagegen-view]')
-  const view = jsdomDocument.querySelector('[data-dsh-imagegen-view]')
+  await waitForSelector(jsdomDocument, '[data-dsh-taichi-imagegen-session-tabs]')
+  click('[data-dsh-taichi-imagegen-tab="image"]')
+  await waitForSelector(jsdomDocument, '[data-dsh-taichi-imagegen-view]')
+  const view = jsdomDocument.querySelector('[data-dsh-taichi-imagegen-view]')
   // The canvas is its own top-nav entry.
   const canvasSwitch = [...view.querySelectorAll('[role="tablist"] button')]
     .find(button => button.textContent?.includes('无限画布'))

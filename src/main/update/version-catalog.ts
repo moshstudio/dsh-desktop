@@ -1,14 +1,48 @@
 import type { AvailableRelease } from '../../shared/contracts'
+import { PRODUCTION_GATEWAY_URL } from '../development-environment'
 
 export type { AvailableRelease }
 
-export const STABLE_FEED_URL = 'https://dshdesktop.com/updates/latest/'
-export const VERSION_INDEX_URL = 'https://dshdesktop.com/updates/versions.json'
+/**
+ * Desktop update policy and generic feeds use the account gateway.
+ * `/v1/updates/check` stays on the API router. `/crash/...` on this host is the
+ * admin site, so the old crash-service path cannot be reused by changing only the host.
+ * Installer metadata stays under `/updates/`, and a policy feed must match that
+ * exact archive URL. Crash uploads keep their own endpoint.
+ */
+let updateOrigin = PRODUCTION_GATEWAY_URL
+
+export function setDesktopUpdateOrigin(origin: string): boolean {
+  const trimmed = origin.trim().replace(/\/+$/, '')
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return false
+  }
+  const loopback = url.hostname === '127.0.0.1' || url.hostname === 'localhost'
+  if (url.username || url.password || url.search || url.hash) return false
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) return false
+  updateOrigin = trimmed
+  return true
+}
+
+export function updatePolicyUrl(): string {
+  return `${updateOrigin}/v1/updates/check`
+}
+
+export function stableFeedUrl(): string {
+  return `${updateOrigin}/updates/latest/`
+}
+
+export function versionIndexUrl(): string {
+  return `${updateOrigin}/updates/versions.json`
+}
 
 const INDEX_TIMEOUT_MS = 8_000
 
 export function archiveFeedUrl(version: string): string {
-  return `https://dshdesktop.com/updates/archive/${version}/`
+  return `${updateOrigin}/updates/archive/${version}/`
 }
 
 /** Split "1.2.3-rc.1" into ([1,2,3], "rc.1"). Non-numeric segments read as 0. */
@@ -110,7 +144,7 @@ export async function fetchAvailableReleases(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), INDEX_TIMEOUT_MS)
   try {
-    const response = await fetchImpl(VERSION_INDEX_URL, { signal: controller.signal })
+    const response = await fetchImpl(versionIndexUrl(), { signal: controller.signal })
     if (!response.ok) {
       throw new Error(`Version index request failed: ${response.status}`)
     }

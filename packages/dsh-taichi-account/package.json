@@ -7,8 +7,13 @@
   "main": "./index.js",
   "exports": {
     ".": "./index.js",
-    "./client": "./client.js",
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "watch": "tsdown --watch",
+    "typecheck": "tsc --noEmit"
   },
   "dsh": {
     "client": {
@@ -23,6 +28,12 @@
     }
   },
   "license": "MIT",
+  "devDependencies": {
+    "@types/react": "~18.3.18",
+    "lightningcss": "1.33.0",
+    "tsdown": "0.23.7",
+    "typescript": "~5.7.2"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1 || ^4.1.0",
     "@deepseek-ai/dsh-client-locale": "^0.2.2-rc.1",

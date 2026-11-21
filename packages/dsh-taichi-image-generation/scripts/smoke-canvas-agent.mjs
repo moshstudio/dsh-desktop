@@ -70,14 +70,14 @@ check('A1 the eight canvas tools register and the disposer removes them', async 
   const dispose = registerAgentCanvasTools(stub.ctx, enabledConfig)
   const names = [...stub.registered.keys()].sort()
   assert.deepEqual(names, [
-    'add_canvas_node',
-    'connect_canvas_nodes',
-    'create_canvas',
-    'disconnect_canvas_nodes',
-    'list_canvases',
-    'read_canvas',
-    'remove_canvas_node',
-    'update_canvas_node',
+    'taichi_add_canvas_node',
+    'taichi_connect_canvas_nodes',
+    'taichi_create_canvas',
+    'taichi_disconnect_canvas_nodes',
+    'taichi_list_canvases',
+    'taichi_read_canvas',
+    'taichi_remove_canvas_node',
+    'taichi_update_canvas_node',
   ])
   dispose()
   assert.equal(stub.registered.size, 0, 'disposing must unregister every tool')
@@ -96,9 +96,9 @@ check('D1 no canvas tool can start a render', async () => {
     assert.ok(!blob.includes('start a render'), `${name} claims to start a render`)
   }
   // The copy must actively say what does not happen, so the model does not try.
-  const read = stub.registered.get('read_canvas')
+  const read = stub.registered.get('taichi_read_canvas')
   assert.match(read.description, /never starts a render/i)
-  const add = stub.registered.get('add_canvas_node')
+  const add = stub.registered.get('taichi_add_canvas_node')
   assert.match(add.description, /never spends money/i, 'adding a node must say it is free')
 })
 
@@ -106,23 +106,23 @@ check('D2 a disabled plugin refuses every tool with actionable copy', async () =
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, () => ({ enabled: false }))
   await assert.rejects(
-    async () => await stub.registered.get('list_canvases').execute({}, {}),
+    async () => await stub.registered.get('taichi_list_canvases').execute({}, {}),
     /plugin is disabled/i,
   )
 })
 
 // --------------------------------------------------------------- B writes
 
-check('B1 writes become proposals; read_canvas still reports the saved canvas', async () => {
+check('B1 writes become proposals; taichi_read_canvas still reports the saved canvas', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
 
-  const created = await stub.registered.get('create_canvas').execute({ title: 'Agent 测试画布' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: 'Agent 测试画布' }, {})
   assert.equal(created.title, 'Agent 测试画布')
   assert.deepEqual(created.nodes, [], 'a new canvas starts empty')
 
   // 工具**回显**草稿（这样模型能看到自己刚提议的东西），但草稿不是画布。
-  const afterText = await stub.registered.get('add_canvas_node').execute({
+  const afterText = await stub.registered.get('taichi_add_canvas_node').execute({
     canvas_id: created.id,
     type: 'text',
     title: '脚本',
@@ -144,7 +144,7 @@ check('B1 writes become proposals; read_canvas still reports the saved canvas', 
   assert.equal(stored.nodes.length, 0, 'a proposal must never reach the saved canvas')
 
   // 第二条提案叠加在第一条之上：模型连着的两步才成立。
-  const afterConfig = await stub.registered.get('add_canvas_node').execute({
+  const afterConfig = await stub.registered.get('taichi_add_canvas_node').execute({
     canvas_id: created.id,
     type: 'config',
     title: '出图',
@@ -158,12 +158,12 @@ check('B1 writes become proposals; read_canvas still reports the saved canvas', 
 
   // 读工具与写工具用**同一个起点**：真实文档 + 待确认提案。
   //
-  // 这里曾经断言「read_canvas 只报真实文档，所以仍然是空的」——把缺陷写成了
+  // 这里曾经断言「taichi_read_canvas 只报真实文档，所以仍然是空的」——把缺陷写成了
   // 规格。后果是模型提议加完节点、回头一读看到「This canvas is empty. Create
   // nodes…」，于是再添加一遍：探针实测同一个标题落进两条提案。读到的这份也
   // 必须说明「这些还没被用户接受」，否则模型会以为画布上已经有了。
-  const view = await stub.registered.get('read_canvas').execute({ canvas_id: created.id }, {})
-  assert.equal(view.nodes.length, 2, 'read_canvas reads from the same draft the write tools use')
+  const view = await stub.registered.get('taichi_read_canvas').execute({ canvas_id: created.id }, {})
+  assert.equal(view.nodes.length, 2, 'taichi_read_canvas reads from the same draft the write tools use')
   assert.equal(view.revision, created.revision, 'reading does not bump the revision')
   assert.match(view.note, /only proposed/i, 'the model must be told these are not accepted yet')
   assert.doesNotMatch(view.note, /canvas is empty/i, 'it is not empty to the model that just filled it')
@@ -174,26 +174,26 @@ check('B1 writes become proposals; read_canvas still reports the saved canvas', 
 check('B2 wires connect, duplicate safely, and removing a node drops its wires', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '连线' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '连线' }, {})
   // 从**草稿**里取 id：节点还不存在于真实文档，但提案里已经有了。
-  let view = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
+  let view = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
   const a = view.nodes.find(node => node.title === 'A').id
-  view = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})
+  view = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})
   const b = view.nodes.find(node => node.title === 'B').id
 
-  view = await stub.registered.get('connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
+  view = await stub.registered.get('taichi_connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
   assert.equal(view.connections.length, 1, 'one wire')
 
   // Connecting twice is idempotent rather than a second parallel wire. It also
   // must not produce a third empty proposal.
-  view = await stub.registered.get('connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
+  view = await stub.registered.get('taichi_connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
   assert.equal(view.connections.length, 1, 'a duplicate connection is a no-op')
 
-  view = await stub.registered.get('disconnect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
+  view = await stub.registered.get('taichi_disconnect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
   assert.equal(view.connections.length, 0, 'disconnect removes the wire')
 
-  view = await stub.registered.get('connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
-  view = await stub.registered.get('remove_canvas_node').execute({ canvas_id: created.id, node_id: a }, {})
+  view = await stub.registered.get('taichi_connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
+  view = await stub.registered.get('taichi_remove_canvas_node').execute({ canvas_id: created.id, node_id: a }, {})
   assert.equal(view.nodes.length, 1, 'node removed from the draft')
   assert.equal(view.connections.length, 0, 'wires touching the removed node go with it')
   assert.equal((await canvasStore.read(created.id)).nodes.length, 0, 'still nothing on disk')
@@ -202,8 +202,8 @@ check('B2 wires connect, duplicate safely, and removing a node drops its wires',
 check('B3 update touches only the fields it was given', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '部分更新' }, {})
-  let view = await stub.registered.get('add_canvas_node').execute({
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '部分更新' }, {})
+  let view = await stub.registered.get('taichi_add_canvas_node').execute({
     canvas_id: created.id,
     type: 'config',
     title: '原题',
@@ -212,7 +212,7 @@ check('B3 update touches only the fields it was given', async () => {
   }, {})
   const id = view.nodes.find(node => node.title === '原题').id
 
-  view = await stub.registered.get('update_canvas_node').execute({ canvas_id: created.id, node_id: id, prompt: '新提示词' }, {})
+  view = await stub.registered.get('taichi_update_canvas_node').execute({ canvas_id: created.id, node_id: id, prompt: '新提示词' }, {})
   const node = view.nodes.find(candidate => candidate.id === id)
   assert.equal(node.prompt, '新提示词')
   assert.equal(node.title, '原题', 'title untouched when not passed')
@@ -222,8 +222,8 @@ check('B3 update touches only the fields it was given', async () => {
 check('B4 an unwired canvas gets a note the model can act on', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '空图' }, {})
-  const view = await stub.registered.get('read_canvas').execute({ canvas_id: created.id }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '空图' }, {})
+  const view = await stub.registered.get('taichi_read_canvas').execute({ canvas_id: created.id }, {})
   assert.match(view.note, /empty/i, 'an empty canvas should say so')
 })
 
@@ -240,8 +240,8 @@ check('C1 a write that loses the race is refused as canvas-conflict, never silen
   // 注释掉或加重试，等于没测。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '并发' }, {})
-  await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '提议的节点' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '并发' }, {})
+  await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '提议的节点' }, {})
   const pending = await proposalStore.list(created.id)
   assert.equal(pending.length, 1)
 
@@ -269,23 +269,23 @@ check('C1 a write that loses the race is refused as canvas-conflict, never silen
 check('E1 unknown canvas, unknown node, self-connection and bad type are actionable', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '错误' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '错误' }, {})
 
   await assert.rejects(
-    async () => await stub.registered.get('read_canvas').execute({ canvas_id: 'no-such-canvas' }, {}),
-    /was not found.*list_canvases/is,
+    async () => await stub.registered.get('taichi_read_canvas').execute({ canvas_id: 'no-such-canvas' }, {}),
+    /was not found.*taichi_list_canvases/is,
   )
   await assert.rejects(
-    async () => await stub.registered.get('update_canvas_node').execute({ canvas_id: created.id, node_id: 'nope', prompt: 'x' }, {}),
+    async () => await stub.registered.get('taichi_update_canvas_node').execute({ canvas_id: created.id, node_id: 'nope', prompt: 'x' }, {}),
     /was not found/is,
   )
   await assert.rejects(
-    async () => await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'nonsense' }, {}),
+    async () => await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'nonsense' }, {}),
     /Unknown node type/,
   )
-  const view = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'solo' }, {})
+  const view = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'solo' }, {})
   await assert.rejects(
-    async () => await stub.registered.get('connect_canvas_nodes').execute({
+    async () => await stub.registered.get('taichi_connect_canvas_nodes').execute({
       canvas_id: created.id,
       from_node_id: view.nodes[0].id,
       to_node_id: view.nodes[0].id,
@@ -294,31 +294,31 @@ check('E1 unknown canvas, unknown node, self-connection and bad type are actiona
   )
 })
 
-check('F16 list_canvases says how many changes are still waiting, so its count and read_canvas agree', async () => {
-  // `nodeCount` 只数已保存的节点。Agent 刚提议的节点不在里面，而 `read_canvas`
+check('F16 taichi_list_canvases says how many changes are still waiting, so its count and taichi_read_canvas agree', async () => {
+  // `nodeCount` 只数已保存的节点。Agent 刚提议的节点不在里面，而 `taichi_read_canvas`
   // 看得到——探针实测：list 说 1 个、read 说 2 个。两个数字打架，模型会以为
   // 自己提议失败，再提一遍。带上 `pending` 之后，差异有了明确的解释。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '计数' }, {})
-  const first = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'A' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '计数' }, {})
+  const first = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'A' }, {})
   await proposalStore.acceptOne(created.id, first.proposalId)
-  await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})
+  await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})
 
-  const row = (await stub.registered.get('list_canvases').execute({}, {})).find(item => item.id === created.id)
+  const row = (await stub.registered.get('taichi_list_canvases').execute({}, {})).find(item => item.id === created.id)
   assert.equal(row.nodeCount, 1, 'nodeCount still reports the saved canvas, like the picker does')
   assert.equal(row.pending, 1, 'the proposed node is accounted for')
 
-  const view = await stub.registered.get('read_canvas').execute({ canvas_id: created.id }, {})
-  assert.equal(row.nodeCount + row.pending, view.nodes.length, 'the two numbers now add up to what read_canvas shows')
+  const view = await stub.registered.get('taichi_read_canvas').execute({ canvas_id: created.id }, {})
+  assert.equal(row.nodeCount + row.pending, view.nodes.length, 'the two numbers now add up to what taichi_read_canvas shows')
 })
 
-check('E2 list_canvases reports what was created, newest first', async () => {
+check('E2 taichi_list_canvases reports what was created, newest first', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  await stub.registered.get('create_canvas').execute({ title: '第一个' }, {})
-  await stub.registered.get('create_canvas').execute({ title: '第二个' }, {})
-  const list = await stub.registered.get('list_canvases').execute({}, {})
+  await stub.registered.get('taichi_create_canvas').execute({ title: '第一个' }, {})
+  await stub.registered.get('taichi_create_canvas').execute({ title: '第二个' }, {})
+  const list = await stub.registered.get('taichi_list_canvases').execute({}, {})
   const titles = list.map(item => item.title)
   assert.ok(titles.includes('第一个') && titles.includes('第二个'))
   assert.equal(titles[0], '第二个', 'newest canvas first, matching the canvas picker')
@@ -329,8 +329,8 @@ check('E2 list_canvases reports what was created, newest first', async () => {
 check('F1 a proposal applies onto the saved canvas only when accepted', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '接受' }, {})
-  const view = await stub.registered.get('add_canvas_node').execute({
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '接受' }, {})
+  const view = await stub.registered.get('taichi_add_canvas_node').execute({
     canvas_id: created.id, type: 'config', title: '出图', prompt: '海边的灯塔',
   }, {})
   const nodeId = view.nodes.find(node => node.title === '出图').id
@@ -345,7 +345,7 @@ check('F1 a proposal applies onto the saved canvas only when accepted', async ()
   // 提案全部过期。测的必须是产品代码本身。
   const pending = await proposalStore.list(created.id)
   assert.equal(pending.length, 1)
-  assert.equal(pending[0].tool, 'add_canvas_node', 'the proposal records which tool produced it')
+  assert.equal(pending[0].tool, 'taichi_add_canvas_node', 'the proposal records which tool produced it')
   assert.match(pending[0].summary, /1 个节点/, 'the summary says what it does in words')
 
   const accepted = await proposalStore.acceptOne(created.id, pending[0].id)
@@ -361,8 +361,8 @@ check('F1 a proposal applies onto the saved canvas only when accepted', async ()
 check('F2 discarding a proposal leaves the canvas untouched', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '丢弃' }, {})
-  await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '不想要' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '丢弃' }, {})
+  await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '不想要' }, {})
 
   const discarded = await proposalStore.clear(created.id)
   assert.equal(discarded, 1)
@@ -373,13 +373,13 @@ check('F2 discarding a proposal leaves the canvas untouched', async () => {
 check('F3 a proposal that references a deleted node cannot be applied', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '幽灵' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '幽灵' }, {})
   // 先落一个真实节点，再提一个针对它的修改。
   const real = await canvasStore.read(created.id)
   const seeded = { ...real, nodes: [{ id: 'gone', type: 'text', title: '会被删掉', x: 0, y: 0, width: 200, height: 80 }] }
   const withNode = await canvasStore.save(seeded, real.revision)
 
-  await stub.registered.get('update_canvas_node').execute({ canvas_id: created.id, node_id: 'gone', title: '改过的' }, {})
+  await stub.registered.get('taichi_update_canvas_node').execute({ canvas_id: created.id, node_id: 'gone', title: '改过的' }, {})
   const pending = await proposalStore.list(created.id)
   assert.equal(pending.length, 1)
 
@@ -394,13 +394,13 @@ check('F3 a proposal that references a deleted node cannot be applied', async ()
 check('F4 a no-op edit produces no proposal', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '空操作' }, {})
-  const view = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '已有' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '空操作' }, {})
+  const view = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '已有' }, {})
   const nodeId = view.nodes.find(node => node.title === '已有').id
   const before = (await proposalStore.list(created.id)).length
 
   // 把标题改成它已经是的样子：不该再叠一条待确认项打断用户。
-  const again = await stub.registered.get('update_canvas_node').execute({ canvas_id: created.id, node_id: nodeId, title: '已有' }, {})
+  const again = await stub.registered.get('taichi_update_canvas_node').execute({ canvas_id: created.id, node_id: nodeId, title: '已有' }, {})
   assert.equal(again.proposalId, undefined, 'a no-op must not report a proposal id')
   assert.match(again.note, /changed nothing/i)
   assert.equal((await proposalStore.list(created.id)).length, before, 'no new proposal was stored')
@@ -409,13 +409,13 @@ check('F4 a no-op edit produces no proposal', async () => {
 check('F5 removing a node in a proposal also drops its wires', async () => {
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '连带删线' }, {})
-  let view = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '连带删线' }, {})
+  let view = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
   const a = view.nodes.find(node => node.title === 'A').id
-  view = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})
+  view = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})
   const b = view.nodes.find(node => node.title === 'B').id
-  await stub.registered.get('connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
-  await stub.registered.get('remove_canvas_node').execute({ canvas_id: created.id, node_id: a }, {})
+  await stub.registered.get('taichi_connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
+  await stub.registered.get('taichi_remove_canvas_node').execute({ canvas_id: created.id, node_id: a }, {})
 
   // 把所有提案依次应用到空文档上，结果应当只剩 B、没有线。
   const pending = await proposalStore.list(created.id)
@@ -433,7 +433,7 @@ check('F5 removing a node in a proposal also drops its wires', async () => {
 check('F5b apply itself drops wires that touch a removed node', async () => {
   // 单独测 ProposalStore.apply，不经过工具。
   //
-  // WHY 需要这一条：`remove_canvas_node` 工具在草稿里**顺手**把连线也删了，
+  // WHY 需要这一条：`taichi_remove_canvas_node` 工具在草稿里**顺手**把连线也删了，
   // 所以它的提案里自带 removedConnectionIds——把 apply 的级联逻辑整段删掉，
   // 上面那条 F5 照样绿。级联在这里是第二道闸：提案文件是磁盘上的 JSON，
   // 可以被手工编辑、被旧版本写入、被将来的工具产生而不删连线。让 apply 自己
@@ -469,13 +469,13 @@ check('F7 a run of proposals is acceptable one after another, not just the first
   // 存在时也是绿的。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '连提三条' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '连提三条' }, {})
 
-  const v1 = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '脚本' }, {})
+  const v1 = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '脚本' }, {})
   const a = v1.nodes.find(node => node.title === '脚本').id
-  const v2 = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '出图', prompt: '海边灯塔' }, {})
+  const v2 = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '出图', prompt: '海边灯塔' }, {})
   const b = v2.nodes.find(node => node.title === '出图').id
-  await stub.registered.get('connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
+  await stub.registered.get('taichi_connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: a, to_node_id: b }, {})
 
   const queued = await proposalStore.list(created.id)
   assert.equal(queued.length, 3, 'three tool calls make three pending changes')
@@ -504,8 +504,8 @@ check('F8 accepting onto a canvas the user edited keeps the user\'s edit', async
   // 兜底，而不是 baseRevision 比较。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '用户也在改' }, {})
-  await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '提案的' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '用户也在改' }, {})
+  await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '提案的' }, {})
   const pending = await proposalStore.list(created.id)
 
   // 用户在接受之前自己动过画布：改标题、并加了一个自己的节点。
@@ -539,10 +539,10 @@ check('F9 accepting right after an unsaved edit keeps that edit (the 650 ms wind
   // scripts/probe-proposal-races-local-edit.mjs 就是按后者构造的，它打红过。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '未同步编辑' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '未同步编辑' }, {})
 
   // 画布上先有一个用户自己的节点（走提案接受，于是它真的在 pages/ 里）。
-  await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '要拖的' }, {})
+  await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '要拖的' }, {})
   const [first] = await proposalStore.list(created.id)
   const seeded = await proposalStore.acceptOne(created.id, first.id)
   assert.equal(seeded.ok, true, `seeding the canvas failed: ${seeded.ok ? '' : seeded.message}`)
@@ -550,7 +550,7 @@ check('F9 accepting right after an unsaved edit keeps that edit (the 650 ms wind
   assert.ok(target !== undefined)
 
   // Agent 又提了一条，用户还没点。
-  await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'Agent 加的' }, {})
+  await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'Agent 加的' }, {})
   const [pending] = await proposalStore.list(created.id)
 
   // 用户把它拖到别处——只在本地，尚未写出去。
@@ -584,16 +584,16 @@ check('F10 accepting an edit proposal keeps the position the user dragged to aft
   // 反向证明：把 `nodePatchOf` 换回整份节点，这条立刻变成 100 而不是 1234。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '拖动不该被回退' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '拖动不该被回退' }, {})
 
-  await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '原文', x: 100, y: 100 }, {})
+  await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: '原文', x: 100, y: 100 }, {})
   const [seedProposal] = await proposalStore.list(created.id)
   const seeded = await proposalStore.acceptOne(created.id, seedProposal.id)
   assert.equal(seeded.ok, true, `seeding failed: ${seeded.ok ? '' : seeded.message}`)
   const nodeId = seeded.document.nodes[0].id
 
   // Agent 提议改标题（这是这条提案唯一改的字段）。
-  await stub.registered.get('update_canvas_node').execute({ canvas_id: created.id, node_id: nodeId, title: '改过的标题' }, {})
+  await stub.registered.get('taichi_update_canvas_node').execute({ canvas_id: created.id, node_id: nodeId, title: '改过的标题' }, {})
   const [pending] = await proposalStore.list(created.id)
   assert.equal(pending.change.updatedNodes?.[0]?.id, nodeId)
 
@@ -614,14 +614,14 @@ check('F11 a patch only touches the metadata keys the Agent changed', async () =
   // 节点上换的模型、点上的 cast 不该被抹掉。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '元数据补丁' }, {})
-  await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '出图', prompt: '旧提示词' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '元数据补丁' }, {})
+  await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '出图', prompt: '旧提示词' }, {})
   const [seedProposal] = await proposalStore.list(created.id)
   const seeded = await proposalStore.acceptOne(created.id, seedProposal.id)
   assert.equal(seeded.ok, true)
   const nodeId = seeded.document.nodes[0].id
 
-  await stub.registered.get('update_canvas_node').execute({ canvas_id: created.id, node_id: nodeId, prompt: '新提示词' }, {})
+  await stub.registered.get('taichi_update_canvas_node').execute({ canvas_id: created.id, node_id: nodeId, prompt: '新提示词' }, {})
   const [pending] = await proposalStore.list(created.id)
   // 提案只点名 prompt，不该把整个 metadata 一起带过来。
   assert.deepEqual(Object.keys(pending.change.updatedNodes?.[0]?.metadata ?? {}), ['prompt'],
@@ -650,18 +650,18 @@ check('F12 a wire whose endpoint was deleted cannot be written by accepting it',
   // 否则渲染时那条边被跳过，用户会看到一个连不上任何东西的幽灵。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '端点没了' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '端点没了' }, {})
 
-  const a = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
+  const a = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
   await proposalStore.acceptOne(created.id, a.proposalId)
-  const b = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'B' }, {})
+  const b = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'B' }, {})
   await proposalStore.acceptOne(created.id, b.proposalId)
 
   const current = await canvasStore.read(created.id)
   const aId = current.nodes.find(node => node.title === 'A').id
   const bId = current.nodes.find(node => node.title === 'B').id
 
-  const wire = await stub.registered.get('connect_canvas_nodes').execute({
+  const wire = await stub.registered.get('taichi_connect_canvas_nodes').execute({
     canvas_id: created.id, from_node_id: aId, to_node_id: bId,
   }, {})
   const [pending] = await proposalStore.list(created.id)
@@ -685,17 +685,17 @@ check('F13 connecting an existing pair with a new role changes that role instead
   // 了，而视频插帧读的正是 role，用户拿到的是首尾帧用错了图。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '角色' }, {})
-  await proposalStore.acceptOne(created.id, (await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'A' }, {})).proposalId)
-  await proposalStore.acceptOne(created.id, (await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})).proposalId)
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '角色' }, {})
+  await proposalStore.acceptOne(created.id, (await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'A' }, {})).proposalId)
+  await proposalStore.acceptOne(created.id, (await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})).proposalId)
   const current = await canvasStore.read(created.id)
   const aId = current.nodes.find(node => node.title === 'A').id
   const bId = current.nodes.find(node => node.title === 'B').id
 
-  await proposalStore.acceptOne(created.id, (await stub.registered.get('connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: aId, to_node_id: bId }, {})).proposalId)
+  await proposalStore.acceptOne(created.id, (await stub.registered.get('taichi_connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: aId, to_node_id: bId }, {})).proposalId)
   assert.equal((await canvasStore.read(created.id)).connections[0].role, undefined, 'the default role stays off disk')
 
-  const again = await stub.registered.get('connect_canvas_nodes').execute({
+  const again = await stub.registered.get('taichi_connect_canvas_nodes').execute({
     canvas_id: created.id, from_node_id: aId, to_node_id: bId, role: 'first',
   }, {})
   assert.ok(again.proposalId !== undefined, 'changing the role is a change, so it must produce a proposal')
@@ -706,7 +706,7 @@ check('F13 connecting an existing pair with a new role changes that role instead
   assert.equal(after.connections[0].role, 'first')
 
   // 同一个角色再连一次是真正的无改动：不产生空提案，也不把边改坏。
-  const same = await stub.registered.get('connect_canvas_nodes').execute({
+  const same = await stub.registered.get('taichi_connect_canvas_nodes').execute({
     canvas_id: created.id, from_node_id: aId, to_node_id: bId, role: 'first',
   }, {})
   assert.equal(same.proposalId, undefined, 'connecting the same pair with the same role has nothing to propose')
@@ -719,15 +719,15 @@ check('F14 re-roling a wire the user has since cut fails loudly instead of silen
   // 上什么都没变，用户下次生成视频才发现首帧没设上。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '线没了' }, {})
-  await proposalStore.acceptOne(created.id, (await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'A' }, {})).proposalId)
-  await proposalStore.acceptOne(created.id, (await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})).proposalId)
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '线没了' }, {})
+  await proposalStore.acceptOne(created.id, (await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'A' }, {})).proposalId)
+  await proposalStore.acceptOne(created.id, (await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: 'B' }, {})).proposalId)
   const current = await canvasStore.read(created.id)
   const aId = current.nodes.find(node => node.title === 'A').id
   const bId = current.nodes.find(node => node.title === 'B').id
-  await proposalStore.acceptOne(created.id, (await stub.registered.get('connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: aId, to_node_id: bId }, {})).proposalId)
+  await proposalStore.acceptOne(created.id, (await stub.registered.get('taichi_connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: aId, to_node_id: bId }, {})).proposalId)
 
-  const rerole = await stub.registered.get('connect_canvas_nodes').execute({
+  const rerole = await stub.registered.get('taichi_connect_canvas_nodes').execute({
     canvas_id: created.id, from_node_id: aId, to_node_id: bId, role: 'last',
   }, {})
   assert.ok(rerole.proposalId !== undefined)
@@ -742,16 +742,16 @@ check('F14 re-roling a wire the user has since cut fails loudly instead of silen
   assert.equal((await canvasStore.read(created.id)).connections.length, 0, 'no wire was resurrected')
 })
 
-check('F15 read_canvas stops calling a change pending once the user accepts it', async () => {
+check('F15 taichi_read_canvas stops calling a change pending once the user accepts it', async () => {
   // 上面 B1 只测了「有提案时读得到」。反过来也要成立：接受之后那句话必须
   // 消失，否则模型每次读都被告知「这些还没被接受」，于是反复提议同一件事。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '接受后' }, {})
-  const added = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '接受后' }, {})
+  const added = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
   await proposalStore.acceptOne(created.id, added.proposalId)
 
-  const view = await stub.registered.get('read_canvas').execute({ canvas_id: created.id }, {})
+  const view = await stub.registered.get('taichi_read_canvas').execute({ canvas_id: created.id }, {})
   assert.equal(view.nodes.length, 1)
   assert.doesNotMatch(view.note ?? '', /only proposed/i, 'nothing is pending any more')
 })
@@ -759,7 +759,7 @@ check('F15 read_canvas stops calling a change pending once the user accepts it',
 check('F22 a proposal the user outran is dropped instead of blocking the canvas', async () => {
   // 用户在接受之前自己动手改了那个节点（这里是删掉），提案就对不上了。
   //
-  // 探针实测过两版错法：read_canvas 直接抛「A pending change … no longer
+  // 探针实测过两版错法：taichi_read_canvas 直接抛「A pending change … no longer
   // applies」；后来读路径改成跳过，但**写路径仍然抛错**——于是用户随手删掉
   // 一个节点之后，这张画布上的 add / update / connect 全部永久失败，只有用户
   // 碰巧去点「接受」才能恢复。而 `acceptOne` 对同一条提案的判断是「它不可能
@@ -769,12 +769,12 @@ check('F22 a proposal the user outran is dropped instead of blocking the canvas'
   const seedStale = async () => {
     const stub = stubContext()
     registerAgentCanvasTools(stub.ctx, enabledConfig)
-    const created = await stub.registered.get('create_canvas').execute({ title: '过期提案' }, {})
-    const added = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
+    const created = await stub.registered.get('taichi_create_canvas').execute({ title: '过期提案' }, {})
+    const added = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'text', title: 'A' }, {})
     await proposalStore.acceptOne(created.id, added.proposalId)
     const saved = await canvasStore.read(created.id)
     // 提议改名，然后用户在接受前把节点删掉。
-    const renamed = await stub.registered.get('update_canvas_node').execute(
+    const renamed = await stub.registered.get('taichi_update_canvas_node').execute(
       { canvas_id: created.id, node_id: saved.nodes[0].id, title: 'A2' }, {})
     assert.ok(renamed.proposalId, 'the rename must become a proposal')
     await canvasStore.save({ ...saved, nodes: [] }, saved.revision)
@@ -785,7 +785,7 @@ check('F22 a proposal the user outran is dropped instead of blocking the canvas'
   // 写路径：那张画布不能因为一条早已作废的提案而对 Agent 失效。
   {
     const { stub, id } = await seedStale()
-    const write = await stub.registered.get('add_canvas_node').execute({ canvas_id: id, type: 'image', title: 'B' }, {})
+    const write = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: id, type: 'image', title: 'B' }, {})
     assert.equal(write.nodes.length, 1, 'the add went through despite the stale proposal')
     assert.ok(write.proposalId, 'and it is a proposal like any other')
     assert.match(write.note ?? '', /invalidated/i, 'the model is told a stale proposal was dropped')
@@ -796,8 +796,8 @@ check('F22 a proposal the user outran is dropped instead of blocking the canvas'
   // 读路径：用户可能只读不写，也不能让人以为还有一条在等接受。
   {
     const { stub, id } = await seedStale()
-    const view = await stub.registered.get('read_canvas').execute({ canvas_id: id }, {})
-    assert.equal(view.nodes.length, 0, 'read_canvas reports the document as it really is')
+    const view = await stub.registered.get('taichi_read_canvas').execute({ canvas_id: id }, {})
+    assert.equal(view.nodes.length, 0, 'taichi_read_canvas reports the document as it really is')
     assert.doesNotMatch(view.note ?? '', /only proposed/i,
       'the stale proposal was dropped, so nothing pending is being shown')
     assert.match(view.note ?? '', /invalidated|no longer appl/i, 'the note must say a change was dropped')
@@ -806,23 +806,23 @@ check('F22 a proposal the user outran is dropped instead of blocking the canvas'
   }
 })
 
-check('F23 update_canvas_node changes the config mode and the node size in place', async () => {
+check('F23 taichi_update_canvas_node changes the config mode and the node size in place', async () => {
   // 加的时候选错了只能删了重建吗？不该——重建会换掉节点 id、坐标和连好的线，
   // 而这三样正是用户已经在画布上看过、调整过的东西。探针实测过：update 传
   // mode/width/height 全被静默忽略，工具还回「This call changed nothing」。
   const stub = stubContext()
   registerAgentCanvasTools(stub.ctx, enabledConfig)
-  const created = await stub.registered.get('create_canvas').execute({ title: '改模式' }, {})
-  let view = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '出图', prompt: '海边' }, {})
+  const created = await stub.registered.get('taichi_create_canvas').execute({ title: '改模式' }, {})
+  let view = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: '出图', prompt: '海边' }, {})
   const cfg = view.nodes.find(node => node.title === '出图').id
-  view = await stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: '素材' }, {})
+  view = await stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'image', title: '素材' }, {})
   const img = view.nodes.find(node => node.title === '素材').id
-  await stub.registered.get('connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: img, to_node_id: cfg }, {})
+  await stub.registered.get('taichi_connect_canvas_nodes').execute({ canvas_id: created.id, from_node_id: img, to_node_id: cfg }, {})
 
   const before = view.nodes.find(node => node.id === cfg)
   assert.equal(before.mode, 'image', 'a config node defaults to producing images')
 
-  const updated = await stub.registered.get('update_canvas_node').execute(
+  const updated = await stub.registered.get('taichi_update_canvas_node').execute(
     { canvas_id: created.id, node_id: cfg, mode: 'video', width: 520, height: 400 }, {})
   const after = updated.nodes.find(node => node.id === cfg)
   assert.equal(after.mode, 'video', 'the config node now produces video')
@@ -834,7 +834,7 @@ check('F23 update_canvas_node changes the config mode and the node size in place
 
   // mode 只属于 config：写到图片节点上要直说，而不是长出一个谁也不读的键。
   await assert.rejects(
-    () => stub.registered.get('update_canvas_node').execute({ canvas_id: created.id, node_id: img, mode: 'video' }, {}),
+    () => stub.registered.get('taichi_update_canvas_node').execute({ canvas_id: created.id, node_id: img, mode: 'video' }, {}),
     /only config nodes carry a mode/i,
   )
 
@@ -843,11 +843,11 @@ check('F23 update_canvas_node changes the config mode and the node size in place
   // 工具内的 `parseMode` 是给不走 schema 的调用路径（例如以后新增的批量入口）
   // 兜底的，这几句测试打不到它，也就不假装打到了。
   await assert.rejects(
-    () => stub.registered.get('update_canvas_node').execute({ canvas_id: created.id, node_id: cfg, mode: 'gif' }, {}),
+    () => stub.registered.get('taichi_update_canvas_node').execute({ canvas_id: created.id, node_id: cfg, mode: 'gif' }, {}),
     /gif|one of|invalid/i,
   )
   await assert.rejects(
-    () => stub.registered.get('add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: 'x', mode: 'gif' }, {}),
+    () => stub.registered.get('taichi_add_canvas_node').execute({ canvas_id: created.id, type: 'config', title: 'x', mode: 'gif' }, {}),
     /gif|one of|invalid/i,
   )
 })

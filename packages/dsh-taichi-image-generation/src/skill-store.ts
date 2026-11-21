@@ -437,7 +437,7 @@ async function download(url: string, maxBytes: number, signal?: AbortSignal): Pr
     response = await fetch(url, {
       redirect: 'follow',
       signal,
-      headers: { 'user-agent': 'dsh-imagegen-skill-installer', accept: '*/*' },
+      headers: { 'user-agent': 'dsh-taichi-imagegen-skill-installer', accept: '*/*' },
     })
   } catch (error) {
     throw new SkillStoreError(`下载失败：${error instanceof Error ? error.message : String(error)}`)
@@ -592,7 +592,7 @@ async function promote(staged: string, root: string, force: boolean): Promise<st
  * @param force - replace an existing skill of the same name.
  */
 export async function installFromArchive(data: Buffer, root: string, _fallbackName: string, force: boolean): Promise<string> {
-  const staging = await mkdtemp(path.join(tmpdir(), 'dsh-imagegen-skill-'))
+  const staging = await mkdtemp(path.join(tmpdir(), 'dsh-taichi-imagegen-skill-'))
   try {
     await extractArchive(data, staging)
     return await promote(staging, root, force)
@@ -635,7 +635,7 @@ export async function installFromUrl(
     const ref = kind.ref === '' ? 'HEAD' : kind.ref
     const url = `https://codeload.github.com/${kind.owner}/${kind.repo}/zip/${encodeURIComponent(ref)}`
     const data = await download(url, MAX_SKILL_ARCHIVE_BYTES, options.signal)
-    const staging = await mkdtemp(path.join(tmpdir(), 'dsh-imagegen-skill-'))
+    const staging = await mkdtemp(path.join(tmpdir(), 'dsh-taichi-imagegen-skill-'))
     try {
       await extractArchive(data, staging)
       const wanted = kind.subpath === '' ? staging : path.resolve(staging, kind.subpath)
@@ -653,7 +653,7 @@ export async function installFromUrl(
   }
 
   // Generic git remote: shallow clone into staging, then promote the bundle.
-  const staging = await mkdtemp(path.join(tmpdir(), 'dsh-imagegen-skill-'))
+  const staging = await mkdtemp(path.join(tmpdir(), 'dsh-taichi-imagegen-skill-'))
   try {
     const result = await run('git', ['clone', '--depth', '1', '--quiet', kind.url, path.join(staging, 'repo')], {
       cwd: staging,

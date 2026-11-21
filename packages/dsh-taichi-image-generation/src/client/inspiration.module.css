@@ -140,10 +140,10 @@
   border: 2px solid var(--dsw-alias-border-l2);
   border-top-color: var(--dsw-alias-brand-primary);
   border-radius: 50%;
-  animation: dsh-imagegen-inspiration-spin 0.9s linear infinite;
+  animation: dsh-taichi-imagegen-inspiration-spin 0.9s linear infinite;
 }
 
-@keyframes dsh-imagegen-inspiration-spin {
+@keyframes dsh-taichi-imagegen-inspiration-spin {
   to { transform: rotate(360deg); }
 }
 

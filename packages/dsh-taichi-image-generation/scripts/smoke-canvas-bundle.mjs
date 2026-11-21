@@ -69,7 +69,7 @@ const {
 const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5])
 const ref = (assetId, extra = {}) => ({
   assetId,
-  url: `/api/dsh-imagegen/canvas/asset/${assetId}`,
+  url: `/api/dsh-taichi-imagegen/canvas/asset/${assetId}`,
   mime: 'image/png',
   bytes: pngBytes.byteLength,
   width: 4,
@@ -142,7 +142,7 @@ await check('R1 the walk finds every reference the store sweep would collect', (
       },
       { id: 'txt', type: 'text', title: '字', x: 0, y: 0, width: 10, height: 10, metadata: { text: 'hello' } },
     ],
-    extra: { backgroundImage: `/api/dsh-imagegen/canvas/asset/${'e'.repeat(64)}.png?inline=1` },
+    extra: { backgroundImage: `/api/dsh-taichi-imagegen/canvas/asset/${'e'.repeat(64)}.png?inline=1` },
   })
   const ids = referencedCanvasAssets(document).map(item => item.assetId[0])
   assert.deepEqual(ids, ['a', 'b', 'c', 'd', 'e'], 'node asset, poster asset, poster background, poster layer, background image')
@@ -161,7 +161,7 @@ await check('R2 a non-asset background URL contributes nothing', () => {
 await check('R3 video nodes are reported as not-bundled', () => {
   const document = documentWith({
     nodes: [
-      { id: 'clip', type: 'video', title: '片段', x: 0, y: 0, width: 10, height: 10, metadata: { video: { url: '/api/dsh-imagegen/videos/file/abc.mp4', mime: 'video/mp4' } } },
+      { id: 'clip', type: 'video', title: '片段', x: 0, y: 0, width: 10, height: 10, metadata: { video: { url: '/api/dsh-taichi-imagegen/videos/file/abc.mp4', mime: 'video/mp4' } } },
       { id: 'img', type: 'image', title: '图', x: 0, y: 0, width: 10, height: 10, metadata: { asset: ref('f'.repeat(64) + '.png') } },
     ],
   })
@@ -193,7 +193,7 @@ await check('X2 missing bytes are reported, and the rest still travels', async (
       nodes: [
         { id: 'gone', type: 'image', title: '丢了', x: 0, y: 0, width: 10, height: 10, metadata: { asset: ref('2'.repeat(64) + '.png') } },
         { id: 'here', type: 'image', title: '在', x: 0, y: 0, width: 10, height: 10, metadata: { asset: ref('3'.repeat(64) + '.png') } },
-        { id: 'clip', type: 'video', title: '片段', x: 0, y: 0, width: 10, height: 10, metadata: { video: { url: '/api/dsh-imagegen/videos/file/x.mp4', mime: 'video/mp4' } } },
+        { id: 'clip', type: 'video', title: '片段', x: 0, y: 0, width: 10, height: 10, metadata: { video: { url: '/api/dsh-taichi-imagegen/videos/file/x.mp4', mime: 'video/mp4' } } },
       ],
     }),
     readAsset: async assetId => assetId.startsWith('3') ? { data: pngBytes, mime: 'image/png' } : undefined,
@@ -315,7 +315,7 @@ await check('I4 unresolved entries survive the JSON round trip', async () => {
     document: documentWith({
       nodes: [
         { id: 'gone', type: 'image', title: '丢', x: 0, y: 0, width: 10, height: 10, metadata: { asset: ref('4'.repeat(64) + '.png') } },
-        { id: 'clip', type: 'video', title: '片段', x: 0, y: 0, width: 10, height: 10, metadata: { video: { url: '/api/dsh-imagegen/videos/file/x.mp4', mime: 'video/mp4' } } },
+        { id: 'clip', type: 'video', title: '片段', x: 0, y: 0, width: 10, height: 10, metadata: { video: { url: '/api/dsh-taichi-imagegen/videos/file/x.mp4', mime: 'video/mp4' } } },
       ],
     }),
     readAsset: async () => undefined,

@@ -15,7 +15,7 @@ const en = {
   'graphicsRecovery.restart': 'Restart without hardware acceleration',
 
   'windowRecovery.heading': 'Unable to display the window',
-  'windowRecovery.description': 'Please restart taichi-dsh to try again.',
+  'windowRecovery.description': 'Please restart 太极-dsh to try again.',
   'common.restart': 'Restart'
 }
 

@@ -81,8 +81,8 @@ const server = createServer((request, response) => {
     response.end(PAGE)
     return
   }
-  if (url.startsWith('/api/dsh-imagegen/stage-assets/')) {
-    const name = decodeURIComponent(url.slice('/api/dsh-imagegen/stage-assets/'.length).split('?')[0])
+  if (url.startsWith('/api/dsh-taichi-imagegen/stage-assets/')) {
+    const name = decodeURIComponent(url.slice('/api/dsh-taichi-imagegen/stage-assets/'.length).split('?')[0])
     const file = join(ROOT, 'assets/stage', name)
     if (STAGE_ASSETS.has(name) && existsSync(file)) {
       response.writeHead(200, { 'content-type': 'model/gltf-binary' })

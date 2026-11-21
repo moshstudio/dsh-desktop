@@ -59,8 +59,8 @@ async function expectDesktopSessionRequest(request: unknown): Promise<void> {
   const signal = new AbortController().signal
   const response = { ok: true, status: 200, json: async () => ({ versions: [] }) }
   mocks.netFetch.mockResolvedValue(response)
-  await expect(request('https://dshdesktop.com/updates/versions.json', { signal })).resolves.toBe(response)
-  expect(mocks.netFetch).toHaveBeenCalledWith('https://dshdesktop.com/updates/versions.json', { signal })
+  await expect(request('https://taichi-gateway.moshangwangluo.com/updates/versions.json', { signal })).resolves.toBe(response)
+  expect(mocks.netFetch).toHaveBeenCalledWith('https://taichi-gateway.moshangwangluo.com/updates/versions.json', { signal })
 }
 
 it('keeps recovery downgrade closed without a verified data compatibility policy', async () => {
@@ -78,7 +78,7 @@ it.each(['darwin', 'win32'] as const)('downloads only the actual pre-upgrade ver
   expect(new Set(requests).size).toBe(1)
   expect(mocks.catalog).toHaveBeenCalledWith('0.13.0', requests[0])
   await expectDesktopSessionRequest(requests[0])
-  expect(mocks.updater.setFeedURL).toHaveBeenCalledWith({ provider: 'generic', url: 'https://dshdesktop.com/updates/archive/0.11.2/' })
+  expect(mocks.updater.setFeedURL).toHaveBeenCalledWith({ provider: 'generic', url: 'https://taichi-gateway.moshangwangluo.com/updates/archive/0.11.2/' })
   expect(mocks.updater.quitAndInstall).toHaveBeenCalledWith(false, true)
   expect(await manager.getApplicationRollbackStatus()).toMatchObject({ available: false, reason: 'rollback-installing' })
 })

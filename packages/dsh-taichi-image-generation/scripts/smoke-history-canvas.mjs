@@ -125,7 +125,7 @@ await check('老索引里没有 thumb 也读得出来', async () => {
   // 直接造一条「升级前」的索引：这条断言守的是向后兼容，而兼容只有拿旧形状
   // 的数据才测得出来。
   const { promises: fs } = await import('node:fs')
-  const indexPath = join(home, 'dsh-imagegen', 'canvas', 'index.json')
+  const indexPath = join(home, 'dsh-taichi-imagegen', 'canvas', 'index.json')
   const raw = JSON.parse(await fs.readFile(indexPath, 'utf8'))
   raw.projects = raw.projects.map(project => {
     const { thumb, ...rest } = project
@@ -155,7 +155,7 @@ await check('删除一个 id 会连它名下所有旧文件一起清掉', async 
   // 旧索引里可能有同 id 的多条（去重之前写下的）。删除若只删第一条的文件，
   // 其余从索引里消失了、文件却永远留在磁盘上——这正是"删不干净"的另一半。
   const { promises: fs } = await import('node:fs')
-  const indexPath = join(home, 'dsh-imagegen', 'videos', 'index.json')
+  const indexPath = join(home, 'dsh-taichi-imagegen', 'videos', 'index.json')
   const raw = JSON.parse(await fs.readFile(indexPath, 'utf8'))
   // 直接造出「去重之前」的形状：三条同 id，各自指向不同的文件。
   raw.entries = [
@@ -164,7 +164,7 @@ await check('删除一个 id 会连它名下所有旧文件一起清掉', async 
     { id: 'clip-dup', createdAt: 1, mode: 'compose', model: 'ffmpeg', prompt: 'x', aspectRatio: '1:1', resolution: '64x64', seconds: 1, videos: [{ file: 'clip-dup-older-0.mp4', mime: 'video/mp4' }] },
   ]
   await fs.writeFile(indexPath, JSON.stringify(raw))
-  const filesDir = join(home, 'dsh-imagegen', 'videos', 'files')
+  const filesDir = join(home, 'dsh-taichi-imagegen', 'videos', 'files')
   for (const name of ['clip-dup-0.mp4', 'clip-dup-old-0.mp4', 'clip-dup-older-0.mp4']) {
     await fs.writeFile(join(filesDir, name), clipBytes())
   }

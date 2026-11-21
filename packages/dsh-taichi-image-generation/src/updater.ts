@@ -145,7 +145,7 @@ export async function checkForUpdate(fetchFn: typeof fetch = fetch, now = Date.n
   const response = await fetchFn(RELEASES_URL, {
     headers: {
       accept: 'application/vnd.github+json',
-      'user-agent': 'dsh-imagegen-update-check',
+      'user-agent': 'dsh-taichi-imagegen-update-check',
     },
     signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
   })

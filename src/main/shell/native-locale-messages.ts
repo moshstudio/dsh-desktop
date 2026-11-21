@@ -13,7 +13,7 @@ interface NativeLocaleMessages {
 export const nativeLocaleMessages: Record<DesktopLocale, NativeLocaleMessages> = {
   en: {
     directory: 'Select Workspace Directory', restartHeading: 'Restart to update the native dialog language?',
-    restartDetail: 'The macOS file chooser will change language after a full taichi-dsh restart. Choose “Restart Later” to select a folder in the current language without stopping tasks. Restarting now stops running tasks; saved sessions and configuration are preserved.',
+    restartDetail: 'The macOS file chooser will change language after a full 太极-dsh restart. Choose “Restart Later” to select a folder in the current language without stopping tasks. Restarting now stops running tasks; saved sessions and configuration are preserved.',
     later: 'Restart Later', restart: 'Restart App', notSaved: 'The language setting has not been saved yet. Please try again shortly.', close: 'Close'
   },
   zh: {
@@ -23,32 +23,32 @@ export const nativeLocaleMessages: Record<DesktopLocale, NativeLocaleMessages> =
   },
   ja: {
     directory: 'ワークスペースのフォルダーを選択', restartHeading: '再起動してシステムダイアログの言語を変更しますか？',
-    restartDetail: 'macOS のフォルダー選択画面の言語は taichi-dsh の再起動後に変わります。「後で再起動」を選ぶと、タスクを停止せずに現在の言語でフォルダーを選択できます。今すぐ再起動すると実行中のタスクは停止します。保存済みのセッションと設定は保持されます。',
+    restartDetail: 'macOS のフォルダー選択画面の言語は 太极-dsh の再起動後に変わります。「後で再起動」を選ぶと、タスクを停止せずに現在の言語でフォルダーを選択できます。今すぐ再起動すると実行中のタスクは停止します。保存済みのセッションと設定は保持されます。',
     later: '後で再起動', restart: 'アプリを再起動', notSaved: '言語設定がまだ保存されていません。しばらくしてから再試行してください。', close: '閉じる'
   },
   es: {
     directory: 'Seleccionar carpeta del espacio de trabajo', restartHeading: '¿Reiniciar para cambiar el idioma de los diálogos nativos?',
-    restartDetail: 'El selector de carpetas de macOS cambiará de idioma al reiniciar taichi-dsh. Elija «Reiniciar más tarde» para seleccionar una carpeta en el idioma actual sin detener tareas. Reiniciar ahora detiene las tareas en curso; se conservan las sesiones y la configuración guardadas.',
+    restartDetail: 'El selector de carpetas de macOS cambiará de idioma al reiniciar 太极-dsh. Elija «Reiniciar más tarde» para seleccionar una carpeta en el idioma actual sin detener tareas. Reiniciar ahora detiene las tareas en curso; se conservan las sesiones y la configuración guardadas.',
     later: 'Reiniciar más tarde', restart: 'Reiniciar aplicación', notSaved: 'El ajuste de idioma aún no se ha guardado. Vuelva a intentarlo en breve.', close: 'Cerrar'
   },
   fr: {
     directory: 'Choisir le dossier de l’espace de travail', restartHeading: 'Redémarrer pour changer la langue des dialogues natifs ?',
-    restartDetail: 'Le sélecteur de dossiers macOS changera de langue après le redémarrage de taichi-dsh. Choisissez « Redémarrer plus tard » pour sélectionner un dossier dans la langue actuelle sans arrêter les tâches. Redémarrer maintenant arrête les tâches en cours ; les sessions et paramètres enregistrés sont conservés.',
+    restartDetail: 'Le sélecteur de dossiers macOS changera de langue après le redémarrage de 太极-dsh. Choisissez « Redémarrer plus tard » pour sélectionner un dossier dans la langue actuelle sans arrêter les tâches. Redémarrer maintenant arrête les tâches en cours ; les sessions et paramètres enregistrés sont conservés.',
     later: 'Redémarrer plus tard', restart: 'Redémarrer l’application', notSaved: 'Le paramètre de langue n’a pas encore été enregistré. Réessayez dans un instant.', close: 'Fermer'
   },
   de: {
     directory: 'Arbeitsbereichsordner auswählen', restartHeading: 'Neustarten, um die Sprache nativer Dialoge zu ändern?',
-    restartDetail: 'Die macOS-Ordnerauswahl verwendet nach einem Neustart von taichi-dsh die neue Sprache. Mit „Später neu starten“ können Sie einen Ordner in der aktuellen Sprache auswählen, ohne Aufgaben zu stoppen. Ein sofortiger Neustart stoppt laufende Aufgaben; gespeicherte Sitzungen und Einstellungen bleiben erhalten.',
+    restartDetail: 'Die macOS-Ordnerauswahl verwendet nach einem Neustart von 太极-dsh die neue Sprache. Mit „Später neu starten“ können Sie einen Ordner in der aktuellen Sprache auswählen, ohne Aufgaben zu stoppen. Ein sofortiger Neustart stoppt laufende Aufgaben; gespeicherte Sitzungen und Einstellungen bleiben erhalten.',
     later: 'Später neu starten', restart: 'App neu starten', notSaved: 'Die Spracheinstellung wurde noch nicht gespeichert. Bitte versuchen Sie es gleich erneut.', close: 'Schließen'
   },
   ru: {
     directory: 'Выберите папку рабочего пространства', restartHeading: 'Перезапустить для смены языка системных диалогов?',
-    restartDetail: 'Язык выбора папки macOS изменится после перезапуска taichi-dsh. Выберите «Перезапустить позже», чтобы выбрать папку на текущем языке без остановки задач. Перезапуск сейчас остановит выполняемые задачи; сохранённые сеансы и настройки останутся.',
+    restartDetail: 'Язык выбора папки macOS изменится после перезапуска 太极-dsh. Выберите «Перезапустить позже», чтобы выбрать папку на текущем языке без остановки задач. Перезапуск сейчас остановит выполняемые задачи; сохранённые сеансы и настройки останутся.',
     later: 'Перезапустить позже', restart: 'Перезапустить приложение', notSaved: 'Настройка языка ещё не сохранена. Повторите попытку чуть позже.', close: 'Закрыть'
   },
   pt: {
     directory: 'Selecionar pasta do espaço de trabalho', restartHeading: 'Reiniciar para alterar o idioma das caixas de diálogo nativas?',
-    restartDetail: 'O seletor de pastas do macOS mudará de idioma após reiniciar o taichi-dsh. Escolha “Reiniciar mais tarde” para selecionar uma pasta no idioma atual sem interromper tarefas. Reiniciar agora interrompe as tarefas em execução; sessões e configurações salvas são preservadas.',
+    restartDetail: 'O seletor de pastas do macOS mudará de idioma após reiniciar o 太极-dsh. Escolha “Reiniciar mais tarde” para selecionar uma pasta no idioma atual sem interromper tarefas. Reiniciar agora interrompe as tarefas em execução; sessões e configurações salvas são preservadas.',
     later: 'Reiniciar mais tarde', restart: 'Reiniciar aplicativo', notSaved: 'A configuração de idioma ainda não foi salva. Tente novamente em instantes.', close: 'Fechar'
   }
 }

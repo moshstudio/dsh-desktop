@@ -39,7 +39,7 @@ import { subscribeImageGenLanguage, tt } from './helpers.ts'
 import css from './panel.module.css'
 
 /** The injected panel container (kept in the DOM, hidden when inactive). */
-export const PANEL_VIEW_SELECTOR = '[data-dsh-imagegen-view]'
+export const PANEL_VIEW_SELECTOR = '[data-dsh-taichi-imagegen-view]'
 
 /** Centre-column occupant anchor: the AppFrame's keyed `main` slot entry. */
 const MAIN_SLOT_ANCHOR = '[data-slot="main"]'
@@ -55,17 +55,17 @@ const LEGACY_COLUMN_SELECTOR = '[data-pane="conversation"]'
  * takeover. Marking the element we already resolved keeps the stylesheet on an
  * attribute this plugin owns.
  */
-const CENTER_COL_ATTR = 'data-dsh-imagegen-center-col'
-const ACTIVE_ATTR = 'data-dsh-imagegen-active'
-const RESIZER_SELECTOR = '[data-dsh-imagegen-chat-resizer]'
-const CHAT_WIDTH_STORAGE_KEY = 'dsh-imagegen:chat-width'
+const CENTER_COL_ATTR = 'data-dsh-taichi-imagegen-center-col'
+const ACTIVE_ATTR = 'data-dsh-taichi-imagegen-active'
+const RESIZER_SELECTOR = '[data-dsh-taichi-imagegen-chat-resizer]'
+const CHAT_WIDTH_STORAGE_KEY = 'dsh-taichi-imagegen:chat-width'
 /** Inline custom property carrying the chat width, written onto the host's column. */
-const CHAT_WIDTH_VAR = '--dsh-imagegen-chat-width'
+const CHAT_WIDTH_VAR = '--dsh-taichi-imagegen-chat-width'
 const CHAT_MIN_WIDTH = 320
 /** Sibling panels' activation attributes, removed when this panel opens. */
 const OTHER_ACTIVE_ATTRS = ['data-dsh-taskboard-active', 'data-dsh-ssh-active']
 /** Our own marker on the shell's New Session affordance (set by sidebar-entry). */
-const NEW_SESSION_MARKER = '[data-dsh-imagegen-new-session]'
+const NEW_SESSION_MARKER = '[data-dsh-taichi-imagegen-new-session]'
 /**
  * Sidebar account launcher (`dsh-taichi-account`).
  *
@@ -179,7 +179,7 @@ function createChatResizer(column: HTMLElement): { resizer: HTMLDivElement; disp
   /** Ends an in-flight drag; set while the pointer is down. */
   let endDrag: (() => void) | undefined
   const resizer = document.createElement('div')
-  resizer.dataset.dshImagegenChatResizer = ''
+  resizer.dataset.dshTaichiImagegenChatResizer = ''
   resizer.className = css.chatResizer
   resizer.setAttribute('role', 'separator')
   resizer.setAttribute('aria-orientation', 'vertical')
@@ -293,7 +293,7 @@ export function mountPanel(
     markedColumn = column
     column.setAttribute(CENTER_COL_ATTR, '')
     container = document.createElement('div')
-    container.dataset.dshImagegenView = ''
+    container.dataset.dshTaichiImagegenView = ''
     container.className = css.view
     column.appendChild(container)
     root = createRoot(container)

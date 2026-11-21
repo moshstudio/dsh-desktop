@@ -69,7 +69,7 @@ describe('Windows caption menus', () => {
     const chinese = labels(windowsMenuTemplate('application', 'zh', 1, actions))
     const english = labels(windowsMenuTemplate('application', 'en', 1, actions))
     expect(chinese).toContain('关于 太极-dsh')
-    expect(english).toContain('About taichi-dsh')
+    expect(english).toContain('About 太极-dsh')
     expect(chinese).not.toContain('了解企业版')
     expect(english).not.toContain('Explore Enterprise')
     expect(chinese).not.toContain('导出 Session 日志…')

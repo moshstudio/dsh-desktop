@@ -1,6 +1,6 @@
 /**
  * Host-persisted video history: finished clips are stored as individual files
- * under ~/.dsh/dsh-imagegen/videos/ and an index.json keeps the metadata +
+ * under ~/.dsh/dsh-taichi-imagegen/videos/ and an index.json keeps the metadata +
  * file names. This mirrors `history-store.ts`, which does the same for images.
  *
  * The split exists for one hard reason: a rendered clip is orders of magnitude

@@ -2,8 +2,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 
-export const COMPONENT_SERVICE = 'imagegenComponents'
-export const ROUTE_SERVICE = 'imagegenRoutes'
+export const COMPONENT_SERVICE = 'taichiImagegenComponents'
+export const ROUTE_SERVICE = 'taichiImagegenRoutes'
 export const FEATURES = ['image', 'video', 'canvas', 'gallery', 'templates', 'skills', 'ppt', 'ecommerce', 'outfit', 'prompt', 'storage', 'diagnostics'] as const
 export type Feature = typeof FEATURES[number]
 export interface ComponentRuntime {
@@ -13,7 +13,7 @@ export interface ComponentRoutes { routes: WebRoute[] }
 
 /** Specific paths precede their containing family. Unknown endpoints stay in core. */
 export function routeComponent(path: string): Feature | 'core' {
-  const relative = path.replace('/api/dsh-imagegen/', '')
+  const relative = path.replace('/api/dsh-taichi-imagegen/', '')
   if (relative.startsWith('canvas/skills/')) return 'skills'
   if (relative.startsWith('ppt/')) return 'ppt'
   if (relative.startsWith('canvas')) return 'canvas'
@@ -39,7 +39,7 @@ export function routeComponent(path: string): Feature | 'core' {
  */
 export function featurePlugin(feature: Feature) {
   return {
-    name: 'imagegen-' + feature,
+    name: 'taichi-imagegen-' + feature,
     inject: ['webServer'],
     apply(ctx: Context): void {
       ctx.inject([COMPONENT_SERVICE, ROUTE_SERVICE], (featureCtx) => {
@@ -56,7 +56,7 @@ export function featurePlugin(feature: Feature) {
             throw error
           }
           return () => { for (const dispose of disposers.reverse()) dispose() }
-        }, 'dsh-imagegen: ' + feature + ' routes')
+        }, 'dsh-taichi-imagegen: ' + feature + ' routes')
         runtime.mount(feature, featureCtx)
       })
     },

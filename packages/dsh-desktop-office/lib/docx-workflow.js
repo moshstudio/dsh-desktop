@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { workspacePolicy } from './template-tool.js'
+import { confinedOfficeEnvironment, workspacePolicy } from './template-tool.js'
 import { selectedTemplate } from './modes.js'
 
 // Short -c program. The worker source travels in the environment because Windows
@@ -26,11 +26,7 @@ export function docxWorkerPython(resources, platform = process.platform) {
 
 /** Environment for the confined Word worker. Credentials stay behind. */
 export function docxWorkerEnvironment(runtime = process, script) {
-  const env = Object.fromEntries(Object.keys(runtime.env).map(key => [key, undefined]))
-  if (runtime.platform === 'win32') env.SystemRoot = runtime.env.SystemRoot
-  // Windows wraps this command in the ACL runner at process.execPath. Inside the
-  // Electron harness that executable runs the runner only in Node mode.
-  if (runtime.versions.electron) env.ELECTRON_RUN_AS_NODE = '1'
+  const env = confinedOfficeEnvironment(runtime)
   // CreateProcessW rejects an environment block above 32767 characters.
   if (typeof script === 'string') {
     if (script.length > 24000) throw new Error('Word template worker exceeds the Windows environment limit')

@@ -1,21 +1,41 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { DEVELOPMENT_GATEWAY_URL, PRODUCTION_GATEWAY_URL } from '../src/main/development-environment'
 import {
   archiveFeedUrl,
   compareVersions,
   fetchAvailableReleases,
   parseVersionIndex,
-  STABLE_FEED_URL,
-  VERSION_INDEX_URL
+  setDesktopUpdateOrigin,
+  stableFeedUrl,
+  updatePolicyUrl,
+  versionIndexUrl
 } from '../src/main/update/version-catalog'
 
 describe('version-catalog constants', () => {
-  it('points the stable feed and index at the dshdesktop domain', () => {
-    expect(STABLE_FEED_URL).toBe('https://dshdesktop.com/updates/latest/')
-    expect(VERSION_INDEX_URL).toBe('https://dshdesktop.com/updates/versions.json')
+  afterEach(() => {
+    setDesktopUpdateOrigin(PRODUCTION_GATEWAY_URL)
   })
 
-  it('builds a per-version archive feed url with a trailing slash', () => {
-    expect(archiveFeedUrl('1.2.3')).toBe('https://dshdesktop.com/updates/archive/1.2.3/')
+  it('points update checks and feeds at the production gateway', () => {
+    expect(updatePolicyUrl()).toBe(`${PRODUCTION_GATEWAY_URL}/v1/updates/check`)
+    expect(stableFeedUrl()).toBe(`${PRODUCTION_GATEWAY_URL}/updates/latest/`)
+    expect(versionIndexUrl()).toBe(`${PRODUCTION_GATEWAY_URL}/updates/versions.json`)
+    expect(archiveFeedUrl('1.2.3')).toBe(`${PRODUCTION_GATEWAY_URL}/updates/archive/1.2.3/`)
+  })
+
+  it('follows a configured https gateway and the local loopback gateway', () => {
+    expect(setDesktopUpdateOrigin(' https://updates.example/desktop/ ')).toBe(true)
+    expect(updatePolicyUrl()).toBe('https://updates.example/desktop/v1/updates/check')
+    expect(archiveFeedUrl('1.2.3')).toBe('https://updates.example/desktop/updates/archive/1.2.3/')
+    expect(setDesktopUpdateOrigin(DEVELOPMENT_GATEWAY_URL)).toBe(true)
+    expect(stableFeedUrl()).toBe(`${DEVELOPMENT_GATEWAY_URL}/updates/latest/`)
+  })
+
+  it('keeps the production gateway when the origin is not an acceptable update host', () => {
+    expect(setDesktopUpdateOrigin('http://updates.example')).toBe(false)
+    expect(setDesktopUpdateOrigin('https://user:pass@updates.example')).toBe(false)
+    expect(setDesktopUpdateOrigin('not a url')).toBe(false)
+    expect(stableFeedUrl()).toBe(`${PRODUCTION_GATEWAY_URL}/updates/latest/`)
   })
 })
 
@@ -54,14 +74,14 @@ describe('parseVersionIndex', () => {
   it('keeps well-formed entries and drops the rest', () => {
     const raw = {
       versions: [
-        { version: '1.2.3', tag: 'v1.2.3', archiveUrl: 'https://dshdesktop.com/updates/archive/1.2.3/' },
+        { version: '1.2.3', tag: 'v1.2.3', archiveUrl: 'https://taichi-gateway.moshangwangluo.com/updates/archive/1.2.3/' },
         { version: '', tag: 'v0', archiveUrl: 'x' },
         { nope: true },
         42
       ]
     }
     expect(parseVersionIndex(raw)).toEqual([
-      { version: '1.2.3', tag: 'v1.2.3', archiveUrl: 'https://dshdesktop.com/updates/archive/1.2.3/' }
+      { version: '1.2.3', tag: 'v1.2.3', archiveUrl: 'https://taichi-gateway.moshangwangluo.com/updates/archive/1.2.3/' }
     ])
   })
 

@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { describe, expect, it } from 'vitest'
+import { PRODUCTION_GATEWAY_URL } from '../src/main/development-environment'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 
@@ -282,10 +283,10 @@ describe('GitHub release contract', () => {
 
     expect(packageJson.dependencies['electron-updater']).toBeTruthy()
     expect(packageJson.build.publish).toEqual([
-      { provider: 'generic', url: 'https://dshdesktop.com/updates/latest/' }
+      { provider: 'generic', url: `${PRODUCTION_GATEWAY_URL}/updates/latest/` }
     ])
     expect(packageJson.build.win.verifyUpdateCodeSignature).toBe(true)
-    expect(packageJson.build.win.signtoolOptions.publisherName).toBe('Beijing Shuju Xiangsu Intelligence Technology Co., Ltd.')
+    expect(packageJson.build.win.signtoolOptions.publisherName).toBe('陌上网络')
     for (const asset of [
       'latest-mac-arm64.yml',
       'latest-mac-x64.yml',
@@ -354,7 +355,7 @@ describe('GitHub release contract', () => {
     expect(packageJson.scripts['package:dev:win']).toContain('electron-builder.dev.cjs')
     expect(packageJson.scripts['package:dev:win']).toContain('--publish never')
     expect(developmentConfig.appId).toBe('io.taichi.dsh.dev')
-    expect(developmentConfig.productName).toBe('taichi-dsh Dev')
+    expect(developmentConfig.productName).toBe('太极-dsh Dev')
     expect(developmentConfig.directories.output).toBe('dist-dev')
     expect(developmentConfig.extraMetadata.dshDesktopChannel).toBe('development')
     expect(developmentConfig.artifactName).toBe('dsh-desktop-dev-${os}-${arch}.${ext}')

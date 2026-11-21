@@ -824,7 +824,9 @@
   align-items: flex-start;
   justify-content: center;
   padding: 9vh 16px 16px;
-  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 45%, transparent);
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
 }
 
 .editorPanel {
@@ -832,7 +834,7 @@
   max-height: 82vh;
   overflow-y: auto;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-lg);
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-elevation-prominent);
   padding: 16px;
@@ -2125,7 +2127,9 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: var(--dsw-alias-bg-mask-1);
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
 }
 
 .pickerDialog {
@@ -2135,7 +2139,7 @@
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-lg);
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-elevation-prominent);
   padding: 16px;

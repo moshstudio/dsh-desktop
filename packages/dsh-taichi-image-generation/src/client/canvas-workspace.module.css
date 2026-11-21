@@ -2596,7 +2596,9 @@
   position: absolute;
   inset: 0;
   z-index: var(--z-scrim);
-  background: color-mix(in srgb, var(--dsw-alias-label-primary) 32%, transparent);
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2607,7 +2609,7 @@
   max-height: 84%;
   display: flex;
   flex-direction: column;
-  border-radius: var(--dsw-radius-lg);
+  border-radius: var(--dsw-radius-md);
   border: 1px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1);
   box-shadow: var(--dsw-shadow-lv3);
@@ -2846,6 +2848,12 @@
   position: fixed;
   inset: 0;
   z-index: var(--z-scrim);
+}
+
+.skillDialogScrim {
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
 }
 
 .skillMenu {
@@ -3189,7 +3197,7 @@
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(440px, calc(100vw - 40px));
-  border-radius: var(--dsw-radius-lg);
+  border-radius: var(--dsw-radius-md);
   border: 1px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1);
   box-shadow: var(--dsw-shadow-lv3);
@@ -3860,8 +3868,9 @@
   display: grid;
   place-items: center;
   padding: 32px;
-  background: color-mix(in srgb, var(--dsw-alias-bg-base) 46%, transparent);
-  backdrop-filter: blur(3px);
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
 }
 
 .fileOverlayPanel {
@@ -3869,7 +3878,7 @@
   flex-direction: column;
   width: min(1100px, 94vw);
   height: min(820px, 88vh);
-  border-radius: var(--dsw-radius-lg);
+  border-radius: var(--dsw-radius-md);
   border: 1px solid var(--dsw-alias-border-l1);
   background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 98%, transparent);
   box-shadow: var(--dsw-shadow-lv3);
@@ -4100,7 +4109,9 @@
   align-items: center;
   justify-content: center;
   padding: 40px;
-  background: var(--dsw-alias-bg-mask-1);
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
 }
 
 .videoPreviewPlayer {

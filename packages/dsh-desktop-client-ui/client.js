@@ -319,6 +319,24 @@ window.__ModuleLoader__.load({
           [data-dsh-better-sidebar-settings-nav] span[class*="navIcon"],
           [data-dsh-better-sidebar-settings-nav] svg { display:none !important; }
           :root { --dsh-page-title-top-spacing:56px; }
+          /* Dialog chrome only. --dsw-radius-panel stays 28px because the composer card uses it.
+             The mask stays a light tint plus a short blur so the page behind remains readable.
+             Variables are set on the mask sibling; the dialog content keeps the theme mask color. */
+          html body {
+            --dsh-dialog-mask-blur: blur(12px);
+            --dsh-dialog-mask-fill: color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent);
+          }
+          @media (prefers-reduced-transparency: reduce) {
+            html body {
+              --dsh-dialog-mask-blur: none;
+              --dsh-dialog-mask-fill: color-mix(in srgb, var(--dsw-alias-label-primary) 28%, transparent);
+            }
+          }
+          html body :has(> [role="dialog"]) > :not([role="dialog"]) {
+            --dsw-mask-blur: var(--dsh-dialog-mask-blur);
+            --dsw-alias-bg-mask-1: var(--dsh-dialog-mask-fill);
+          }
+          html [role="dialog"] { border-radius: var(--dsw-radius-md); }
           /* Keep Desktop actions beside Settings, without relocating other slot contributions. */
           [data-dsh-sidebar-settings]:has([data-dsh-desktop-utilities]) {
             display:flex; flex-direction:row; align-items:center; gap:4px;
@@ -337,6 +355,13 @@ window.__ModuleLoader__.load({
             display:flex; align-items:center; flex-wrap:wrap; gap:4px; padding:4px;
           }
           [data-dsh-desktop-utilities][data-wide="false"] { justify-content:center; }
+          /* Repair and phone stay on the conversation sidebar. The image studio,
+             workbenches, and any global main panel keep the rest of the footer. */
+          html[data-dsh-taichi-imagegen-active] [data-dsh-desktop-utilities],
+          html[data-dsh-workbench-active] [data-dsh-desktop-utilities],
+          html[data-dsh-taskboard-active] [data-dsh-desktop-utilities],
+          html[data-dsh-ssh-active] [data-dsh-desktop-utilities],
+          html:has([data-global-panel]) [data-dsh-desktop-utilities] { display:none !important; }
           [data-dsh-desktop-utilities] button {
             box-sizing:border-box; appearance:none; -webkit-appearance:none;
             display:inline-flex; align-items:center; justify-content:center; flex:none;

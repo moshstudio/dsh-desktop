@@ -338,7 +338,7 @@ export function SkillLibraryDialog(props: {
     if (file !== undefined) props.onInstallArchive(file, force)
   }
   return createPortal(<>
-    <div className={css.skillScrim} onPointerDown={props.onClose} />
+    <div className={`${css.skillScrim} ${css.skillDialogScrim}`} onPointerDown={props.onClose} />
     <div className={`${css.skillDialog} ${css.libraryDialog}`} role="dialog" aria-label={tt('canvas.skills.libraryTitle')}>
       <header className={css.skillMenuHeader}>
         <span className={css.skillMenuTitleGroup}>
@@ -551,7 +551,7 @@ export function SkillConfirmDialog(props: {
   const composeIds = props.composeIds
   const composing = composeIds !== undefined && composeIds.length > 0
   return createPortal(<>
-    <div className={css.skillScrim} onPointerDown={props.onClose} />
+    <div className={`${css.skillScrim} ${css.skillDialogScrim}`} onPointerDown={props.onClose} />
     <div
       className={css.skillDialog}
       role="dialog"

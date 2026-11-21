@@ -546,13 +546,10 @@ html[data-dsh-taichi-imagegen-active] [data-dsh-taichi-imagegen-sidebar-root] [d
   min-height: 0;
   padding: 6px 4px;
   overflow: hidden;
-  /* A shell or wallpaper theme may set --dsw-alias-bg-base to transparent, and
-     then this host shows whatever is painted underneath it. Canvas is the OS
-     system colour, so the host stays opaque without hardcoding a value. */
-  background-color: Canvas;
-  background-image:
-    linear-gradient(var(--dsw-alias-bg-base, transparent), var(--dsw-alias-bg-base, transparent)),
-    linear-gradient(var(--dsw-alias-bg-layer-1, Canvas), var(--dsw-alias-bg-layer-1, Canvas));
+  /* The host covers the shell's workspace region. The conversation sidebar
+     paints --dsw-specific-sidebar-fill on that column, so the studio list
+     uses the same fill instead of the center column's base background. */
+  background: var(--dsw-specific-sidebar-fill);
 }
 
 html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
@@ -1232,7 +1229,7 @@ html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
 .diagnosticsRow[data-verdict='unknown'] { opacity: .85; }
 
 
-.configGuide { position: fixed; inset: 0; z-index: var(--z-guide); display: grid; place-items: center; padding: 20px; background: var(--dsw-alias-bg-mask-1); }
+.configGuide { position: fixed; inset: 0; z-index: var(--z-guide); display: grid; place-items: center; padding: 20px; background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent)); backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); }
 .configGuideBody { display: flex; width: min(360px, 100%); flex-direction: column; gap: 12px; padding: 18px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); box-shadow: var(--dsw-elevation-panel); }
 .configGuideBody span { color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.55; }
 .configGuideBody button { align-self: flex-end; min-height: 30px; padding: 0 12px; border: 0; border-radius: var(--dsw-radius-sm); color: var(--dsw-alias-bg-layer-1); background: var(--dsw-alias-brand-primary); cursor: pointer; font: inherit; font-size: 12px; }
@@ -1240,8 +1237,8 @@ html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
 /* Fallback for "add this image to a conversation" when the host cannot tell us
    which conversation is current. The user has to name the target: guessing from
    history is how an image lands in the wrong thread. */
-.conversationPicker { position: fixed; z-index: var(--z-session-picker); inset: 0; display: grid; place-items: center; padding: 20px; background: var(--dsw-alias-bg-mask-1); }
-.conversationPickerBody { display: flex; width: min(420px, 100%); flex-direction: column; gap: 12px; padding: 20px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-lg); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); box-shadow: var(--dsw-elevation-panel); }
+.conversationPicker { position: fixed; z-index: var(--z-session-picker); inset: 0; display: grid; place-items: center; padding: 20px; background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent)); backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); }
+.conversationPickerBody { display: flex; width: min(420px, 100%); flex-direction: column; gap: 12px; padding: 20px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); box-shadow: var(--dsw-elevation-panel); }
 .conversationPickerBody h2 { margin: 0; font-size: 16px; font-weight: 650; }
 .conversationPickerBody p { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.5; }
 .conversationPickerBody label { display: flex; flex-direction: column; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; }

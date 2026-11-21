@@ -158,9 +158,9 @@ const TEMPLATE_VIEWER_CSS = `
 .ppt-preview-card:hover .ppt-preview-open,.ppt-preview-card:focus-within .ppt-preview-open {opacity:1;pointer-events:auto}
 @media (hover:none) {.ppt-preview-open {opacity:1;pointer-events:auto}}
 @media (prefers-reduced-motion:reduce) {.ppt-preview-open {transition:none}}
-.ppt-template-viewer {box-sizing:border-box;width:min(1280px,calc(100vw - 32px));height:min(900px,calc(100dvh - 32px));padding:20px;margin:auto;border:1px solid var(--dsw-alias-border-l2-darkmode-thin);border-radius:16px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit}
+.ppt-template-viewer {box-sizing:border-box;width:min(1280px,calc(100vw - 32px));height:min(900px,calc(100dvh - 32px));padding:20px;margin:auto;border:1px solid var(--dsw-alias-border-l2-darkmode-thin);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit}
 .ppt-template-viewer[open] {display:flex;flex-direction:column;gap:16px}
-.ppt-template-viewer::backdrop {background:color-mix(in srgb,var(--dsw-alias-label-primary) 45%,transparent)}
+.ppt-template-viewer::backdrop {background:var(--dsh-dialog-mask-fill,color-mix(in srgb,var(--dsw-alias-label-primary) 14%,transparent));backdrop-filter:var(--dsh-dialog-mask-blur,blur(12px));-webkit-backdrop-filter:var(--dsh-dialog-mask-blur,blur(12px))}
 .ppt-template-viewer header,.ppt-template-viewer footer {display:flex;align-items:center;gap:12px;flex:none}
 .ppt-template-viewer .ppt-preview-use {width:auto;padding:0 14px;margin-left:8px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);border-color:transparent;font-size:13px}
 .ppt-template-viewer header {justify-content:space-between}
@@ -398,8 +398,8 @@ function PersonalTemplateManager({ client, mode, sessionId, state, choose, t, mu
       [data-personal-card] .personal-actions button:hover {background:#111}
       [data-personal-card] .personal-actions button:focus-visible {outline:2px solid var(--dsw-alias-state-business-primary,#3385ff);outline-offset:2px}
       [data-personal-card] .personal-actions button:disabled {opacity:.5;cursor:default}
-      .personal-dialog {box-sizing:border-box;width:min(560px,calc(100vw - 40px));max-height:calc(100dvh - 48px);margin:auto;padding:26px;border:1px solid var(--dsw-alias-border-l2-darkmode-thin,#e7e7e9);border-radius:20px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#242424);font:inherit;box-shadow:0 24px 80px #0003;overflow-y:auto;overscroll-behavior:contain}
-      .personal-dialog::backdrop {background:rgb(0 0 0 / .5)}
+      .personal-dialog {box-sizing:border-box;width:min(560px,calc(100vw - 40px));max-height:calc(100dvh - 48px);margin:auto;padding:26px;border:1px solid var(--dsw-alias-border-l2-darkmode-thin,#e7e7e9);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#242424);font:inherit;box-shadow:0 24px 80px #0003;overflow-y:auto;overscroll-behavior:contain}
+      .personal-dialog::backdrop {background:var(--dsh-dialog-mask-fill,color-mix(in srgb,var(--dsw-alias-label-primary) 14%,transparent));backdrop-filter:var(--dsh-dialog-mask-blur,blur(12px));-webkit-backdrop-filter:var(--dsh-dialog-mask-blur,blur(12px))}
       .personal-dialog header {display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:26px}
       .personal-dialog h2 {margin:0;font-size:18px;line-height:26px;font-weight:600}
       .personal-dialog .personal-close {display:grid;place-items:center;flex:none;width:28px;height:28px;padding:0;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary,#777);cursor:pointer}

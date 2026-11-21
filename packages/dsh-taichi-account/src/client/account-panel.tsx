@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import * as React from 'react'
-import { Button, RiskConfirmation, IconChevronLeftOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, RiskConfirmation, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AccountApi, AccountSnapshot, DesktopBridge, LayoutScope } from './bridge'
 import type { Translate } from './locale'
 import { isErrorCode } from './locale'
@@ -670,7 +670,6 @@ export function AccountPanel({ t, bridge, initialStatus, onClose, onStatus, layo
       <div className={styles.content} data-dsh-account-panel="true" data-auth="true">
         <div className={styles.authColumn} ref={columnRef}>
           <div className={styles.live} aria-live="polite" aria-atomic="true">{`${title}. ${description}`}</div>
-          <div className={styles.header}>{titleNode}</div>
           {descriptionNode}
           {reading}
           <div className={styles.footer} data-dsh-account-footer="true" data-align="stretch" data-dsh-flip="action">
@@ -683,31 +682,31 @@ export function AccountPanel({ t, bridge, initialStatus, onClose, onStatus, layo
     )
     : (
       <div className={styles.content} data-dsh-account-panel="true" data-auth="false">
-        <div className={styles.header}>{titleNode}</div>
         {descriptionNode}
         {reading}
       </div>
     )
   return (
     <>
-      <Surface className={styles.panel} data-screen={screen} aria-labelledby={titleId} onSubmit={screen === 'auth' ? submit : undefined}>
-        <div className={styles.toolbar} data-dsh-account-toolbar="true">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={styles.back}
-            data-dsh-account-back="true"
-            aria-label={t('back')}
-            disabled={busy || mustRestart}
-            icon={<IconChevronLeftOutlineRegular size={16} />}
-            onClick={requestClose}
-          >
-            {t('back')}
-          </Button>
-        </div>
-        {content}
-      </Surface>
+      <Modal open headless title={t('open')} className="dsh-account-dialog" onClose={requestClose}>
+        <Surface className={styles.panel} data-screen={screen} aria-labelledby={titleId} onSubmit={screen === 'auth' ? submit : undefined}>
+          <div className={styles.header} data-dsh-account-header="true">
+            {titleNode}
+            <button
+              type="button"
+              className={styles.close}
+              data-dsh-account-close="true"
+              data-modal-autofocus="true"
+              aria-label={t('close')}
+              disabled={busy || mustRestart}
+              onClick={requestClose}
+            >
+              <IconCloseOutlineRegular size={14} />
+            </button>
+          </div>
+          {content}
+        </Surface>
+      </Modal>
       {rechargeDialog({
         t,
         open: rechargeOpen,

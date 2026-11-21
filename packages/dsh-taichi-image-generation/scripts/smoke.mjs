@@ -7675,47 +7675,28 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.equal(imageStudioService.getSnapshot().panelOpen, false, 'the native action closes the studio')
     nativeNewSession.className = 'newSession'
 
-    // The account page is a main-slot panel, and the studio hides every
-    // main-slot entry that is not the conversation. Opening it from the image
-    // tab used to select the page and leave it invisible until the user
-    // switched back by hand. The click has to restore the session tab first,
-    // then let the button's own handler open the page.
+    // The account UI is a dialog over the current page. Opening it from the
+    // image tab must leave the studio up and still deliver the button click.
     const accountButton = jsdomDocument.createElement('button')
     accountButton.type = 'button'
     accountButton.setAttribute('data-dsh-taichi-account', 'true')
     accountButton.setAttribute('aria-pressed', 'false')
-    accountButton.setAttribute('data-selected', 'false')
     let accountClicks = 0
-    let studioClosedBeforeAccountClick = false
-    accountButton.addEventListener('click', () => {
-      accountClicks += 1
-      studioClosedBeforeAccountClick = jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active') === false
-    })
+    accountButton.addEventListener('click', () => { accountClicks += 1 })
     jsdomDocument.body.append(accountButton)
     imageStudioService.open()
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true, 'the image tab is open before the account click')
     accountButton.click()
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'opening the account page leaves the studio')
-    assert.equal(imageStudioService.getSnapshot().panelOpen, false, 'the account page opens with the studio closed')
-    assert.equal(accountClicks, 1, 'the account button still opens its page after the studio closes')
-    assert.equal(studioClosedBeforeAccountClick, true, 'the session tab is restored before the account page opens')
-
-    imageStudioService.open()
-    await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true)
+    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), true, 'the account dialog stays over the image studio')
+    assert.equal(imageStudioService.getSnapshot().panelOpen, true, 'opening the account dialog leaves the studio open')
+    assert.equal(accountClicks, 1, 'the account button still receives its click')
     accountButton.setAttribute('aria-pressed', 'true')
-    accountButton.setAttribute('data-selected', 'true')
     accountButton.click()
     await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(jsdomDocument.documentElement.hasAttribute('data-dsh-taichi-imagegen-active'), false, 'a covered account page is revealed by leaving the studio')
-    assert.equal(imageStudioService.getSnapshot().panelOpen, false, 'revealing the account page leaves the studio closed')
-    assert.equal(accountClicks, 1, 'revealing an already-open account page does not toggle it shut')
-    accountButton.setAttribute('aria-pressed', 'false')
-    accountButton.setAttribute('data-selected', 'false')
-    accountButton.click()
-    assert.equal(accountClicks, 2, 'the account button keeps its own toggle once the studio is closed')
+    assert.equal(accountClicks, 2, 'a second click still reaches the account button')
+    assert.equal(imageStudioService.getSnapshot().panelOpen, true, 'closing the account dialog is not a studio navigation')
     accountButton.remove()
 
     // Gallery keeps the sidebar history visible, and selecting one history

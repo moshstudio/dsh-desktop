@@ -104,6 +104,10 @@ describe('DSH Desktop client slot occupants', () => {
     // Desktop toolbar styles have an owned lifetime; branding stays in currentColor.
     expect(appended).toHaveLength(1)
     expect(appended[0]?.textContent).toContain("[data-dsh-preset-search]")
+    expect(appended[0]?.textContent).toContain('--dsh-dialog-mask-blur: blur(12px);')
+    expect(appended[0]?.textContent).toContain('--dsh-dialog-mask-fill: color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent);')
+    expect(appended[0]?.textContent).toContain('html [role="dialog"] { border-radius: var(--dsw-radius-md); }')
+    expect(appended[0]?.textContent).toContain('@media (prefers-reduced-transparency: reduce)')
     expect(appended[0]?.textContent).toContain("[data-dsh-market-nav-icon] span[class*=\"navIcon\"]")
     expect(appended[0]?.textContent).toContain("[data-dsh-better-sidebar-settings-nav] span[class*=\"navIcon\"]")
     disposeStyle?.()

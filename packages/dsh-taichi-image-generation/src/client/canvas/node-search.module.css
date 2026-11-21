@@ -18,7 +18,9 @@
   align-items: flex-start;
   justify-content: center;
   padding: 12vh 20px 20px;
-  background: var(--dsw-alias-bg-mask-1);
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
   color: var(--dsw-alias-label-primary);
   font-family: var(--dsw-font-family, system-ui, sans-serif);
   font-size: 13px;
@@ -31,7 +33,7 @@
   width: min(480px, 100%);
   max-height: min(60vh, 520px);
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: var(--dsw-radius-lg);
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-1);
   box-shadow: var(--dsw-shadow-lv3);
   overflow: hidden;

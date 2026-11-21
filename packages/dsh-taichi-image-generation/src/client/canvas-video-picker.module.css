@@ -15,8 +15,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--dsw-alias-bg-mask-1);
-  backdrop-filter: blur(3px);
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
 }
 
 .dialog {
@@ -25,7 +26,7 @@
   width: min(760px, calc(100vw - 48px));
   max-height: min(620px, calc(100vh - 64px));
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: var(--dsw-radius-lg);
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-1);
   box-shadow: var(--dsw-shadow-lv3);
   overflow: hidden;

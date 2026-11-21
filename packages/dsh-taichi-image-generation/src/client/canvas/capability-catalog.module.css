@@ -19,7 +19,9 @@
   /* 顶部对齐而不是居中：这是一个「打开、输入、回车」的拾取器，靠上的位置让
      结果列表离搜索框更近，视线不用在屏幕中间和顶部之间来回跳。 */
   padding: 12vh 20px 20px;
-  background: var(--dsw-alias-bg-mask-1);
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
   color: var(--dsw-alias-label-primary);
   font-family: var(--dsw-font-family, system-ui, sans-serif);
   font-size: 13px;
@@ -35,7 +37,7 @@
      用户看得出「下面还有别的组」，而不是以为这就是全部。 */
   max-height: min(78vh, 720px);
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: var(--dsw-radius-lg);
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-1);
   box-shadow: var(--dsw-shadow-lv3);
   overflow: hidden;

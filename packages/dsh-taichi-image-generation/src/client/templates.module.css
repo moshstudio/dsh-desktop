@@ -21,7 +21,9 @@
    * it: the form it feeds stays visible while browsing. */
   justify-content: flex-end;
   padding: 0;
-  background: var(--dsw-alias-bg-mask-1);
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
   color: var(--dsw-alias-label-primary);
   font-family: var(--dsw-font-family);
   /* Square corners are not a rung on the radius scale: `data-fullscreen` and the
@@ -48,7 +50,7 @@
   /* Visible, not hidden: the resize handle hangs 5px past the left edge. */
   overflow: visible;
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: var(--dsw-radius-xl) 0 0 var(--dsw-radius-xl);
+  border-radius: var(--dsw-radius-md) 0 0 var(--dsw-radius-md);
   background: var(--dsw-alias-bg-base);
   box-shadow: var(--dsw-shadow-lv3);
   transition: width 0.18s ease;
@@ -627,7 +629,9 @@
   align-items: center;
   justify-content: center;
   padding: 34px;
-  background: var(--dsw-alias-bg-mask-1);
+  background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
+  backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
+  -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
 }
 
 .detail {
@@ -639,7 +643,7 @@
   max-height: 100%;
   overflow: hidden;
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: var(--dsw-radius-lg);
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-base);
   box-shadow: var(--dsw-shadow-lv3);
 }

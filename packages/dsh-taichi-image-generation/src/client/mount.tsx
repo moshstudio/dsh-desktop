@@ -66,14 +66,6 @@ const CHAT_MIN_WIDTH = 320
 const OTHER_ACTIVE_ATTRS = ['data-dsh-taskboard-active', 'data-dsh-ssh-active']
 /** Our own marker on the shell's New Session affordance (set by sidebar-entry). */
 const NEW_SESSION_MARKER = '[data-dsh-taichi-imagegen-new-session]'
-/**
- * Sidebar account launcher (`dsh-taichi-account`).
- *
- * Its page is a keyed `main` slot panel. The studio hides every main-slot
- * entry that is not the conversation, so selecting the page while the studio
- * is open leaves it mounted and invisible until the session tab returns.
- */
-const ACCOUNT_BUTTON = '[data-dsh-taichi-account]'
 /** Cross-plugin activation event; detail is the activating panel name. */
 const ACTIVATE_EVENT = 'dsh-panel-activate'
 const PANEL_NAME = 'imagegen'
@@ -347,13 +339,12 @@ export function mountPanel(
       controller.close()
     }
   }
-  // Hand the center column back to the conversation when the user navigates.
-  // The new-session marker and the account launcher are the clicks matched
-  // below. Session rows publish the same fact on the sessions feed, which the
-  // subscription handles instead — the row markup is the sidebar's own
+  // Hand the center column back to the conversation when the user starts a
+  // session. Session rows publish the same fact on the sessions feed, which
+  // the subscription handles instead — the row markup is the sidebar's own
   // business, and its class names are build hashes. Capture phase, so a
-  // control whose own handler stops propagation still closes the studio, and
-  // so the account page is selected only after the session tab is back.
+  // control whose own handler stops propagation still closes the studio.
+  // The account dialog covers the current page, so its button does not.
   const onClickSidebarRow = (event: MouseEvent): void => {
     if (!controller.getSnapshot().panelOpen) return
     // `Element` is a browser global. The client bundle is also evaluated in a
@@ -363,16 +354,6 @@ export function mountPanel(
     if (node === null || typeof node !== 'object' || !('closest' in node) || typeof node.closest !== 'function') return
     const target = node as Element
     if (target.closest(NEW_SESSION_MARKER) !== null) controller.close()
-    const accountButton = target.closest(ACCOUNT_BUTTON)
-    if (accountButton === null) return
-    controller.close()
-    // Already the active panel, only covered by the studio. The click would
-    // toggle it shut the moment the session tab returns; swallowing it leaves
-    // the page open on the conversation the studio just handed back.
-    if (accountButton.getAttribute('aria-pressed') === 'true' || accountButton.getAttribute('data-selected') === 'true') {
-      event.preventDefault()
-      event.stopPropagation()
-    }
   }
   document.addEventListener('click', onClickSidebarRow, true)
   document.addEventListener(ACTIVATE_EVENT, onOtherActivate)

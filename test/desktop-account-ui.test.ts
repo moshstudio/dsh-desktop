@@ -175,7 +175,7 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
   }, { filename: 'client.js' })
   const definition = registrations.get('')
   if (!definition) throw new Error('account client did not register a plugin definition')
-  const primitiveNames = ['Button', 'Input', 'Modal', 'RiskConfirmation', 'SegmentedControl', 'SegmentedTabs', 'Tooltip', 'IconChevronLeftOutlineRegular', 'IconInfoOutlineRegular', 'IconUserOutlineRegular']
+  const primitiveNames = ['Button', 'Input', 'Modal', 'RiskConfirmation', 'SegmentedControl', 'SegmentedTabs', 'Tooltip', 'IconCloseOutlineRegular', 'IconInfoOutlineRegular', 'IconUserOutlineRegular']
   const primitives = Object.fromEntries(primitiveNames.map(name => [name, () => null]))
   const jsx = (type: unknown, props: { children?: unknown } | null, key?: unknown) => {
     const { children, ...rest } = props ?? {}
@@ -214,7 +214,10 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
       resetStatus: () => {
         const reset = plugin.resetStatus
         if (typeof reset === 'function') reset()
-      }
+      },
+      AccountPanel: plugin.AccountPanel as (props: Record<string, unknown>) => unknown,
+      accountDialogOpen: plugin.accountDialogOpen as () => boolean,
+      openAccountDialog: plugin.openAccountDialog as () => void
     }
   }
 }
@@ -381,12 +384,12 @@ describe('desktop account page', () => {
   beforeAll(async () => {
     await plugin.apply(ctx)
     const button = registrations.find(item => item.name === 'shell.activity.action' && item.id === 'desktop-account')
-    const panel = registrations.find(item => item.name === 'main' && item.key === 'desktop-account')
-    if (button === undefined || panel === undefined) throw new Error('account page was not registered')
+    if (button === undefined || typeof loaded.plugin.AccountPanel !== 'function') throw new Error('account page was not registered')
+    expect(registrations.some(item => item.name === 'main')).toBe(false)
     AccountButton = button.component
     buttonProps = button.inject()
-    AccountPanel = panel.component
-    panelInject = panel.inject
+    AccountPanel = loaded.plugin.AccountPanel
+    panelInject = button.inject
   })
 
   function mountAccount(account: AccountApi, translate?: (key: string) => string) {
@@ -1117,29 +1120,28 @@ describe('desktop account page', () => {
     expect(nodes(recovered, node => node.children.includes('retry'))).toHaveLength(0)
   })
 
-  it('opens the account page in the main content area and returns to the previous panel', () => {
+  it('opens the account dialog from the rail without leaving the conversation', () => {
     loaded.window.dshDesktop.account = api()
     const button = react.render(AccountButton, buttonProps)
-    expect(nodes(button.tree, node => (node.type as { name?: string }).name === 'Modal')).toHaveLength(0)
+    expect(nodes(button.tree, node => node.type === AccountPanel)).toHaveLength(0)
     for (const effect of button.effects) effect()
     const opener = () => nodes(react.render(AccountButton, buttonProps).tree, node => node.props['data-dsh-taichi-account'] === 'true')[0]
+    const dialog = () => nodes(react.render(AccountButton, buttonProps).tree, node => node.type === AccountPanel)
     invoke(opener(), 'onClick')
-    expect(layout.calls).toEqual(['desktop-account'])
+    expect(layout.calls).toEqual([])
     expect(opener()?.props['data-selected']).toBe('true')
     expect(opener()?.props['aria-pressed']).toBe('true')
+    expect(dialog()).toHaveLength(1)
     invoke(opener(), 'onClick')
-    expect(layout.calls).toEqual(['desktop-account', null])
+    expect(layout.calls).toEqual([])
     expect(opener()?.props['data-selected']).toBe('false')
+    expect(dialog()).toHaveLength(0)
     loaded.window.dispatchEvent({ type: 'dsh-taichi-account-open' } as unknown as Event)
-    expect(layout.calls).toEqual(['desktop-account', null, 'desktop-account'])
-    invoke(opener(), 'onClick')
-    layout.active = 'desktop-workbenches'
-    invoke(opener(), 'onClick')
-    invoke(opener(), 'onClick')
-    expect(layout.calls.at(-2)).toBe('desktop-account')
-    expect(layout.calls.at(-1)).toBe('desktop-workbenches')
+    expect(dialog()).toHaveLength(1)
+    expect(layout.calls).toEqual([])
     const page = react.render(AccountPanel, panelInject())
-    expect(nodes(page.tree, node => (node.type as { name?: string }).name === 'Modal')).toHaveLength(0)
+    const modal = nodes(page.tree, node => node.props.className === 'dsh-account-dialog')[0]
+    expect(modal?.props).toMatchObject({ open: true, headless: true, title: 'open' })
     expect(nodes(page.tree, node => node.props['data-dsh-account-panel'] === 'true')).toHaveLength(1)
   })
 
@@ -1467,10 +1469,12 @@ describe('desktop account page', () => {
     const { rerender } = await mountReady({ login })
     invoke(field(rerender().tree, 'email'), 'onChange', 'a@example.com')
     invoke(field(rerender().tree, 'password'), 'onChange', 'password')
+    loaded.plugin.openAccountDialog()
     submit(rerender().tree)
     await flush()
     expect(events).toEqual([{ type: 'dsh-desktop-restart-required', detail: { source: 'account', restartRequired: true } }])
-    expect(layout.calls).toEqual([null])
+    expect(loaded.plugin.accountDialogOpen()).toBe(false)
+    expect(layout.calls).toEqual([])
     expect(nodes(rerender().tree, node => (node.type as { name?: string }).name === 'RestartNotice')).toHaveLength(0)
   })
 
@@ -1505,18 +1509,20 @@ describe('desktop account page', () => {
     const notice = nodes(tree, node => (node.type as { name?: string }).name === 'RestartNotice')[0]
     expect(notice?.props.kind).toBe('signOut')
     expect(nodes(tree, node => node.children.includes('unavailable'))).toHaveLength(1)
-    expect(nodes(tree, node => node.props['data-dsh-account-back'] === 'true')[0]?.props.disabled).toBe(true)
-    invoke(nodes(tree, node => node.props['data-dsh-account-back'] === 'true')[0], 'onClick')
+    expect(nodes(tree, node => node.props['data-dsh-account-close'] === 'true')[0]?.props.disabled).toBe(true)
+    invoke(nodes(tree, node => node.props['data-dsh-account-close'] === 'true')[0], 'onClick')
     expect(layout.calls).toEqual([])
   })
 
-  it('leaves the account page when no Harness restart is required', async () => {
+  it('closes the account dialog when no Harness restart is required', async () => {
     const { rerender } = await mountReady()
-    const back = nodes(rerender().tree, node => node.props['data-dsh-account-back'] === 'true')[0]
-    expect(back?.props.disabled).toBe(false)
-    expect(back?.props['aria-label']).toBe('back')
-    invoke(back, 'onClick')
-    expect(layout.calls).toEqual([null])
+    const close = nodes(rerender().tree, node => node.props['data-dsh-account-close'] === 'true')[0]
+    expect(close?.props.disabled).toBe(false)
+    expect(close?.props['aria-label']).toBe('close')
+    loaded.plugin.openAccountDialog()
+    invoke(close, 'onClick')
+    expect(loaded.plugin.accountDialogOpen()).toBe(false)
+    expect(layout.calls).toEqual([])
   })
 
   it('reports a rejected restart result and allows retry', async () => {

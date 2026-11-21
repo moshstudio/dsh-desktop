@@ -41,11 +41,12 @@ window.__ModuleLoader__.load({
       const style = document.createElement('style')
       style.id = STYLE_ID
       style.dataset.pluginCss = 'dsh-desktop-activity'
-      // Hover and selected share Button's interactive washes. bg-layer-2 plus a
-      // closed house path read as one solid black shape, so selection is a wash
-      // plus a leading mark instead of a second fill behind the glyph.
+      // Hover and selected share Button's interactive washes. The rail uses the
+      // conversation sidebar fill so the icon column and the session column read
+      // as one sidebar. Selection is that wash plus a leading mark; the glyph
+      // itself fills while it is the current place.
       style.textContent = `
-        [data-dsh-activity-rail]{box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:4px;width:48px;height:100%;padding:8px 0;background:var(--dsw-alias-bg-base);border-inline-end:1px solid var(--dsw-alias-border-secondary)}
+        [data-dsh-activity-rail]{box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:4px;width:48px;height:100%;padding:8px 0;background:var(--dsw-specific-sidebar-fill);border-inline-end:1px solid var(--dsw-alias-border-secondary)}
         [data-dsh-activity-rail] button{position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:0;border-radius:10px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background-color .14s ease,color .14s ease}
         [data-dsh-activity-rail] button svg{display:block;width:18px;height:18px}
         [data-dsh-activity-rail] button > span{display:flex;align-items:center;justify-content:center;width:18px;height:18px}
@@ -84,21 +85,18 @@ window.__ModuleLoader__.load({
           React.createElement('path', { d: 'M4.05 6.85V12.9h7.9V6.85', fill: 'none' }),
           React.createElement('path', { d: 'M6.9 12.9V9.35h2.2v3.55', fill: 'none' }))
       }
+      // Filled frame with the sun and skyline cut out, same idea as the house.
+      if (selected) {
+        return React.createElement('svg', { ...GLYPH, fill: 'currentColor', stroke: 'none' },
+          React.createElement('path', {
+            fillRule: 'evenodd',
+            d: 'M3.85 3.15h8.3a1.7 1.7 0 0 1 1.7 1.7v6.3a1.7 1.7 0 0 1-1.7 1.7h-8.3a1.7 1.7 0 0 1-1.7-1.7v-6.3a1.7 1.7 0 0 1 1.7-1.7ZM5.45 5.15a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8ZM3.05 12.2V11.55L5.85 8.8l1.8 1.6 2.25-2.15 3.05 2.95V12.2H3.05Z'
+          }))
+      }
       return React.createElement('svg', GLYPH,
         React.createElement('rect', { x: 2.15, y: 3.15, width: 11.7, height: 9.7, rx: 1.7, fill: 'none' }),
         React.createElement('circle', { cx: 5.45, cy: 6.05, r: 0.9, fill: 'currentColor', stroke: 'none' }),
         React.createElement('path', { d: 'M3.05 11.55 5.85 8.8l1.8 1.6 2.25-2.15 3.05 2.95', fill: 'none' }))
-    }
-
-    // The account plugin's main panel. Home is not the current place while it is showing.
-    const ACCOUNT_PANEL = 'desktop-account'
-
-    function useAccountPanel(layout) {
-      const info = layout != null && 'panelInfo' in layout ? layout.panelInfo : null
-      return React.useSyncExternalStore(
-        listener => typeof info?.subscribe === 'function' ? info.subscribe(listener) : () => {},
-        () => info?.getSnapshot?.()?.activePanelId === ACCOUNT_PANEL
-      )
     }
 
     // settings.launcher is the single seat that replaces the sidebar gear.
@@ -141,15 +139,13 @@ window.__ModuleLoader__.load({
       React.useLayoutEffect(installStyles)
       const studio = React.useSyncExternalStore(studioGate.subscribe.bind(studioGate), studioGate.getSnapshot.bind(studioGate))
       const settings = React.useSyncExternalStore(settingsGate.subscribe.bind(settingsGate), settingsGate.getSnapshot.bind(settingsGate))
-      const accountOpen = useAccountPanel(layout)
       const panelOpen = React.useSyncExternalStore(
         listener => studio ? studio.subscribe(listener) : () => {},
         () => studio ? studio.getSnapshot().panelOpen === true : CLOSED
       )
-      const homeCurrent = !panelOpen && !accountOpen
+      const homeCurrent = !panelOpen
       const showSidebar = () => {
         studio?.close()
-        if (accountOpen && typeof layout.selectPanel === 'function') layout.selectPanel(null)
         if (document.querySelector('[data-sidebar-collapsed]')) layout.toggleSidebar()
       }
       return React.createElement('nav', { 'data-dsh-activity-rail': 'true', 'aria-label': t('home') },
@@ -168,7 +164,7 @@ window.__ModuleLoader__.load({
           'aria-current': panelOpen ? 'page' : undefined,
           title: t('image'),
           onClick: () => { studio.open() }
-        }, icon('image')),
+        }, icon('image', panelOpen)),
         React.createElement('div', { 'data-dsh-activity-footer': '' },
           typeof renderSlot === 'function' ? renderSlot('shell.activity.action', { wide: false }) : null,
           settings && React.createElement('button', {

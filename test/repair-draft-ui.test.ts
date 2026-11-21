@@ -64,6 +64,17 @@ describe('repair draft admission', () => {
       expect(dom.window.getComputedStyle(row).alignItems).toBe('center')
       document.querySelector('[data-dsh-desktop-utilities]')!.setAttribute('data-wide', 'false')
       expect(dom.window.getComputedStyle(row).flexDirection).toBe('column')
+      const utilities = document.querySelector('[data-dsh-desktop-utilities]')!
+      expect(dom.window.getComputedStyle(utilities).display).toBe('flex')
+      document.documentElement.setAttribute('data-dsh-taichi-imagegen-active', '')
+      expect(dom.window.getComputedStyle(utilities).display).toBe('none')
+      document.documentElement.removeAttribute('data-dsh-taichi-imagegen-active')
+      const panel = document.createElement('div')
+      panel.setAttribute('data-global-panel', '')
+      document.body.append(panel)
+      expect(dom.window.getComputedStyle(utilities).display).toBe('none')
+      panel.remove()
+      expect(dom.window.getComputedStyle(utilities).display).toBe('flex')
     } finally {
       document.body.replaceChildren()
     }

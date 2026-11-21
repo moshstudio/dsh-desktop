@@ -127,24 +127,22 @@ it('opens the sidebar from Home only while it is collapsed, and opens the studio
   await act(async () => { collapsed.home().click() })
   expect(studio.calls).toEqual(['close'])
   expect(collapsed.toggles()).toBe(1)
+  expect(collapsed.image().innerHTML).toContain('<rect')
   await act(async () => { collapsed.image().click() })
   expect(studio.calls).toEqual(['close', 'open'])
   expect(collapsed.image().getAttribute('aria-current')).toBe('page')
   expect(collapsed.home().hasAttribute('aria-current')).toBe(false)
   expect(collapsed.home().innerHTML).not.toContain('M3 7.5 8 3.5l5 4V13')
-  expect(collapsed.image().innerHTML).toContain('<rect')
-  expect(collapsed.image().innerHTML).not.toContain('M2.5 3.5h11v9h-11z')
+  expect(collapsed.image().innerHTML).toContain('fill-rule="evenodd"')
+  expect(collapsed.image().innerHTML).not.toContain('<rect')
 })
 
-it('drops the Home current mark while the account panel is open, and Home returns to the conversation', async () => {
+it('keeps Home current while the account dialog is not the main page', async () => {
   const rail = await mount({ activePanelId: 'desktop-account' })
-  expect(rail.home().hasAttribute('aria-current')).toBe(false)
-  expect(rail.home().innerHTML).not.toContain('fill-rule')
-  await act(async () => { rail.home().click() })
-  expect(rail.panels()).toEqual([null])
-  await rail.setPanel(null)
   expect(rail.home().getAttribute('aria-current')).toBe('page')
   expect(rail.home().innerHTML).toContain('fill-rule="evenodd"')
+  await act(async () => { rail.home().click() })
+  expect(rail.panels()).toEqual([])
 })
 
 it('leaves an expanded sidebar where it is', async () => {
@@ -201,6 +199,8 @@ it('registers the desktop languages and only alias colors', async () => {
   const style = document.getElementById('dsh-desktop-activity-style').textContent
   expect(style).toContain('[data-dsh-activity-footer]{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:8px}')
   expect(style).toContain('var(--dsh-frame-top-clearance,48px)')
+  expect(style).toContain('background:var(--dsw-specific-sidebar-fill)')
+  expect(style).not.toContain('var(--dsw-alias-bg-base)')
   expect(style).toContain('var(--dsw-alias-interactive-bg-hover)')
   expect(style).toContain('var(--dsw-alias-interactive-bg-active)')
   expect(style).toContain('button[aria-current="page"]')

@@ -232,6 +232,32 @@ export function isArkSeedanceVideoModel(model: string): boolean {
 export function describeVideoModel(model: string): VideoCatalogEntry {
   const id = model.trim()
   if (id === '') return unknownEntry()
+  // Account-gateway catalog ids. These are exact so they do not steal
+  // `grok-imagine-video-*` or snapgen's `muse-ai-video`.
+  if (/^grok$/i.test(id)) {
+    return {
+      family: 'xai',
+      ...ENTRIES.xai,
+      label: 'Grok',
+      labelZh: 'Grok',
+      resolutions: ['720P'],
+      aspectRatios: ['16:9', '9:16', '1:1'],
+      durations: [10, 15],
+      modes: ['text', 'image'],
+    }
+  }
+  if (/^veo$/i.test(id)) {
+    return {
+      family: 'openai-video',
+      ...ENTRIES['openai-video'],
+      label: 'Veo',
+      labelZh: 'Veo',
+      resolutions: ['720P'],
+      aspectRatios: ['16:9', '9:16'],
+      durations: [8],
+      modes: ['text', 'image'],
+    }
+  }
   if (/^agnes-video/i.test(id)) {
     const base = ENTRIES.agnes
     // `agnes-video-2.5-flash` is documented as 720P-only: any other `size` is

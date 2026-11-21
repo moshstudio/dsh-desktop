@@ -44,7 +44,7 @@ import {
   Wand2,
   Wallpaper,
 } from 'lucide-react'
-import type { CanvasAnnotation, CanvasAssetRef, CanvasConnection, CanvasPromptSetItem, CanvasConnectionRole, CanvasDocument, CanvasProposal, CanvasFileKind, CanvasLayerInfo, CanvasLayerPlanItem, CanvasNode, CanvasRect, CanvasStoryboard, CanvasStoryboardSource, CanvasVideoRef, CanvasSkillConfigApplyResult, CanvasSkillConfigField, CanvasSkillConfigSaveResult, CanvasSkillConfigStep, CanvasSkillConfigView, CanvasSkillDescriptor, CanvasSkillLibrary, CanvasSkillOutput, CanvasSkillRunRequest, CanvasSkillTask, CanvasSketchStroke, CanvasPoseStage, CanvasPoseRig, GenerateRequest, GenerationTask, HistoryEntry, VideoGenerateRequest, VideoHistoryEntry, VideoTaskSummary, VideoMode, VideoResolution } from '../protocol.ts'
+import type { CanvasAnnotation, CanvasAssetRef, CanvasConnection, CanvasPromptSetItem, CanvasConnectionRole, CanvasDocument, CanvasProposal, CanvasFileKind, CanvasLayerInfo, CanvasLayerPlanItem, CanvasNode, CanvasRect, CanvasStoryboard, CanvasStoryboardSource, CanvasVideoRef, CanvasSkillConfigApplyResult, CanvasSkillConfigField, CanvasSkillConfigSaveResult, CanvasSkillConfigStep, CanvasSkillConfigView, CanvasSkillDescriptor, CanvasSkillLibrary, CanvasSkillOutput, CanvasSkillRunRequest, CanvasSkillTask, CanvasSketchStroke, CanvasPoseStage, CanvasPoseRig, GeneratedImage, GenerateRequest, GenerationTask, HistoryEntry, VideoGenerateRequest, VideoHistoryEntry, VideoTaskSummary, VideoMode, VideoResolution } from '../protocol.ts'
 import type { CanvasBundleUnresolved } from '../canvas-bundle.ts'
 import { describeVideoModel, durationsOf, VIDEO_RESOLUTIONS } from '../video-model-catalog.ts'
 // The stitch order is a SHARED rule: the host builds its ffmpeg concat list with
@@ -64,6 +64,7 @@ import { mergeDramaPlacement } from './drama-merge.ts'
 import { planDramaWriteback, type DramaWritePlan } from './drama-writeback.ts'
 import { writebackDrama } from './drama-writeback-run.ts'
 import { grabFrame } from './frame-grab.ts'
+import { batchCells } from './batch-board.ts'
 import { ImageGenApiError, type ImageGenApi } from './api.ts'
 import { errorMessage, tt } from './helpers.ts'
 import { mergeCanvasDocuments, type MergeConflict, type MergeSummary } from './canvas/canvas-merge.ts'
@@ -1626,6 +1627,8 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
    *  not schedule a second write of the same snapshot behind it. */
   const flushRef = useRef(false)
   const processedTasks = useRef(new Set<string>())
+  const appliedBatchSlots = useRef(new Set<string>())
+  const batchNodeOrder = useRef(new Map<string, string[]>())
   const processedImport = useRef('')
   const localTaskIds = useRef(new Set<string>())
   /** Video tasks this canvas submitted (so a stale poll cannot claim them). */
@@ -5075,74 +5078,141 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
 
   useEffect(() => {
     if (document === null) return
+    const orderFor = (taskId: string): string[] => {
+      const cached = batchNodeOrder.current.get(taskId)
+      if (cached !== undefined) return cached
+      const ids = document.nodes
+        .filter(node => node.type === 'image' && nodeMetadata(node).taskId === taskId)
+        .sort((left, right) => left.y - right.y || left.x - right.x)
+        .map(node => node.id)
+      if (ids.length > 0) batchNodeOrder.current.set(taskId, ids)
+      return ids
+    }
     const canvasTasks = tasks.filter(task => task.request.canvas?.canvasId === document.id)
     for (const task of canvasTasks) {
-      if (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') continue
       if (processedTasks.current.has(task.id)) continue
-      const targets = document.nodes.filter(node => node.type === 'image' && nodeMetadata(node).taskId === task.id && nodeMetadata(node).status === 'generating')
-      if (targets.length === 0) continue
-      processedTasks.current.add(task.id)
-      const sourceId = nodeMetadata(targets[0]!).sourceNodeId
-      const fail = (message: string): void => {
+      const terminal = task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled'
+      if (!terminal && task.status !== 'running') continue
+      const order = orderFor(task.id)
+      if (order.length === 0) continue
+      const stillGenerating = document.nodes.some(node =>
+        node.type === 'image' && nodeMetadata(node).taskId === task.id && nodeMetadata(node).status === 'generating')
+      const failRest = (message: string): void => {
         updateNodes(nodes => nodes.map(node => node.type === 'image' && nodeMetadata(node).taskId === task.id && nodeMetadata(node).status === 'generating'
           ? { ...node, metadata: { ...nodeMetadata(node), status: 'error', error: message } }
           : node))
       }
-      if (task.status !== 'completed' || task.result === undefined || task.result.images.length === 0) {
-        fail(task.error ?? tt('canvas.generateFailed'))
+      if (task.status === 'failed' || task.status === 'cancelled' || (task.status === 'completed' && (task.result === undefined || task.result.images.length === 0))) {
+        if (stillGenerating) failRest(task.error ?? tt('canvas.generateFailed'))
+        processedTasks.current.add(task.id)
         continue
       }
-      void (async () => {
-        const assets: CanvasAssetRef[] = []
-        const annotationEdit = nodeMetadata(targets[0]!).annotationEdit
-        const originalAsset = annotationEdit === undefined
+      if (task.result === undefined) continue
+      const batch = task.result
+      const cells = batchCells(batch, task.request.n, task.status === 'completed')
+      const hadApplied = order.some((_id, index) => appliedBatchSlots.current.has(`${task.id}:${index}`))
+      const firstId = order[0]
+      const first = firstId === undefined ? undefined : document.nodes.find(node => node.id === firstId)
+      const sourceId = first === undefined ? undefined : nodeMetadata(first).sourceNodeId
+      const prepareUrl = async (image: GeneratedImage, nodeId: string | undefined): Promise<string> => {
+        let dataUrl = imageDataUrl(image)
+        const node = nodeId === undefined ? undefined : document.nodes.find(item => item.id === nodeId)
+        const annotationEdit = node === undefined ? undefined : nodeMetadata(node).annotationEdit
+        const originalSource = annotationEdit === undefined ? undefined : document.nodes.find(item => item.id === annotationEdit.sourceNodeId)
+        const originalAsset = annotationEdit === undefined || node === undefined
           ? undefined
-          : usableAsset(document.nodes.find(node => node.id === annotationEdit.sourceNodeId) ?? targets[0]!)
-        for (const image of task.result!.images) {
-          let dataUrl = imageDataUrl(image)
-          // A 标注 edit: keep the generated pixels only inside the boxes and
-          // restore the clean original everywhere else, so the red marker the
-          // model may have echoed never reaches the finished image.
-          if (annotationEdit !== undefined && originalAsset !== undefined) {
-            try {
-              const result = await loadRaster(dataUrl, 4096)
-              const original = await loadRaster(originalAsset.url, 4096)
-              const inset = Math.max(2, Math.round(Math.min(result.width, result.height) * 0.01))
-              dataUrl = canvasToDataUrl(compositeAnnotatedResult(result, original, annotationEdit.boxes, inset))
-            } catch { /* keep the raw result if the composite cannot be built */ }
-          }
-          const dimensions = await readImageSize(dataUrl)
-          assets.push(await api.canvasUpload(dataUrl, dimensions.width, dimensions.height, { origin: 'generated', originId: task.id }))
+          : usableAsset(originalSource ?? node)
+        if (annotationEdit !== undefined && originalAsset !== undefined) {
+          try {
+            const result = await loadRaster(dataUrl, 4096)
+            const original = await loadRaster(originalAsset.url, 4096)
+            const inset = Math.max(2, Math.round(Math.min(result.width, result.height) * 0.01))
+            dataUrl = canvasToDataUrl(compositeAnnotatedResult(result, original, annotationEdit.boxes, inset))
+          } catch { /* keep the raw result if the composite cannot be built */ }
         }
-        updateDocument(previous => {
-          const ordered = previous.nodes.filter(node => node.type === 'image' && nodeMetadata(node).taskId === task.id && nodeMetadata(node).status === 'generating')
-          if (ordered.length === 0) return previous
-          const last = ordered[ordered.length - 1]!
-          const nodes = previous.nodes.map(node => {
-            const index = ordered.indexOf(node)
-            if (index < 0) return node
-            const asset = assets[index]
-            return asset === undefined
-              ? { ...node, metadata: { ...nodeMetadata(node), status: 'error' as const, error: tt('canvas.generateFailed') } }
-              : { ...node, metadata: { ...nodeMetadata(node), asset, status: 'success' as const, error: undefined,
-                  ...task.result?.renderSource === undefined ? {} : { renderSource: task.result.renderSource } } }
-          })
-          // More results than placeholders: append sibling nodes below the last one.
-          const siblings: CanvasNode[] = []
-          const connections: CanvasConnection[] = []
-          assets.slice(ordered.length).forEach((asset, offset) => {
-            const id = newId('node')
-            siblings.push({
-              id, type: 'image', title: tt('canvas.imageNode'),
-              x: Math.round(last.x), y: Math.round(last.y + (ordered.length + offset) * (last.height + 48)),
-              width: last.width, height: last.height,
-              metadata: { status: 'success', asset, taskId: task.id, ...(sourceId === undefined ? {} : { sourceNodeId: sourceId }) },
+        return dataUrl
+      }
+      const placeImage = async (nodeId: string, image: GeneratedImage): Promise<void> => {
+        try {
+          const dataUrl = await prepareUrl(image, nodeId)
+          const dimensions = await readImageSize(dataUrl)
+          const asset = await api.canvasUpload(dataUrl, dimensions.width, dimensions.height, { origin: 'generated', originId: task.id })
+          const renderSource = batch.renderSource
+          updateNodes(nodes => nodes.map(item => item.id === nodeId && nodeMetadata(item).status === 'generating'
+            ? {
+                ...item,
+                metadata: {
+                  ...nodeMetadata(item),
+                  asset,
+                  status: 'success' as const,
+                  error: undefined,
+                  ...renderSource === undefined ? {} : { renderSource },
+                },
+              }
+            : item))
+        } catch (caught) {
+          const message = caught instanceof Error ? caught.message : String(caught)
+          updateNodes(nodes => nodes.map(item => item.id === nodeId && nodeMetadata(item).status === 'generating'
+            ? { ...item, metadata: { ...nodeMetadata(item), status: 'error' as const, error: message } }
+            : item))
+        }
+      }
+      for (const cell of cells) {
+        if (cell.pending) continue
+        const key = `${task.id}:${cell.index}`
+        if (appliedBatchSlots.current.has(key)) continue
+        const nodeId = order[cell.index]
+        if (nodeId === undefined) continue
+        const node = document.nodes.find(item => item.id === nodeId)
+        if (node === undefined || nodeMetadata(node).status !== 'generating') {
+          appliedBatchSlots.current.add(key)
+          continue
+        }
+        appliedBatchSlots.current.add(key)
+        if (cell.image === undefined) {
+          const message = cell.error !== undefined && cell.error !== '' ? cell.error : tt('canvas.generateFailed')
+          updateNodes(nodes => nodes.map(item => item.id === nodeId && nodeMetadata(item).status === 'generating'
+            ? { ...item, metadata: { ...nodeMetadata(item), status: 'error' as const, error: message } }
+            : item))
+          continue
+        }
+        void placeImage(nodeId, cell.image)
+      }
+      const lastId = order[order.length - 1]
+      if (task.status === 'completed' && !hadApplied && batch.slots === undefined && batch.images.length > order.length && lastId !== undefined && !appliedBatchSlots.current.has(`${task.id}:extras`)) {
+        appliedBatchSlots.current.add(`${task.id}:extras`)
+        const extras = batch.images.slice(order.length)
+        void (async () => {
+          const uploaded: CanvasAssetRef[] = []
+          for (const image of extras) {
+            try {
+              const dataUrl = await prepareUrl(image, firstId)
+              const dimensions = await readImageSize(dataUrl)
+              uploaded.push(await api.canvasUpload(dataUrl, dimensions.width, dimensions.height, { origin: 'generated', originId: task.id }))
+            } catch { /* one extra picture failing leaves the ones that uploaded */ }
+          }
+          if (uploaded.length === 0) return
+          updateDocument(previous => {
+            const last = previous.nodes.find(node => node.id === lastId)
+            if (last === undefined) return previous
+            const siblings: CanvasNode[] = []
+            const connections: CanvasConnection[] = []
+            uploaded.forEach((asset, offset) => {
+              const id = newId('node')
+              siblings.push({
+                id, type: 'image', title: tt('canvas.imageNode'),
+                x: Math.round(last.x), y: Math.round(last.y + (order.length + offset) * (last.height + 48)),
+                width: last.width, height: last.height,
+                metadata: { status: 'success', asset, taskId: task.id, ...(sourceId === undefined ? {} : { sourceNodeId: sourceId }) },
+              })
+              if (sourceId !== undefined) connections.push({ id: newId('edge'), fromNodeId: sourceId, toNodeId: id })
             })
-            if (sourceId !== undefined) connections.push({ id: newId('edge'), fromNodeId: sourceId, toNodeId: id })
+            return { ...previous, nodes: [...previous.nodes, ...siblings], connections: [...previous.connections, ...connections] }
           })
-          return { ...previous, nodes: [...nodes, ...siblings], connections: [...previous.connections, ...connections] }
-        })
-      })().catch(caught => fail(caught instanceof Error ? caught.message : String(caught)))
+        })()
+      }
+      // A running batch still has pictures in flight. Marking it done here would drop them.
+      if (terminal) processedTasks.current.add(task.id)
     }
   }, [api, document, tasks, updateDocument, updateNodes])
 

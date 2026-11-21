@@ -143,14 +143,30 @@ await check('G1-G3 a favorited clip is copied, served, and cleaned up', async ()
   assert.equal((await host.listGalleryTrash()).length, 0, 'the trash is empty after a purge')
 
   // An image-only gallery entry still round-trips (no regression).
-  await host.appendGallery({
-    id: 'img-1', createdAt: Date.now(), mode: 'text', model: 'gpt-image-2', prompt: 'cat',
+  const png = Buffer.from([137, 80, 78, 71]).toString('base64')
+  const imageEntry = (id: string) => ({
+    id, createdAt: Date.now(), mode: 'text', model: 'gpt-image-2', prompt: 'cat',
     size: '1:1', quality: 'auto', detail: '', n: 1,
-    images: [{ b64: Buffer.from([137, 80, 78, 71]).toString('base64'), mime: 'image/png' }],
+    images: [{ b64: png, mime: 'image/png' }],
   })
+  const added = await host.appendGallery(imageEntry('img-1'))
+  assert.equal(added.added, true, 'the first copy of an image is stored')
   const mixed = await host.listGallery()
   assert.equal(mixed.length, 1)
   assert.equal(mixed[0].mode, 'text', 'image entries still work')
+  const duplicate = await host.appendGallery(imageEntry('img-2'))
+  assert.equal(duplicate.added, false, 'a live duplicate is refused')
+  assert.equal((await host.listGallery()).length, 1, 'a live duplicate does not grow the shelf')
+  await host.removeGallery('img-1')
+  assert.equal((await host.listGallery()).length, 0, 'moving the image to the trash takes it off the shelf')
+  assert.equal((await host.listGalleryTrash()).length, 1, 'the image is recoverable from the trash')
+  const revived = await host.appendGallery(imageEntry('img-3'))
+  assert.equal(revived.added, true, 'adding the trashed image again brings it back')
+  const shelf = await host.listGallery()
+  assert.equal(shelf.length, 1, 'reviving a trashed image does not leave a second copy')
+  assert.equal(shelf[0].id, 'img-1', 'the revived row is the original entry')
+  assert.equal((await host.listGalleryTrash()).length, 0, 'the revived image leaves the trash')
+  assert.equal(revived.entries.filter(entry => entry.deletedAt === undefined).length, 1, 'the append answer has one live row')
 })
 
 // ------------------------------------------------------------------- lineage

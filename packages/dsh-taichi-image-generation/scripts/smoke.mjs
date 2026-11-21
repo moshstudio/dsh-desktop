@@ -6276,6 +6276,37 @@ await check('D6 the plugin declares its own display title in both locales', () =
   assert.equal(locales.includes('团团TV') || locales.includes('TuanTuan'), false, 'runtime copy no longer uses the upstream product name')
 })
 
+// 0.2.2 wraps the conversation in `desktop.workbench.frame` even when nothing
+// registers that slot. The studio's main-slot hide rule used to match the
+// frame, so opening 对话 left an empty column. This stays outside E1: that
+// case currently stops on the retired settings opener before it reaches the
+// chat track.
+await check('E0 the chat track keeps the 0.2.2 workbench frame', async () => {
+  const { JSDOM } = await import('jsdom')
+  const built = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const at = built.indexOf('workbench')
+  assert.ok(at > 0, 'the built client names the workbench frame')
+  const marker = '{display:none!important}'
+  const end = built.indexOf(marker, at)
+  const rule = JSON.parse(`"${built.slice(built.lastIndexOf('}', at) + 1, end + marker.length)}"`)
+  const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>')
+  const document = dom.window.document
+  const style = document.createElement('style')
+  style.textContent = rule
+  document.head.append(style)
+  document.documentElement.setAttribute('data-dsh-imagegen-active', '')
+  document.body.innerHTML = '<div data-dsh-imagegen-center-col><div data-slot="main">'
+    + '<div id="frame" data-slot="desktop.workbench.frame" style="display:contents">'
+    + '<div data-slot="main.conversation"><div id="conversation" data-phase="hero">conversation</div></div>'
+    + '</div><div id="shell">plugin page</div></div></div>'
+  const sheetRule = [...document.styleSheets[0].cssRules].find(item => typeof item.selectorText === 'string' && item.selectorText.includes('workbench'))
+  assert.ok(sheetRule !== undefined, 'the built hide rule parsed')
+  assert.equal(document.getElementById('frame').matches(sheetRule.selectorText), false, 'opening the chat track does not hide the frame around the conversation')
+  assert.equal(document.getElementById('shell').matches(sheetRule.selectorText), true, 'a shell panel inside the main slot is still hidden')
+  assert.notEqual(dom.window.getComputedStyle(document.getElementById('frame')).display, 'none', 'the frame stays visible, so the chat column is not empty')
+  assert.equal(dom.window.getComputedStyle(document.getElementById('shell')).display, 'none', 'the shell panel still yields the column')
+})
+
 // --------------- E. full client apply in jsdom (mounts the sidebar entry)
 await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async () => {
   const { JSDOM } = await import('jsdom')
@@ -6289,7 +6320,11 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // grid item the chat track has to place (#19).
     + '<div class="smoke_centerCol">'
     + '<div data-slot="main" style="display: contents">'
+    // 0.2.2 always emits this frame around the conversation, even when no
+    // plugin registers it. Hiding the frame blanks the chat track.
+    + '<div data-slot="desktop.workbench.frame" style="display: contents">'
     + '<div data-slot="main.conversation" style="display: contents"><div class="smoke_root" data-phase="hero"></div></div>'
+    + '</div>'
     + '</div>'
     + '<div data-other-plugin-entry></div>'
     + '</div>'
@@ -6914,6 +6949,10 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     if (path.endsWith('/gallery/remove') || path.endsWith('/gallery/restore') || path.endsWith('/gallery/purge') || path.endsWith('/gallery/clear') || path.endsWith('/gallery/tags')) {
       galleryMutations.push({ path: path.split('/').pop(), body: init?.body ?? null })
       const trashed = { id: 'gallery-trashed', createdAt: 2, deletedAt: 9, mode: 'text', model: 'gpt-image-2', prompt: 'trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/trashed.png', mime: 'image/png' }] }
+      // Restore answers with a live row: `deletedAt` is absent, which is what
+      // the shelf filter treats as "back in the gallery". Leaving the flag on
+      // would hide the card the restore check looks for.
+      const restored = { id: 'gallery-trashed', createdAt: 2, mode: 'text', model: 'gpt-image-2', prompt: 'trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/trashed.png', mime: 'image/png' }] }
       // The sibling stays in the trash after the other one is restored, so the
       // purge check still has a rendered section to find its button in.
       const sibling = { id: 'gallery-trashed-2', createdAt: 1, deletedAt: 4, mode: 'text', model: 'gpt-image-2', prompt: 'older trashed prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/trashed2.png', mime: 'image/png' }] }
@@ -6922,7 +6961,8 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         ok: true,
         json: async () => ({
           ok: true,
-          entries: path.endsWith('/gallery/restore') ? [trashed, { id: 'gallery-one', createdAt: 3, mode: 'text', model: 'gpt-image-2', prompt: 'gallery prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/gallery.png', mime: 'image/png' }] }] : [],
+          entries: path.endsWith('/gallery/restore') ? [restored, { id: 'gallery-one', createdAt: 3, mode: 'text', model: 'gpt-image-2', prompt: 'gallery prompt', size: '1:1', quality: '2k', detail: '', n: 1, images: [{ url: '/api/dsh-imagegen/gallery/image/gallery.png', mime: 'image/png' }] }] : [],
+          outcome: path.endsWith('/gallery/restore') ? 'restored' : undefined,
           trash: purged ? [] : path.endsWith('/gallery/restore') ? [sibling] : [trashed, sibling],
         }),
       }
@@ -7685,7 +7725,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // anchor through and therefore left that page rendering inside it, so the
     // studio ended up sharing the column with a live panel. Assert on computed
     // style, not selector matching: only the cascade proves the page is gone.
-    const shellPanelSelector = "html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main'] > :not([data-dsh-imagegen-view]):not([data-phase]):not([data-slot='main.conversation'])"
+    const shellPanelSelector = "html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main'] > :not([data-dsh-imagegen-view]):not([data-phase]):not([data-slot='main.conversation']):not([data-slot='desktop.workbench.frame'])"
     const shellPanel = jsdomDocument.createElement('div')
     shellPanel.setAttribute('data-shell-panel', 'plugins')
     shellPanel.textContent = 'plugin market page'
@@ -7697,6 +7737,19 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       'a shell panel rendered into the keyed main slot yields the column to the studio (#38)',
     )
     assert.equal(shellPanel.matches(shellPanelSelector), true, 'the shell-panel rule reaches entries nested inside the main anchor')
+    const workbenchFrame = mainSlot.querySelector('[data-slot="desktop.workbench.frame"]')
+    assert.ok(workbenchFrame !== null, '0.2.2 wraps the conversation in desktop.workbench.frame')
+    assert.equal(workbenchFrame.matches(shellPanelSelector), false, 'the chat track keeps the workbench frame, otherwise the conversation column is empty')
+    const shippedFrameRule = [...jsdomDocument.styleSheets]
+      .flatMap(sheet => {
+        try { return [...sheet.cssRules] } catch { return [] }
+      })
+      .find(rule => typeof rule.selectorText === 'string'
+        && (rule.selectorText.includes('desktop.workbench.frame') || rule.selectorText.includes('desktop\\.workbench\\.frame'))
+        && rule.style.getPropertyValue('display') === 'none')
+    assert.ok(shippedFrameRule !== undefined, 'the shipped hide rule names the workbench frame so the exception is real')
+    assert.equal(workbenchFrame.matches(shippedFrameRule.selectorText), false, 'the built stylesheet does not hide the frame that wraps the conversation')
+    assert.equal(shellPanel.matches(shippedFrameRule.selectorText), true, 'the built stylesheet still hides a shell panel inside the main slot')
     assert.notEqual(
       jsdomWindow.getComputedStyle(conversationRoot).display,
       'none',
@@ -8216,6 +8269,22 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       'a non-loopback page probes the settings bridge instead of pre-blocking',
     )
     assert.equal(registered.some(item => item.name === 'main' || item.name === 'sidebar.panellist'), false)
+
+    // The history sidebar stays mounted on the gallery tab. 「加入素材库」 used to
+    // return before the host call whenever that tab was active, so the same
+    // button that works on the generation pages did nothing here.
+    const addFromHistoryOnGallery = [...jsdomDocument.querySelectorAll('[data-dsh-imagegen-history-host] [data-kind="image"]')]
+      .find(row => row.textContent?.includes('plain image prompt'))
+      ?.querySelector('[data-history-add-gallery]')
+    assert.ok(addFromHistoryOnGallery !== undefined && addFromHistoryOnGallery !== null, 'the gallery tab still offers add-to-gallery on a history image')
+    const appendsBeforeGalleryTab = galleryAppends.length
+    addFromHistoryOnGallery.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
+    assert.ok(
+      await waitFor(() => galleryAppends.length === appendsBeforeGalleryTab + 1),
+      'adding a history image reaches the host while the gallery tab is open',
+    )
+    assert.equal(galleryAppends.at(-1).prompt, 'plain image prompt', 'the added entry keeps the history prompt')
+    assert.ok(await waitFor(() => (view.textContent ?? '').includes('已加入素材库')), 'the gallery tab confirms the image was added')
 
     // The asset library must not inherit the normal generation inspiration wall.
     assert.equal(jsdomDocument.querySelector('[aria-label="灵感案例"]') === null, true, 'asset library hides inspiration wall')

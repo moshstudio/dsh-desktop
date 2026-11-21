@@ -194,6 +194,28 @@ export function VideoPanel(props: VideoPanelProps) {
   const [now, setNow] = useState(() => Date.now())
   /** The clip (and the run that made it) shown in the full-screen player. */
   const [previewClip, setPreviewClip] = useState<{ url: string; mime: string; duration?: number; title: string } | null>(null)
+  /** Failed task id → message already shown, so a retry can surface again. */
+  const knownFailures = useRef<Map<string, string> | null>(null)
+
+  // A render that fails after submit never throws into `generate`. Surface the
+  // first new failure in the same output banner an image failure uses, and
+  // leave failures that were already listed when the tab opened alone.
+  useEffect(() => {
+    const failed = tasks.flatMap(task => (
+      task.status === 'failed' && task.error !== undefined && task.error !== ''
+        ? [[task.id, task.error] as const]
+        : []
+    ))
+    const known = knownFailures.current
+    if (known === null) {
+      if (tasks.length === 0) return
+      knownFailures.current = new Map(failed)
+      return
+    }
+    const fresh = failed.find(([id, message]) => known.get(id) !== message)
+    knownFailures.current = new Map(failed)
+    if (fresh !== undefined) setError(fresh[1])
+  }, [tasks])
 
   const referenceInput = useRef<HTMLInputElement | null>(null)
   const firstInput = useRef<HTMLInputElement | null>(null)
@@ -649,8 +671,6 @@ export function VideoPanel(props: VideoPanelProps) {
             </div>
           </div>
 
-          {error !== null ? <div className={css.videoError}><ErrorDetail message={error} summary={tt('video.failed')} /></div> : null}
-
           <div className={css.videoPlanBar}>
             <button
               type="button"
@@ -719,6 +739,12 @@ export function VideoPanel(props: VideoPanelProps) {
           </div>
         </section>
 
+        {error !== null ? (
+          <div className={css.canvasError} data-canvas-error-banner="">
+            <ErrorDetail message={error} />
+          </div>
+        ) : null}
+
         {tasks.length === 0 ? null : (
         <section className={css.videoResults}>
           <header className={css.videoResultsHead}>
@@ -748,7 +774,7 @@ export function VideoPanel(props: VideoPanelProps) {
                       用户「钱停了」，而远端仍在按分钟渲染计费（#10-2）。 */}
                   {task.status === 'cancelled' && task.remoteCancel === 'unsupported' ? <p className={css.videoHint} data-video-cancel-local-only="">{tt('video.cancelLocalOnly')}</p> : null}
                   {task.resumedAt !== undefined ? <p className={css.videoHint} data-video-resumed="">{tt('video.resumed')}</p> : null}
-                  {task.status === 'failed' && task.error !== undefined ? <ErrorDetail message={task.error} summary={tt('video.failed')} /> : null}
+                  {task.status === 'failed' && task.error !== undefined ? <ErrorDetail message={task.error} /> : null}
                   {/* The plan the run actually used: the request prompt above is
                       what the user typed, this is what the provider received. */}
                   {task.plan !== undefined ? <p className={css.videoHint} data-video-plan-applied="">

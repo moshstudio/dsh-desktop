@@ -23,10 +23,10 @@ import { generateListingCopy } from './listing-copy.ts'
 import { analyzeLayers, MAX_LAYER_IMAGE_BYTES } from './layer-analyzer.ts'
 import { normalizeImageModels } from './image-models.ts'
 import { ImageGenerationRuntime, type ChannelsView } from './generation-runtime.ts'
-import { ensureImageModels, overlayTaichiSettings, TAICHI_CHANNEL_ID, withoutChannelSettings } from './taichi-gateway.ts'
+import { ensureImageModels, ensureVideoModels, overlayTaichiSettings, TAICHI_CHANNEL_ID, withoutChannelSettings } from './taichi-gateway.ts'
 import { appendHistory, clearHistory, listHistory, readHistoryImage, removeHistory } from './history-store.ts'
 import { clearVideoHistory, drainVideoPosters, listVideoHistory, readVideoFile, removeVideoHistory } from './video-store.ts'
-import { appendGallery, appendGalleryVideo, clearGallery, listGallery, listGalleryTrash, purgeGallery, readGalleryImage, readGalleryVideo, removeGallery, restoreGallery, updateGalleryTags } from './gallery-store.ts'
+import { appendGallery, appendGalleryVideo, clearGallery, listGallery, listGalleryTrash, purgeGallery, purgeGalleryEntry, readGalleryImage, readGalleryVideo, removeGallery, restoreGallery, splitGalleryEntries, updateGalleryTags } from './gallery-store.ts'
 import { listModels, readModel, saveModel } from './model-store.ts'
 import { baseMime, canvasStore, CanvasConflictError, MAX_CANVAS_FILE_BYTES, mimeFromFileName, safeFileName, type CanvasFileInput, type CanvasImageInput, type CanvasStore } from './canvas-store.ts'
 import { ProposalStore, proposalStore } from './canvas-proposal-store.ts'
@@ -213,10 +213,12 @@ export interface ImageGenRoutesDeps {
     append: (entry: HistoryEntryInput) => Promise<{ entries: HistoryEntry[]; added: boolean }>
     /** Soft delete: returns the full list (live + trash); the route splits it. */
     remove: (id: string) => Promise<HistoryEntry[]>
-    /** Undo a soft delete. */
-    restore?: (id: string) => Promise<HistoryEntry[]>
+    /** Undo a soft delete. `missing` means the retention sweep already dropped it. */
+    restore?: (id: string) => Promise<{ entries: HistoryEntry[]; outcome: 'restored' | 'missing' | 'duplicate' }>
     /** Permanently delete every trashed entry and its files. */
     purge?: () => Promise<HistoryEntry[]>
+    /** Permanently delete one trashed entry and its files. */
+    purgeOne?: (id: string) => Promise<HistoryEntry[]>
     clear: () => Promise<HistoryEntry[]>
     updateTags?: (id: string, tags: string[]) => Promise<HistoryEntry[]>
     readImage: (file: string) => Promise<{ data: Buffer; mime: string } | undefined>
@@ -966,6 +968,7 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
     remove: removeGallery,
     restore: restoreGallery,
     purge: purgeGallery,
+    purgeOne: purgeGalleryEntry,
     clear: clearGallery,
     updateTags: updateGalleryTags,
     readImage: readGalleryImage,
@@ -1027,11 +1030,9 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
   }
   // Every gallery mutation answers with the same pair: what the user may see on
   // the shelf, and what sits in the trash. The stores return one combined list
-  // (a soft delete only flips a flag), so the split lives here, once.
-  const splitGallery = (entries: HistoryEntry[]): { entries: HistoryEntry[]; trash: HistoryEntry[] } => ({
-    entries: entries.filter(entry => entry.deletedAt === undefined),
-    trash: entries.filter(entry => entry.deletedAt !== undefined),
-  })
+  // (a soft delete only flips a flag), so the split lives in the store, once,
+  // including the trash sort a reload would otherwise redo on its own.
+  const splitGallery = splitGalleryEntries
   // Shared by the two clip-serving prefix routes (video store + gallery).
   const serveClip = async (
     req: IncomingMessage,
@@ -1343,7 +1344,7 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
       path: SETTINGS_API.describe,
       handler: async (req, res) => {
         if (!guard(req, res, 'POST')) return
-        await ensureImageModels()
+        await Promise.all([ensureImageModels(), ensureVideoModels()])
         const descriptor = deps.settings.describe({ redactSecrets: true })
           .find(candidate => String(candidate.ns) === settingsNamespace)
         const presented = descriptor === undefined ? undefined : toView(descriptor, IMAGEGEN_SETTINGS_NAMESPACE)
@@ -1385,7 +1386,7 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
           writeJson(res, 200, failureOf(error))
           return
         }
-        await ensureImageModels()
+        await Promise.all([ensureImageModels(), ensureVideoModels()])
         const descriptor = deps.settings.describe({ redactSecrets: true })
           .find(candidate => String(candidate.ns) === settingsNamespace)
         if (descriptor === undefined) {
@@ -1816,7 +1817,10 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
           // The host owns gallery ids: a fresh id per append keeps retries and
           // duplicate submissions from ever reusing a stale filename prefix.
           const result = await gallery.append({ ...entry, id: randomUUID() })
-          writeJson(res, 200, { ok: true, entries: result.entries, added: result.added })
+          // The store answers with the whole index, trash included. The shelf
+          // renders `entries` as-is, so a re-add used to paint the trashed
+          // copy next to the new one.
+          writeJson(res, 200, { ok: true, ...splitGallery(result.entries), added: result.added })
         } catch (error) {
           writeJson(res, 200, { ok: false, code: 'gallery-failed', message: messageOf(error) })
         }
@@ -1854,7 +1858,8 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
           return
         }
         try {
-          writeJson(res, 200, { ok: true, ...splitGallery(await gallery.restore(id)) })
+          const restored = await gallery.restore(id)
+          writeJson(res, 200, { ok: true, ...splitGallery(restored.entries), outcome: restored.outcome })
         } catch (error) {
           writeJson(res, 200, { ok: false, code: 'gallery-failed', message: messageOf(error) })
         }
@@ -1872,6 +1877,29 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
         }
         try {
           writeJson(res, 200, { ok: true, ...splitGallery(await gallery.purge()) })
+        } catch (error) {
+          writeJson(res, 200, { ok: false, code: 'gallery-failed', message: messageOf(error) })
+        }
+      },
+    },
+    // ---------------------------------------------- gallery purge one
+    {
+      kind: 'exact',
+      path: GALLERY_API.purgeOne,
+      handler: async (req, res) => {
+        if (!guard(req, res, 'POST')) return
+        if (gallery.purgeOne === undefined) {
+          writeJson(res, 200, { ok: false, code: 'gallery-failed', message: '宿主不支持彻底删除' })
+          return
+        }
+        const body = await readJsonBody(req)
+        const id = body !== undefined && typeof body.id === 'string' ? body.id : ''
+        if (id === '') {
+          writeJson(res, 200, { ok: false, code: 'bad-request', message: 'gallery id is required' })
+          return
+        }
+        try {
+          writeJson(res, 200, { ok: true, ...splitGallery(await gallery.purgeOne(id)) })
         } catch (error) {
           writeJson(res, 200, { ok: false, code: 'gallery-failed', message: messageOf(error) })
         }
@@ -1988,7 +2016,7 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
               ? { tags: body.tags.filter((tag): tag is string => typeof tag === 'string' && tag !== '').slice(0, 20) }
               : {},
           })
-          writeJson(res, 200, { ok: true, entries: result.entries, added: result.added })
+          writeJson(res, 200, { ok: true, ...splitGallery(result.entries), added: result.added })
         } catch (error) {
           writeJson(res, 200, { ok: false, code: 'gallery-failed', message: messageOf(error) })
         }
@@ -2935,6 +2963,7 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
       path: VIDEO_API.generate,
       handler: async (req, res) => {
         if (!guard(req, res, 'POST')) return
+        await ensureVideoModels()
         const body = await readJsonBody(req)
         const parsed = body === undefined ? undefined : parseVideoRequest(body, channelViewOf(), deps)
         if (parsed === undefined) {
@@ -2957,6 +2986,7 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
       kind: 'exact', path: VIDEO_API.submit,
       handler: async (req, res) => {
         if (!guard(req, res, 'POST')) return
+        await ensureVideoModels()
         const body = await readJsonBody(req)
         const parsed = body === undefined ? undefined : parseVideoRequest(body, channelViewOf(), deps)
         if (parsed === undefined) { writeJson(res, 200, { ok: false, code: 'bad-request', message: 'prompt is required' }); return }
@@ -2978,6 +3008,7 @@ export function makeRoutes(deps: ImageGenRoutesDeps): WebRoute[] {
       kind: 'exact', path: VIDEO_API.plan,
       handler: async (req, res) => {
         if (!guard(req, res, 'POST')) return
+        await ensureVideoModels()
         const body = await readJsonBody(req)
         const parsed = body === undefined ? undefined : parseVideoRequest(body, channelViewOf(), deps)
         if (parsed === undefined) {

@@ -2,6 +2,10 @@
 export interface AccountProfileState {
   models: 'ready' | 'failed'
   balance: 'ready' | 'failed'
+  /** Image catalog read. Independent of the chat model list. */
+  images: 'ready' | 'failed'
+  /** Video catalog read. Independent of the chat model list. */
+  videos: 'ready' | 'failed'
 }
 
 /** Multipliers applied after the prompt reaches the token threshold. */
@@ -41,6 +45,21 @@ export interface AccountModel {
   id: string
   name: string
   price?: AccountModelPrice
+}
+
+/** One resolution tier and the credits it costs. */
+export interface AccountMediaTierPrice {
+  tier: '1k' | '2k' | '4k'
+  credits: number
+}
+
+/** One image or video generation. `credits` is absent when the listing did not publish a price. */
+export interface AccountMediaModel {
+  id: string
+  name: string
+  credits?: number
+  /** Image tiers whose prices differ. Absent when every tier costs `credits`. */
+  qualityCredits?: AccountMediaTierPrice[]
 }
 
 export interface AccountCreditUse {
@@ -83,6 +102,10 @@ export interface AccountStatus {
   needsRestart: boolean
   message: string
   models: AccountModel[]
+  /** Image models offered on the account page. Empty when none were published. */
+  imageModels: AccountMediaModel[]
+  /** Video models offered on the account page. Empty when none were published. */
+  videoModels: AccountMediaModel[]
   credits: AccountCredits | null
   /** Which cached profile reads failed. Check-in does not clear a model failure. */
   profile: AccountProfileState

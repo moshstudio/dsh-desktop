@@ -31,10 +31,11 @@ import { AplusWorkspace } from './AplusWorkspace.tsx'
 import { ModelPicker, resolveModelChoice, type ModelPickerValue } from './ModelPicker.tsx'
 import { DiagnosticsButton, DiagnosticsPanel } from './DiagnosticsPanel.tsx'
 import { SignalsButton, SignalsPanel } from './SignalsPanel.tsx'
+import { batchCells } from './batch-board.ts'
 import { GenerationLoading } from './GenerationLoading.tsx'
 import { useImageGenLanguageTick } from './use-language.ts'
-import type { CanvasSummary, EcommerceRefRole, GenerateMode, GenerateRequest, GeneratedImage, GenerationTask, GenerationTaskStatus, GenerationTaskSummary, HistoryEntry, HistoryImageRef, ProductSetDraft, ProductSetSlot, VideoHistoryEntry, VideoTaskSummary } from '../protocol.ts'
-import { AGENT_IMAGE_API, SUBSCRIPTION_API, SUBSCRIPTION_PROVIDERS, type SubscriptionProvider } from '../protocol.ts'
+import type { CanvasSummary, EcommerceRefRole, GenerateMode, GenerateRequest, GeneratedImage, GenerateResult, GenerationTask, GenerationTaskStatus, GenerationTaskSummary, HistoryEntry, HistoryImageRef, ProductSetDraft, ProductSetSlot, VideoHistoryEntry, VideoTaskSummary } from '../protocol.ts'
+import { AGENT_IMAGE_API, GALLERY_TRASH_RETENTION_DAYS, GALLERY_TRASH_RETENTION_MS, SUBSCRIPTION_API, SUBSCRIPTION_PROVIDERS, type SubscriptionProvider } from '../protocol.ts'
 import { channelIsConnected, usesDesktopAccount } from '../account-channel.ts'
 import type { ImageGenConfig, ImageGenScope, ImageModelGroup } from './settings-scope.ts'
 import { imageModelOptions, videoModelOptions } from './settings-scope.ts'
@@ -615,11 +616,46 @@ export function collectHistoryGroupImages(
   return { images, failed }
 }
 
+/**
+ * Banner text for a batch that kept some images and lost others.
+ *
+ * @returns `null` when every requested image succeeded. The raw reasons stay
+ * in the string so the error disclosure can still classify them.
+ */
+export function partialImageError(result: GenerateResult): string | null {
+  const slots = result.slots
+  if (slots === undefined || slots.length === 0) return null
+  const reasons = [...new Set(slots.flatMap(slot => typeof slot.error === 'string' && slot.error !== '' ? [slot.error] : []))]
+  if (reasons.length === 0) return null
+  const failed = slots.filter(slot => slot.imageIndex === undefined).length
+  return tt('canvas.partialImages', { total: slots.length, failed, reason: reasons.join('\n') })
+}
+
 /** Compact, locale-independent timestamp for history entries. */
 function formatTime(timestamp: number): string {
   const d = new Date(timestamp)
   const pad = (n: number): string => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** Newest deletion first, matching `splitGalleryEntries` on the host. */
+function sortGalleryTrash(entries: HistoryEntry[]): HistoryEntry[] {
+  return [...entries].sort((left, right) => (right.deletedAt ?? 0) - (left.deletedAt ?? 0))
+}
+
+/** Whole days left in the retention window. Zero means the next sweep can drop it. */
+function trashDaysRemaining(deletedAt: number | undefined): number {
+  if (deletedAt === undefined) return GALLERY_TRASH_RETENTION_DAYS
+  const remaining = deletedAt + GALLERY_TRASH_RETENTION_MS - Date.now()
+  const days = Math.ceil(remaining / (24 * 60 * 60 * 1000))
+  return Math.min(GALLERY_TRASH_RETENTION_DAYS, Math.max(0, days))
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${Math.round(bytes)} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
 function defaultEcommerceDraft(): ProductSetDraft {
@@ -1072,7 +1108,7 @@ function newComparisonId(): string {
 
 /** Fold a lightweight poll summary into a richer task already held locally. */
 function mergeTaskSummary(summary: GenerationTaskSummary, previous: GenerationTask | undefined): GenerationTask {
-  const { resultAvailable: _resultAvailable, ...task } = summary
+  const { resultAvailable: _resultAvailable, readyImages: _readyImages, readySlots: _readySlots, ...task } = summary
   if (previous === undefined) return task
   const merged: GenerationTask = {
     ...previous,
@@ -1312,7 +1348,24 @@ export function ImageGenPanel(props: {
   const viewingVideoId = boardView !== null && boardView.kind === 'video' ? boardView.id : null
   const galleryViewingId = boardView !== null && boardView.kind === 'gallery' ? boardView.id : null
   const [galleryAdding, setGalleryAdding] = useState(false)
-  const [galleryMessage, setGalleryMessage] = useState<string | null>(null)
+  const [galleryToast, setGalleryToast] = useState<{ text: string; undoId?: string } | null>(null)
+  const galleryToastTimer = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (galleryToastTimer.current !== null) window.clearTimeout(galleryToastTimer.current)
+  }, [])
+  const showGalleryToast = (text: string, undoId?: string): void => {
+    if (galleryToastTimer.current !== null) window.clearTimeout(galleryToastTimer.current)
+    setGalleryToast(undoId === undefined ? { text } : { text, undoId })
+    galleryToastTimer.current = window.setTimeout(() => {
+      galleryToastTimer.current = null
+      setGalleryToast(null)
+    }, undoId === undefined ? 2200 : 5000)
+  }
+  const dismissGalleryToast = (): void => {
+    if (galleryToastTimer.current !== null) window.clearTimeout(galleryToastTimer.current)
+    galleryToastTimer.current = null
+    setGalleryToast(null)
+  }
   const [galleryFilter, setGalleryFilter] = useState<GalleryFilter>('all')
   const galleryUploadRef = useRef<HTMLInputElement>(null)
   const [galleryRatio, setGalleryRatio] = useState('all')
@@ -1637,6 +1690,7 @@ export function ImageGenPanel(props: {
     .sort((a, b) => gallerySort === 'newest' ? b.createdAt - a.createdAt : a.createdAt - b.createdAt)
 
   const galleryTagOptions = [...new Set(gallery.flatMap(entry => entry.tags ?? []))].sort((a, b) => a.localeCompare(b))
+  const trashBytes = galleryTrash.reduce((sum, entry) => sum + (entry.bytes ?? 0), 0)
   const galleryModels = [...new Set([...imageModels, ...gallery.map(entry => entry.model)])]
 
   /**
@@ -1753,7 +1807,7 @@ export function ImageGenPanel(props: {
       .then(entries => { setHistory(entries) })
       .catch(caught => { setHistoryLoadError(errorMessage(caught)) })
     api.galleryList()
-      .then(result => { setGallery(result.entries); setGalleryTrash(result.trash) })
+      .then(result => { setGallery(result.entries); setGalleryTrash(sortGalleryTrash(result.trash)) })
       .catch(caught => { setGalleryLoadError(errorMessage(caught)) })
     // Clips are listed from the same place they are shown: the unified sidebar,
     // so a clip-listing failure lands on the sidebar's error line too.
@@ -1876,6 +1930,7 @@ export function ImageGenPanel(props: {
   useEffect(() => {
     let disposed = false
     let refreshing = false
+    let timer = 0
     const refresh = (): void => {
       if (refreshing) return
       refreshing = true
@@ -1894,15 +1949,18 @@ export function ImageGenPanel(props: {
           // Hydrate only tasks created after this panel mounted, or tasks we
           // already saw running. Completed tasks from older sessions stay
           // lightweight; their images are available from history.
+          const tracked = (summary: GenerationTaskSummary): boolean =>
+            summary.request.workflow !== 'replica'
+            && (submittedTaskIdsRef.current.has(summary.id)
+              || observedTaskIdsRef.current.has(summary.id)
+              || summary.createdAt >= taskPollStartedAtRef.current)
           const needsHydration = summaries.filter(summary => {
+            if (!tracked(summary) || !summary.resultAvailable) return false
             const previous = previousById.get(summary.id)
-            return summary.request.workflow !== 'replica'
-              && summary.status === 'completed'
-              && summary.resultAvailable
-              && previous?.status !== 'completed'
-              && (submittedTaskIdsRef.current.has(summary.id)
-                || observedTaskIdsRef.current.has(summary.id)
-                || summary.createdAt >= taskPollStartedAtRef.current)
+            if (summary.status === 'completed' && previous?.status !== 'completed') return true
+            if (summary.status !== 'running') return false
+            const have = Math.max(previous?.result?.images.length ?? 0, previous?.result?.slots?.length ?? 0)
+            return Math.max(summary.readyImages, summary.readySlots) > have
           })
           const fetched = await Promise.all(needsHydration.map(async summary => {
             try {
@@ -1954,7 +2012,9 @@ export function ImageGenPanel(props: {
             if (completed?.result !== undefined) {
               setImages(completed.result.images)
               if (completed.result.history !== undefined) setHistory(completed.result.history)
-              setError(completed.result.historyError ?? null)
+              const partial = partialImageError(completed.result)
+              const notice = [partial, completed.result.historyError].filter((item): item is string => typeof item === 'string' && item !== '')
+              setError(notice.length === 0 ? null : notice.join('\n'))
             }
             return next
           })
@@ -1971,12 +2031,15 @@ export function ImageGenPanel(props: {
           // A transient host error must not stop the polling loop.
         } finally {
           refreshing = false
+          if (!disposed) {
+            const pending = tasksRef.current.some(task => task.status === 'queued' || task.status === 'running')
+            timer = window.setTimeout(refresh, pending ? 400 : 1500)
+          }
         }
       })()
     }
     refresh()
-    const timer = window.setInterval(refresh, 1500)
-    return () => { disposed = true; window.clearInterval(timer) }
+    return () => { disposed = true; window.clearTimeout(timer) }
   }, [api, comparison])
 
   // Ids of completed video renders whose history entry has already been
@@ -2727,7 +2790,7 @@ export function ImageGenPanel(props: {
       await api.galleryAppendVideo({ entryId: entry.id })
       const listed = await api.galleryList()
       setGallery(listed.entries)
-      setGalleryTrash(listed.trash)
+      setGalleryTrash(sortGalleryTrash(listed.trash))
     } catch (caught) {
       setError(errorMessage(caught))
     }
@@ -2778,7 +2841,7 @@ export function ImageGenPanel(props: {
     setEcommerceRestored(null)
     setError(null)
     setConversationMessage(null)
-    setGalleryMessage(null)
+    dismissGalleryToast()
   }
 
   /** Remove all history entries. */
@@ -2801,12 +2864,21 @@ export function ImageGenPanel(props: {
     }
   }
 
+  /** Put an append answer on the shelf. `entries` is the live list; a host
+   *  that still mixes in trashed rows must not paint those as a second copy. */
+  const applyGalleryShelf = (result: { entries: HistoryEntry[]; trash?: HistoryEntry[] }): void => {
+    setGallery(result.entries.filter(entry => entry.deletedAt === undefined))
+    if (result.trash !== undefined) setGalleryTrash(sortGalleryTrash(result.trash))
+  }
+
   /** Add one generated image to the gallery (host deduplicates by content).
    *  `entry` makes the action available from a history/gallery list item (its
    *  metadata + first image are saved); otherwise the current form state is
-   *  used. */
+   *  used. The history sidebar and the preview stay mounted on the gallery
+   *  tab, so this must still reach the host there — a tab check used to
+   *  swallow the click with no toast. */
   const addToGallery = async (image: GeneratedImage, entry?: GalleryImageSource): Promise<void> => {
-    if (galleryAdding || (workspace === 'normal' && tab === 'gallery')) return
+    if (galleryAdding) return
     const source = entry ?? viewingEntry ?? {
       mode: tab === 'edit' ? 'edit' as GenerateMode : 'text' as GenerateMode,
       model,
@@ -2832,9 +2904,8 @@ export function ImageGenPanel(props: {
         ...source.workflow === undefined ? {} : { workflow: source.workflow },
         ...source.refName === undefined ? {} : { refName: source.refName },
       })
-      setGallery(result.entries)
-      setGalleryMessage(result.added ? tt('gallery.added') : tt('gallery.already'))
-      window.setTimeout(() => { setGalleryMessage(null) }, 2200)
+      applyGalleryShelf(result)
+      showGalleryToast(result.added ? tt('gallery.added') : tt('gallery.already'))
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -2848,7 +2919,7 @@ export function ImageGenPanel(props: {
     if (files.length === 0 || galleryAdding) return
     setGalleryAdding(true)
     try {
-      let entries: HistoryEntry[] | undefined
+      let shelf: { entries: HistoryEntry[]; trash?: HistoryEntry[] } | undefined
       for (const file of files) {
         const dataUrl = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader()
@@ -2869,12 +2940,11 @@ export function ImageGenPanel(props: {
           n: 1,
           images: [{ b64: separator >= 0 ? dataUrl.slice(separator + 1) : dataUrl, mime: file.type || 'image/png' }],
         })
-        entries = result.entries
+        shelf = result
       }
-      if (entries !== undefined) {
-        setGallery(entries)
-        setGalleryMessage(tt('gallery.uploaded'))
-        window.setTimeout(() => { setGalleryMessage(null) }, 2200)
+      if (shelf !== undefined) {
+        applyGalleryShelf(shelf)
+        showGalleryToast(tt('gallery.uploaded'))
       }
     } catch (caught) {
       setError(errorMessage(caught))
@@ -2985,7 +3055,10 @@ export function ImageGenPanel(props: {
       setImages(restored)
       setError(null)
       setBoardView({ kind: 'gallery', id: entry.id })
-      if (restored.length > 0) openPreview(restored, 0)
+      // Keep this entry's prompt and model on the preview. Without it, 「加入素材库」
+      // falls back to the generation form, which is empty while the gallery tab
+      // is open.
+      if (restored.length > 0) openPreview(restored, 0, entry)
     } catch (caught) {
       setError(errorMessage(caught))
     }
@@ -2993,16 +3066,33 @@ export function ImageGenPanel(props: {
 
   /** Move one gallery entry to the trash (the host keeps its files). */
   const deleteGalleryEntry = async (id: string): Promise<void> => {
-    setGallery(gallery.filter(entry => entry.id !== id))
+    const previousGallery = gallery
+    const previousTrash = galleryTrash
+    const previousSelected = selectedGalleryIds
+    const previousBoard = boardView
+    const removed = gallery.find(entry => entry.id === id)
+    setGallery(previousGallery.filter(entry => entry.id !== id))
+    setSelectedGalleryIds(current => {
+      if (!current.has(id)) return current
+      const next = new Set(current)
+      next.delete(id)
+      return next
+    })
+    if (removed !== undefined) {
+      setGalleryTrash(sortGalleryTrash([{ ...removed, deletedAt: Date.now() }, ...previousTrash.filter(entry => entry.id !== id)]))
+      setGalleryTrashOpen(true)
+    }
     if (galleryViewingId === id) setBoardView(null)
     try {
       const result = await api.galleryRemove(id)
-      setGallery(result.entries)
-      setGalleryTrash(result.trash)
-      setGalleryMessage(tt('gallery.movedToTrash'))
-      window.setTimeout(() => { setGalleryMessage(null) }, 2600)
-    } catch {
-      // Keep the optimistic local removal.
+      applyGalleryShelf(result)
+      showGalleryToast(tt('gallery.movedToTrash'), id)
+    } catch (caught) {
+      setGallery(previousGallery)
+      setGalleryTrash(previousTrash)
+      setSelectedGalleryIds(previousSelected)
+      setBoardView(previousBoard)
+      setError(errorMessage(caught))
     }
   }
 
@@ -3010,37 +3100,63 @@ export function ImageGenPanel(props: {
   const restoreGalleryEntry = async (id: string): Promise<void> => {
     try {
       const result = await api.galleryRestore(id)
-      setGallery(result.entries)
-      setGalleryTrash(result.trash)
-      setGalleryMessage(tt('gallery.restored'))
-      window.setTimeout(() => { setGalleryMessage(null) }, 2200)
+      applyGalleryShelf(result)
+      if (result.outcome === 'restored') showGalleryToast(tt('gallery.restored'))
+      else if (result.outcome === 'duplicate') showGalleryToast(tt('gallery.already'))
+      else setError(tt('gallery.restoreMissing'))
     } catch (caught) { setError(errorMessage(caught)) }
   }
 
-  /** Empty the trash. The only place that really unlinks files, hence the
-   *  confirmation; the count is the only thing the user can judge by. */
+  /** Permanently delete one trashed entry. The confirmation is the same
+   *  shape as emptying the trash: this is the call that unlinks the files. */
+  const purgeGalleryEntry = async (id: string): Promise<void> => {
+    if (!window.confirm(tt('gallery.purgeOneConfirm'))) return
+    try {
+      const result = await api.galleryPurgeOne(id)
+      applyGalleryShelf(result)
+    } catch (caught) { setError(errorMessage(caught)) }
+  }
+
+  /** Empty the trash. The count is the only thing the user can judge by. */
   const purgeGalleryTrash = async (): Promise<void> => {
     if (galleryTrash.length === 0) return
     if (!window.confirm(tt('gallery.purgeConfirm', { count: galleryTrash.length }))) return
     try {
       const result = await api.galleryPurge()
-      setGallery(result.entries)
-      setGalleryTrash(result.trash)
+      applyGalleryShelf(result)
     } catch (caught) { setError(errorMessage(caught)) }
   }
 
   /** Move every gallery entry to the trash (recoverable for the retention
-   *  window — the copy says so, since the action used to be irreversible). */
+   *  window — the copy says so, since the action used to be irreversible).
+   *  The list stays collapsed: opening it here would cover the shelf the
+   *  moment the user asked to clear it. */
   const clearGalleryAll = async (): Promise<void> => {
-    if (!window.confirm(tt('gallery.clearConfirm'))) return
+    if (!window.confirm(tt('gallery.clearConfirm', { days: GALLERY_TRASH_RETENTION_DAYS }))) return
+    const previousGallery = gallery
+    const previousTrash = galleryTrash
+    const previousSelected = selectedGalleryIds
+    const previousSelecting = gallerySelecting
+    const previousBoard = boardView
+    const now = Date.now()
     setGallery([])
+    setGalleryTrash(sortGalleryTrash([
+      ...previousGallery.map(entry => ({ ...entry, deletedAt: now })),
+      ...previousTrash,
+    ]))
+    setSelectedGalleryIds(new Set())
+    setGallerySelecting(false)
     setBoardView(null)
     try {
       const result = await api.galleryClear()
-      setGallery(result.entries)
-      setGalleryTrash(result.trash)
-    } catch {
-      // Keep the cleared local state.
+      applyGalleryShelf(result)
+    } catch (caught) {
+      setGallery(previousGallery)
+      setGalleryTrash(previousTrash)
+      setSelectedGalleryIds(previousSelected)
+      setGallerySelecting(previousSelecting)
+      setBoardView(previousBoard)
+      setError(errorMessage(caught))
     }
   }
 
@@ -3050,10 +3166,11 @@ export function ImageGenPanel(props: {
     try {
       let next = gallery
       for (const id of selectedGalleryIds) {
-        const existing = next.find(entry => entry.id === id)?.tags ?? []
-        next = (await api.gallerySetTags(id, [...existing, ...tags])).entries
+        const entry = next.find(item => item.id === id)
+        if (entry === undefined) continue
+        next = (await api.gallerySetTags(id, [...entry.tags ?? [], ...tags])).entries
       }
-      setGallery(next)
+      setGallery(next.filter(entry => entry.deletedAt === undefined))
       setGalleryTagInput('')
     } catch (caught) { setError(errorMessage(caught)) }
   }
@@ -3067,8 +3184,7 @@ export function ImageGenPanel(props: {
     const tags = galleryTagEditInput.split(',').map(tag => tag.trim()).filter(Boolean)
     try {
       const result = await api.gallerySetTags(id, tags)
-      setGallery(result.entries)
-      setGalleryTrash(result.trash)
+      applyGalleryShelf(result)
       setEditingGalleryTagsId(null)
       setGalleryTagEditInput('')
     } catch (caught) { setError(errorMessage(caught)) }
@@ -3319,6 +3435,7 @@ export function ImageGenPanel(props: {
   const renderGalleryCard = (entry: HistoryEntry) => {
     const image = entry.images[0]
     const clip = entry.video
+    const tags = entry.tags ?? []
     // A clip entry carries no image and no asset: it names a file in the
     // gallery's video store. Rendering it is therefore a video element, not an
     // <img>.
@@ -3398,19 +3515,23 @@ export function ImageGenPanel(props: {
           <span className={css.galleryCardInfo}>
             <strong>{entry.prompt || tt('gallery.untitled')}</strong>
             <small>{entry.model} · {normalizeSize(entry.size)} · {formatTime(entry.createdAt)}</small>
-            <span className={css.galleryTags}>
-              {(entry.tags ?? []).map(tag => <button key={tag} type="button" onClick={() => { setGalleryTagFilter(tag) }}>{tag}</button>)}
-              <button type="button" className={css.galleryTagEdit} onClick={() => { startEditingGalleryTags(entry) }} title={tt('gallery.editTags')}>{tt('gallery.tagsEditShort')}</button>
-            </span>
+            {tags.length > 0 ? (
+              <span className={css.galleryTags}>
+                {tags.map(tag => <button key={tag} type="button" onClick={() => { setGalleryTagFilter(tag) }}>{tag}</button>)}
+              </span>
+            ) : null}
           </span>
-          <button
-            type="button"
-            className={css.galleryRemove}
-            data-gallery-remove={entry.id}
-            aria-label={tt('gallery.deleteHint')}
-            title={tt('gallery.deleteHint')}
-            onClick={() => { void deleteGalleryEntry(entry.id) }}
-          >{tt('gallery.delete')}</button>
+          <div className={css.galleryCardManage}>
+            <button type="button" className={css.galleryTagEdit} onClick={() => { startEditingGalleryTags(entry) }} title={tt('gallery.editTags')}>{tt('gallery.tagsEditShort')}</button>
+            <button
+              type="button"
+              className={css.galleryRemove}
+              data-gallery-remove={entry.id}
+              aria-label={tt('gallery.deleteHint', { days: GALLERY_TRASH_RETENTION_DAYS })}
+              title={tt('gallery.deleteHint', { days: GALLERY_TRASH_RETENTION_DAYS })}
+              onClick={() => { void deleteGalleryEntry(entry.id) }}
+            >{tt('gallery.delete')}</button>
+          </div>
         </div>
         {editingGalleryTagsId === entry.id ? (
           <form className={css.galleryTagEditor} onSubmit={event => { event.preventDefault(); void saveGalleryTags(entry.id) }}>
@@ -3690,6 +3811,11 @@ export function ImageGenPanel(props: {
   // image composer, model picker, compare controls or results board.
   const isGeneration = workspace === 'normal' && tab !== 'gallery' && tab !== 'video'
   const isVideo = workspace === 'normal' && tab === 'video'
+  const liveTask = comparison === null && isGeneration && activeTask !== undefined
+    && (activeTask.status === 'queued' || activeTask.status === 'running')
+    ? activeTask
+    : undefined
+  const liveCells = liveTask === undefined ? undefined : batchCells(liveTask.result, liveTask.request.n, false)
 
   return (
     <div className={css.panel}>
@@ -4468,7 +4594,7 @@ export function ImageGenPanel(props: {
                       <span aria-hidden="true">▤</span> {tt('gallery.grid')}
                     </button>
                   </div>
-                  <Select className={css.gallerySort} value={gallerySort} onChange={value => { setGallerySort(value as 'newest' | 'oldest') }} aria-label={tt('gallery.sort')}>
+                  <Select className={css.gallerySort} variant="toolbar" value={gallerySort} onChange={value => { setGallerySort(value as 'newest' | 'oldest') }} aria-label={tt('gallery.sort')}>
                     <option value="newest">{tt('gallery.newest')}</option>
                     <option value="oldest">{tt('gallery.oldest')}</option>
                   </Select>
@@ -4480,7 +4606,7 @@ export function ImageGenPanel(props: {
                       data-gallery-trash-toggle=""
                       data-active={galleryTrashOpen ? '' : undefined}
                       aria-expanded={galleryTrashOpen}
-                      title={tt('gallery.trashHint')}
+                      title={tt('gallery.trashHint', { days: GALLERY_TRASH_RETENTION_DAYS })}
                       onClick={() => { setGalleryTrashOpen(open => !open) }}
                     >
                       {tt('gallery.trashCount', { count: galleryTrash.length })}
@@ -4500,31 +4626,61 @@ export function ImageGenPanel(props: {
                 </section>
               ) : null}
               {galleryTrashOpen && galleryTrash.length > 0 ? (
-                // The trash is a plain section of rows, not a card grid: a
-                // trashed entry is something to restore or drop, never to
-                // preview, add to the canvas or tag.
-                <section className={css.gallerySelectionBar} data-gallery-trash="" aria-label={tt('gallery.trash')}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 auto', minWidth: 0, maxHeight: 180, overflowY: 'auto' }}>
-                    {galleryTrash.map(entry => (
-                      <div key={entry.id} data-gallery-trash-row={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                        <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={entry.prompt}>
-                          {entry.prompt || tt('gallery.untitled')}
-                        </span>
-                        <small style={{ flex: 'none', color: 'var(--dsw-alias-label-tertiary)' }}>
-                          {tt('gallery.deletedAt', { time: formatTime(entry.deletedAt ?? entry.createdAt) })}
-                        </small>
-                        <button
-                          type="button"
-                          className={css.galleryBulkButton}
-                          data-gallery-restore={entry.id}
-                          onClick={() => { void restoreGalleryEntry(entry.id) }}
-                        >
-                          {tt('gallery.restore')}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <button type="button" className={css.galleryBulkButton} data-gallery-purge="" onClick={() => { void purgeGalleryTrash() }}>{tt('gallery.purge')}</button>
+                // Rows, not cards: a trashed entry is restored or dropped, never
+                // previewed or tagged. No <strong> here — the count already sits
+                // on the toolbar toggle, and a second heading reads as a duplicate.
+                <section className={css.galleryTrash} data-gallery-trash="" aria-label={tt('gallery.trash')}>
+                  <header className={css.galleryTrashHeader}>
+                    <span className={css.galleryTrashMeta}>
+                      {trashBytes > 0 ? tt('gallery.trashSize', { size: formatBytes(trashBytes) }) : tt('gallery.trashKept')}
+                    </span>
+                    <button type="button" className={css.galleryBulkButton} data-gallery-purge="" onClick={() => { void purgeGalleryTrash() }}>{tt('gallery.purge')}</button>
+                  </header>
+                  <ul className={css.galleryTrashList}>
+                    {galleryTrash.map(entry => {
+                      const image = entry.images[0]
+                      const clip = entry.video
+                      const daysLeft = trashDaysRemaining(entry.deletedAt)
+                      const kind = clip !== undefined ? tt('gallery.kindVideo') : tt('gallery.kindImage')
+                      return (
+                        <li key={entry.id} className={css.galleryTrashRow} data-gallery-trash-row={entry.id}>
+                          <span className={css.galleryTrashThumb}>
+                            {clip !== undefined
+                              ? <video src={clip.url} muted playsInline preload="metadata" />
+                              : image !== undefined
+                                ? <img src={image.url} alt={entry.prompt || tt('gallery.untitled')} />
+                                : null}
+                          </span>
+                          <span className={css.galleryTrashMain}>
+                            <span className={css.galleryTrashTitle} title={entry.prompt}>{entry.prompt || tt('gallery.untitled')}</span>
+                            <small>
+                              {kind}
+                              {' · '}
+                              {tt('gallery.deletedAt', { time: formatTime(entry.deletedAt ?? entry.createdAt) })}
+                              {' · '}
+                              {daysLeft === 0 ? tt('gallery.expiresSoon') : tt('gallery.daysLeft', { days: daysLeft })}
+                            </small>
+                          </span>
+                          <button
+                            type="button"
+                            className={css.galleryBulkButton}
+                            data-gallery-restore={entry.id}
+                            onClick={() => { void restoreGalleryEntry(entry.id) }}
+                          >
+                            {tt('gallery.restore')}
+                          </button>
+                          <button
+                            type="button"
+                            className={`${css.galleryBulkButton} ${css.galleryTrashPurge}`}
+                            data-gallery-purge-one={entry.id}
+                            onClick={() => { void purgeGalleryEntry(entry.id) }}
+                          >
+                            {tt('gallery.purgeOne')}
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
                 </section>
               ) : null}
               {filteredGallery.length === 0 && galleryLoadError !== null ? (
@@ -4689,9 +4845,16 @@ export function ImageGenPanel(props: {
             <section className={css.comparisonBoard} aria-label={tt('compare.title')}>
               <header><div><strong>{tt('compare.title')}</strong><span>{comparisonResults.length} / {comparisonTasks.length}{generating ? ` · ${tt('canvas.elapsed', { seconds: elapsed })}` : ''}</span></div><button type="button" disabled={comparisonResults.length === 0} onClick={() => { setComparisonFullscreen(true) }}>{tt('compare.fullscreen')}</button></header>
               <div className={css.comparisonGrid}>
-                {comparisonTasks.map(task => {
+                {comparisonTasks.map((task, taskIndex) => {
                   const taskImages = task.result?.images ?? []
-                  const image = taskImages[0]
+                  const slots = task.result?.slots
+                  const indexed = slots?.some(slot => slot.index !== undefined) === true
+                  const lead = indexed ? slots?.find(slot => slot.index === 0) : undefined
+                  const leadIndex = lead?.imageIndex
+                  const image = indexed
+                    ? (leadIndex === undefined ? undefined : taskImages[leadIndex])
+                    : taskImages[0]
+                  const leadError = indexed && lead !== undefined && image === undefined ? lead.error : undefined
                   return (
                     <article key={task.id} data-comparison-task={task.id} data-task-status={task.status}>
                       <strong>{task.request.model}</strong>
@@ -4700,18 +4863,23 @@ export function ImageGenPanel(props: {
                           type="button"
                           className={css.comparisonImageButton}
                           title={tt('preview.open')}
-                          onClick={() => { openPreview(taskImages, 0) }}
+                          onClick={() => { openPreview(taskImages, indexed && leadIndex !== undefined ? leadIndex : 0) }}
                         >
                           <img src={srcOf(image)} alt={task.request.model} />
                         </button>
+                      ) : leadError !== undefined && leadError !== '' ? (
+                        <ErrorDetail message={leadError} />
                       ) : task.status === 'queued' || task.status === 'running' ? (
                         // Each model waits on its own task, so the elapsed time is
                         // that task's real start, never the board's shared timer.
                         <GenerationLoading
                           compact
+                          phase={taskIndex * 0.7}
                           title={task.status === 'queued' ? tt('canvas.queued') : tt('canvas.generating')}
                           hint={tt('canvas.elapsed', { seconds: taskElapsedSeconds(task) })}
                         />
+                      ) : task.error !== undefined && task.error !== '' ? (
+                        <ErrorDetail message={task.error} />
                       ) : <span>{tt(`tasks.${task.status}` as never)}</span>}
                     </article>
                   )
@@ -4719,7 +4887,77 @@ export function ImageGenPanel(props: {
               </div>
             </section>
           ) : null}
-          {generating && comparison === null && isGeneration ? (
+          {liveTask !== undefined && liveCells !== undefined ? (
+            <div className={css.canvasBody} data-live-batch="">
+              <div className={css.canvasMeta}>
+                <span>{liveTask.status === 'queued' ? tt('canvas.queued') : tt('canvas.generating')}</span>
+                <span>{liveCells.filter(cell => cell.image !== undefined).length} / {liveCells.length}</span>
+                {activeTasks.length > 1 ? <span>{tt('canvas.queueHint', { count: activeTasks.length })}</span> : null}
+                <span>{tt('canvas.elapsed', { seconds: elapsed })}</span>
+              </div>
+              <div className={css.grid} data-count={liveCells.length}>
+                {liveCells.map(cell => {
+                  if (cell.pending || cell.image === undefined) {
+                    return (
+                      <div key={cell.index} className={css.imageCard} data-batch-pending="">
+                        {cell.pending ? (
+                          <GenerationLoading
+                            tile
+                            phase={cell.index * 0.7}
+                            title={liveTask.status === 'queued' ? tt('canvas.queued') : tt('canvas.generating')}
+                            hint={tt('canvas.elapsed', { seconds: elapsed })}
+                          />
+                        ) : (
+                          <ErrorDetail message={cell.error !== undefined && cell.error !== '' ? cell.error : tt('canvas.generateFailed')} />
+                        )}
+                      </div>
+                    )
+                  }
+                  const image = cell.image
+                  return (
+                    <figure
+                      key={cell.index}
+                      className={css.imageCard}
+                      role="button"
+                      tabIndex={0}
+                      title={tt('preview.open')}
+                      onClick={() => {
+                        const ready = liveCells.flatMap(item => item.image === undefined ? [] : [item.image])
+                        const previewIndex = ready.indexOf(image)
+                        openPreview(ready, previewIndex < 0 ? 0 : previewIndex)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          const ready = liveCells.flatMap(item => item.image === undefined ? [] : [item.image])
+                          const previewIndex = ready.indexOf(image)
+                          openPreview(ready, previewIndex < 0 ? 0 : previewIndex)
+                        }
+                      }}
+                    >
+                      <img
+                        className={`${css.image} ${css.imageReveal}`}
+                        src={srcOf(image)}
+                        alt={image.revisedPrompt ?? `${tt('panel.title')} ${cell.index + 1}`}
+                      />
+                      <span className={css.zoomHint}>
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4"/><path d="M13 13l-3.2-3.2"/><path d="M7 5.4v3.2M5.4 7h3.2"/></svg>
+                        {tt('preview.open')}
+                      </span>
+                      <a
+                        className={css.download}
+                        href={srcOf(image)}
+                        download={`dsh-image-${cell.index + 1}.${extensionOf(image.mime)}`}
+                        onClick={(event) => { event.stopPropagation() }}
+                      >
+                        {tt('download')}
+                      </a>
+                    </figure>
+                  )
+                })}
+              </div>
+            </div>
+          ) : generating && comparison === null && isGeneration ? (
             <div className={css.canvasState} data-generation-state={activeTask?.status ?? 'submitting'} role="status">
               <GenerationLoading
                 title={submitting && activeTask === undefined
@@ -5067,10 +5305,24 @@ export function ImageGenPanel(props: {
         : null}
 
       {/* ------------------------------------------------- gallery toast */}
-      {galleryMessage !== null ? (
+      {galleryToast !== null ? (
         <div className={css.galleryToast} role="status">
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5"/><path d="M8 5.8v4.4M5.8 8h4.4"/></svg>
-          {galleryMessage}
+          {galleryToast.text}
+          {galleryToast.undoId !== undefined ? (
+            <button
+              type="button"
+              className={css.galleryToastUndo}
+              data-gallery-undo={galleryToast.undoId}
+              onClick={() => {
+                const undoId = galleryToast.undoId
+                dismissGalleryToast()
+                if (undoId !== undefined) void restoreGalleryEntry(undoId)
+              }}
+            >
+              {tt('gallery.undo')}
+            </button>
+          ) : null}
         </div>
       ) : null}
       {conversationMessage !== null ? (

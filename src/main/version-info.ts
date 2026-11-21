@@ -31,6 +31,32 @@ export function bundledHarnessVersion(appPath: string): string | undefined {
   return validVersion(appMetadata?.dependencies?.['@deepseek-ai/dsh'])
 }
 
+// Skin market accepts this shape as an injected official DSH version. A range,
+// empty string, or prerelease like `rc.01` makes that probe return null and
+// blocks install, so those values are not published.
+const PUBLISHABLE_HARNESS_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
+
+export function publishableHarnessVersion(version: string | undefined): string | undefined {
+  if (version === undefined || !PUBLISHABLE_HARNESS_VERSION.test(version)) return undefined
+  const core = version.split('+', 1)[0] ?? version
+  const dash = core.indexOf('-')
+  const prerelease = dash < 0 ? [] : core.slice(dash + 1).split('.')
+  if (prerelease.some(part => /^0\d+$/.test(part))) return undefined
+  return version
+}
+
+/** Publish the bundled Harness version and drop any inherited `DSH_VERSION`. */
+export function withPublishedHarnessVersion(
+  environment: NodeJS.ProcessEnv,
+  appPath: string
+): NodeJS.ProcessEnv {
+  const published = publishableHarnessVersion(bundledHarnessVersion(appPath))
+  const next: NodeJS.ProcessEnv = { ...environment }
+  if (published === undefined) delete next.DSH_VERSION
+  else next.DSH_VERSION = published
+  return next
+}
+
 export function aboutDetail(
   desktopVersion: string,
   harnessVersion: string | undefined,

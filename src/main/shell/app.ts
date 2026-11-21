@@ -19,13 +19,13 @@ import { LanMobileBridge } from '../mobile/lan-mobile-bridge'
 import { createFilePairingPinStore, pairingPinStorePath } from '../mobile/pairing-pin-store'
 import { ensureSafeModeProfile, SAFE_MODE_PROFILE } from '../recovery/safe-mode-profile'
 import { checkForUpdates, getUpdateStatus, registerUpdateHandlers, startUpdateManager } from '../update/update-manager'
-import { aboutDetail, bundledHarnessVersion } from '../version-info'
+import { aboutDetail, bundledHarnessVersion, withPublishedHarnessVersion } from '../version-info'
 import {
   resolveHarnessLocale,
   type HarnessLocale
 } from '../application-locale'
 import { defaultWebHome, type WebHomePreview } from '../profile/web-home-import'
-import { developmentEnvironment, developmentGatewayUrl, skipBlockingWindowsDevHmr } from '../development-environment'
+import { DEVELOPMENT_GATEWAY_URL, developmentEnvironment, PRODUCTION_GATEWAY_URL, resolveGatewayUrl, skipBlockingWindowsDevHmr } from '../development-environment'
 import { windowsTrayIconFile, windowsTrayPixels } from './brand-icon'
 import { desktopBrandLogoPaths } from './brand-logo'
 import { workspaceDirectoryPrompt } from './directory-picker'
@@ -1016,12 +1016,12 @@ async function main(): Promise<void> {
       projectDir,
       dshHome,
       profile: safeMode ? SAFE_MODE_PROFILE : 'desktop',
-      environment: {
+      environment: withPublishedHarnessVersion({
         ...hostEnvironment,
         DSH_CLIENT_VERSION: app.getVersion(),
         DSH_DESKTOP_PATCH_FILE: productPatch,
         ...(safeMode ? {} : officeEnvironment(primaryRuntime))
-      },
+      }, app.getAppPath()),
       primaryRuntime,
       onFailure,
       onPluginOperation: record => { operationJournal.enqueue(JSON.stringify(record)) }
@@ -1049,8 +1049,16 @@ async function main(): Promise<void> {
     assertDesktopSender(event, ['app'])
     return window
   }, (address, signal) => desktopHost?.resolveDragResource(address, signal) ?? Promise.resolve(null))
+  const openedShell = await loginShell
+  hostEnvironment = openedShell.environment
+  if (openedShell.failures.length > 0) {
+    console.error(`[desktop] login shell: ${openedShell.failures.map(item => `${item.shell} (${item.reason})`).join('; ')}`)
+  }
+  const gatewayUrl = await resolveGatewayUrl(hostEnvironment)
+  const gatewayChoice = gatewayUrl === DEVELOPMENT_GATEWAY_URL ? 'local' : gatewayUrl === PRODUCTION_GATEWAY_URL ? 'production' : 'configured'
+  console.info(`[account] gateway ${gatewayChoice}`)
   const account = new DesktopAccountService({
-    gatewayUrl: developmentGatewayUrl(desktopDevelopmentBuild()),
+    gatewayUrl,
     sessionFile: join(app.getPath('userData'), 'account-session.json'),
     profileDir: projectDir,
     secretBox: electronSecretBox(),
@@ -1066,15 +1074,8 @@ async function main(): Promise<void> {
     )
   }
   const startup = backend.start(async () => {
-    const result = await loginShell
-    hostEnvironment = result.environment
-    if (result.failures.length > 0) {
-      console.error(`[desktop] login shell: ${result.failures.map(item => `${item.shell} (${item.reason})`).join('; ')}`)
-    }
     await prepareHostAccount()
-    const gatewayUrl = developmentGatewayUrl(desktopDevelopmentBuild(), hostEnvironment)
-    if (gatewayUrl) hostEnvironment.TAICHI_GATEWAY_URL = gatewayUrl
-    else delete hostEnvironment.TAICHI_GATEWAY_URL
+    hostEnvironment.TAICHI_GATEWAY_URL = gatewayUrl
   })
   bootSession.track(startup)
   installDesktopProtocol(name => packagedPagePath(name))

@@ -11,6 +11,15 @@
   display: inline;
 }
 
+.root[data-align='center'] {
+  align-items: center;
+  text-align: center;
+}
+
+.root[data-align='center'] .summary {
+  justify-content: center;
+}
+
 .summary {
   display: flex;
   flex-wrap: wrap;

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { validatePluginSwitch } from 'dsh-desktop-market-installer/plugin-state'
 import { DesktopAccountService } from '../src/main/enterprise/account-service'
-import { readCreditSummary, readGatewayModels } from '../src/main/enterprise/gateway-client'
+import { readCreditSummary, readGatewayModels, readMediaModels } from '../src/main/enterprise/gateway-client'
 import { ensureTaichiProvider, restoreBuiltinAccount, stripDisabledAccountRows } from '../src/main/enterprise/provider-config'
 import { AccountSessionStore, type SecretBox } from '../src/main/enterprise/session-store'
 import { readDisabledHostPlugins, setHostPluginEnabled } from '../src/main/profile/host-plugin-state'
@@ -33,6 +33,56 @@ describe('builtin account gateway', () => {
     const models = readGatewayModels({ data: [listed('gpt-6.1-sol', { display_name: 'GPT 6.1 Sol' })] })
     expect(models.map(model => model.name)).toEqual(['GPT 6.1 Sol'])
     expect(models[0]?.price).toBeUndefined()
+  })
+
+  it('reads image and video credit prices and drops hidden or invalid rows', () => {
+    expect(readMediaModels({
+      data: [
+        { id: 'shown', name: ' Shown ', credits: 12, show_in_picker: true },
+        {
+          id: 'tiered',
+          name: 'Tiered',
+          credits: 150,
+          quality_credits: { '1k': 150, '2k': 400, '4k': 400, '8k': 900, low: 'nope' }
+        },
+        { id: 'hidden', name: 'Hidden', credits: 3, show_in_picker: false },
+        { id: '  ', name: 'blank' },
+        { name: 'missing' },
+        { id: 'free', credits: 0 },
+        { id: 'bad-price', name: 'Bad', credits: -4 },
+        { id: 'nan-price', credits: Number.NaN }
+      ]
+    }, 'image')).toEqual([
+      { id: 'shown', name: 'Shown', credits: 12 },
+      {
+        id: 'tiered',
+        name: 'Tiered',
+        credits: 150,
+        qualityCredits: [
+          { tier: '1k', credits: 150 },
+          { tier: '2k', credits: 400 },
+          { tier: '4k', credits: 400 }
+        ]
+      },
+      { id: 'free', name: 'free', credits: 0 },
+      { id: 'bad-price', name: 'Bad' },
+      { id: 'nan-price', name: 'nan-price' }
+    ])
+    expect(readMediaModels({
+      data: [
+        { id: 'grok', name: 'Grok', credits: 4800, default_duration: 10 },
+        { id: 'veo', credits: 2600 },
+        { id: 'hidden-video', show_in_picker: false, credits: 9 },
+        { credits: 1 }
+      ]
+    }, 'video')).toEqual([
+      { id: 'grok', name: 'Grok', credits: 4800 },
+      { id: 'veo', name: 'veo', credits: 2600 },
+      { id: 'hidden-video', name: 'hidden-video', credits: 9 }
+    ])
+    expect(readMediaModels({ data: [] }, 'image')).toEqual([])
+    expect(readMediaModels({ invalid: true }, 'video')).toBeUndefined()
+    expect(readMediaModels(null, 'image')).toBeUndefined()
   })
 
   it('reads a credit summary and rejects a list that contains an invalid entry', () => {

@@ -28,6 +28,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChannelConfig, GeneratedImage } from '../protocol.ts'
 import type { ImageGenApi } from './api.ts'
+import { ErrorDetail } from './ErrorDetail.tsx'
 import { errorMessage, tt } from './helpers.ts'
 import { useImageGenLanguageTick } from './use-language.ts'
 import { ModelPicker, resolveModelChoice, type ModelPickerValue } from './ModelPicker.tsx'
@@ -338,6 +339,9 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
       <div className={css.body}>
         <section className={css.controls}>
           <div className={css.modelRow}>
+            <div className={css.fieldHead}>
+              <span className={css.fieldLabel}>{tt('aplus.model.aria')}</span>
+            </div>
             <ModelPicker
               groups={modelGroups}
               value={resolved}
@@ -387,45 +391,52 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
             )}
           </div>
 
-          <div className={css.exportRow}>
-            <span className={css.fieldLabel}>{tt('aplus.width')}</span>
-            <select
-              className={css.select}
-              value={String(width)}
-              onChange={event => { setWidth(Number(event.target.value)) }}
-            >
-              {WIDTHS.map(option => <option key={option} value={option}>{option}</option>)}
-            </select>
-            <span className={css.fieldLabel}>{tt('aplus.gap')}</span>
-            <select
-              className={css.select}
-              value={String(gap)}
-              onChange={event => { setGap(Number(event.target.value)) }}
-            >
-              {GAPS.map(option => <option key={option} value={option}>{option}</option>)}
-            </select>
-            <button
-              type="button"
-              className={css.primary}
-              data-testid="aplus-export"
-              disabled={exportDisabled}
-              onClick={() => { void exportLongImage() }}
-            >
-              {exporting ? tt('aplus.exporting') : tt('aplus.export')}
-            </button>
-          </div>
-
-          <div className={css.exportRow}>
-            <button type="button" className={css.secondary} data-testid="aplus-generate-all" disabled={!canGenerate || anyGenerating} onClick={generateAll}>
-              {tt('aplus.generateAll')}
-            </button>
-            <button type="button" className={css.link} onClick={() => { setChosen(new Set(MODULES.map(module => module.key))) }}>
-              {tt('aplus.selectAll')}
-            </button>
-            <button type="button" className={css.link} onClick={() => { setChosen(new Set()) }}>
-              {tt('aplus.selectNone')}
-            </button>
-            <span className={css.fieldNote}>{tt('aplus.exportHint', { count: doneModules.length })}</span>
+          <div className={css.toolbar}>
+            <div className={css.metrics}>
+              <label className={css.pair}>
+                <span className={css.fieldLabel}>{tt('aplus.width')}</span>
+                <select
+                  className={css.select}
+                  value={String(width)}
+                  onChange={event => { setWidth(Number(event.target.value)) }}
+                >
+                  {WIDTHS.map(option => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label className={css.pair}>
+                <span className={css.fieldLabel}>{tt('aplus.gap')}</span>
+                <select
+                  className={css.select}
+                  value={String(gap)}
+                  onChange={event => { setGap(Number(event.target.value)) }}
+                >
+                  {GAPS.map(option => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className={css.actions}>
+              <button type="button" className={css.secondary} data-testid="aplus-generate-all" disabled={!canGenerate || anyGenerating} onClick={generateAll}>
+                {tt('aplus.generateAll')}
+              </button>
+              <button type="button" className={css.link} onClick={() => { setChosen(new Set(MODULES.map(module => module.key))) }}>
+                {tt('aplus.selectAll')}
+              </button>
+              <button type="button" className={css.link} onClick={() => { setChosen(new Set()) }}>
+                {tt('aplus.selectNone')}
+              </button>
+              <span className={css.actionEnd}>
+                <span className={css.fieldNote}>{tt('aplus.exportHint', { count: doneModules.length })}</span>
+                <button
+                  type="button"
+                  className={css.primary}
+                  data-testid="aplus-export"
+                  disabled={exportDisabled}
+                  onClick={() => { void exportLongImage() }}
+                >
+                  {exporting ? tt('aplus.exporting') : tt('aplus.export')}
+                </button>
+              </span>
+            </div>
           </div>
 
           {/* The refusal, and only the refusal: no truncated sheet, no blur. */}
@@ -443,6 +454,15 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
             const state = result?.state ?? 'idle'
             const image = result?.image
             const isChosen = chosen.has(module.key)
+            const moduleName = tt(module.nameKey)
+            const actionLabel = state === 'done' ? tt('aplus.regenerate') : tt('aplus.generate')
+            const stateLabel = state === 'generating'
+              ? tt('aplus.state.generating')
+              : state === 'done'
+                ? tt('aplus.state.done')
+                : state === 'failed'
+                  ? tt('aplus.state.failed')
+                  : tt('aplus.state.idle')
             return (
               <div key={module.key} className={css.row} data-module={module.key} data-state={state}>
                 <input
@@ -450,9 +470,9 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
                   className={css.check}
                   checked={isChosen}
                   onChange={() => { toggleModule(module.key) }}
-                  aria-label={tt(module.nameKey)}
+                  aria-label={moduleName}
                 />
-                <span className={css.name}>{tt(module.nameKey)}</span>
+                <span className={css.name} title={moduleName}>{moduleName}</span>
                 <span className={css.ratio}>{module.size}</span>
                 <input
                   className={css.caption}
@@ -466,33 +486,28 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
                 <button
                   type="button"
                   className={css.small}
+                  title={actionLabel}
                   disabled={!canGenerate || state === 'generating'}
                   onClick={() => { void generateOne(module) }}
                 >
-                  {state === 'generating'
-                    ? tt('aplus.state.generating')
-                    : state === 'done'
-                      ? tt('aplus.regenerate')
-                      : tt('aplus.generate')}
+                  {actionLabel}
                 </button>
-                <span className={css.state} data-state={state}>
-                  {state === 'idle' ? tt('aplus.state.idle') : state === 'done' ? tt('aplus.state.done') : state === 'failed' ? tt('aplus.state.failed') : ''}
+                <span className={css.state} data-state={state} title={stateLabel}>
+                  {stateLabel}
                 </span>
                 {image !== undefined ? (
-                  <img className={css.thumbImage} src={`data:${image.mime};base64,${image.b64}`} alt={tt(module.nameKey)} />
+                  <img className={css.thumbImage} src={`data:${image.mime};base64,${image.b64}`} alt={moduleName} />
                 ) : (
                   <span className={css.thumbEmpty} />
                 )}
-                {state === 'failed' && result?.error !== undefined ? (
-                  <span className={css.rowError}>{result.error}</span>
-                ) : null}
                 {/* Copy band inputs. They feed the exported image only — never
                     the prompt — so they sit below the row's own controls and
                     carry a stable marker for the tests. */}
                 <div className={css.copyRow}>
-                  <input
+                  <textarea
                     className={css.copyTitle}
                     data-aplus-copy={`${module.key}-title`}
+                    rows={2}
                     value={copies[module.key]?.title ?? ''}
                     placeholder={tt('aplus.copy.title')}
                     onChange={event => {
@@ -512,6 +527,9 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
                     }}
                   />
                 </div>
+                {state === 'failed' && result?.error !== undefined ? (
+                  <div className={css.rowError}><ErrorDetail message={result.error} layout="inline" /></div>
+                ) : null}
               </div>
             )
           })}

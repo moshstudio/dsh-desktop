@@ -15,6 +15,7 @@ import { Select } from './Select.tsx'
 import { OutfitReferencePicker } from './OutfitReferencePicker.tsx'
 import { outfitReferenceApi } from './outfit-reference-api.ts'
 import { defaultOutfitRecipe, prepareOutfitGeneration } from './outfit-generation.ts'
+import { ErrorDetail } from './ErrorDetail.tsx'
 import { tt } from './helpers.ts'
 import css from './outfit-workspace.module.css'
 
@@ -285,7 +286,7 @@ export default function OutfitWorkspace({ api = defaultApi, config }: OutfitWork
     }
     if (task.status === 'failed') {
       return <div className={css.taskCard}>
-        <p role="alert" className={css.error}>生成失败：{task.error ?? '未知错误'}</p>
+        <ErrorDetail message={task.error ?? tt('canvas.generateFailed')} />
         <p className={css.muted}>{label} · {timeOf(task.createdAt)} 提交</p>
         <button type="button" className={css.button} onClick={() => void retryTask(task.id)}>重试</button>
       </div>

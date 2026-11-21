@@ -363,3 +363,89 @@ it('loads an Excel pair atomically and retries both pages after a worksheet fail
   await f.click('做同款')
   expect(container.querySelector('[data-office-selected]').dataset.officeSelected).toBe('annual-business')
 })
+
+it('lifts the centered composer while Word or Excel templates are open and eases it back when they close', async () => {
+  const values = new Map()
+  const helperFrom = source.indexOf('const TEMPLATE_LIFT_TRANSITION = ')
+  const helperTo = source.indexOf('function useDockGeometry', helperFrom)
+  const helpers = new Function(`${source.slice(helperFrom, helperTo)}\nreturn { templateLiftMotion, releaseTemplatePanelLift, clearTemplatePanelLift, TEMPLATE_LIFT_TRANSITION };`)()
+  const from = source.indexOf('const sync = () => {')
+  const to = source.indexOf('const observer = typeof ResizeObserver', from)
+  const createSync = new Function('element', 'body', 'card', 'seat', 'panel', 'TEMPLATE_LIFT_TOP_PX', 'TEMPLATE_LIFT_TRANSITION', 'templateLiftMotion', 'clearTemplatePanelLift', `${source.slice(from, to)}\nreturn sync;`)
+  let transformValue = ''
+  const attributes = new Set()
+  let onEnd = null
+  const offset = () => Number(/translateY\(([-\d.]+)px\)/.exec(transformValue)?.[1] ?? 0)
+  const seat = {
+    style: {
+      get transform() { return transformValue },
+      set transform(value) { transformValue = value },
+      removeProperty(name) {
+        if (name === 'transform') transformValue = ''
+        else delete seat.style[name]
+      }
+    },
+    setAttribute(name) { attributes.add(name) },
+    removeAttribute(name) { attributes.delete(name) },
+    hasAttribute(name) { return attributes.has(name) },
+    querySelector() { return null },
+    addEventListener(_type, fn) { onEnd = fn },
+    removeEventListener() { onEnd = null },
+    getBoundingClientRect() { return { top: 280 + offset() } }
+  }
+  const args = [
+    { style: { setProperty: (name, value) => values.set(name, value) } },
+    { parentElement: { getAttribute: name => name === 'data-content-phase' ? 'hero' : null }, getBoundingClientRect: () => ({ top: 0, width: 720, bottom: 900 }) },
+    { getBoundingClientRect: () => ({ width: 900 }) },
+    seat,
+    { current: { getBoundingClientRect: () => ({ top: 500 + offset() }) } },
+    24, helpers.TEMPLATE_LIFT_TRANSITION, helpers.templateLiftMotion, helpers.clearTemplatePanelLift
+  ]
+  const sync = createSync(...args)
+  sync()
+  expect(seat.style.transform).toBe('translateY(-256px)')
+  expect(seat.style.transition).toBe(helpers.TEMPLATE_LIFT_TRANSITION)
+  expect(values.get('--dso-dock-width')).toBe('720px')
+  expect(values.get('--dso-dock-height')).toBe('644px')
+  sync()
+  expect(seat.style.transform).toBe('translateY(-256px)')
+  expect(values.get('--dso-dock-height')).toBe('644px')
+
+  seat.querySelector = () => ({})
+  helpers.releaseTemplatePanelLift(seat)
+  expect(seat.style.transform).toBe('translateY(-256px)')
+  seat.querySelector = () => null
+  helpers.releaseTemplatePanelLift(seat)
+  expect(seat.style.transform).toBe('translateY(0px)')
+  expect(attributes.has('data-template-panel-lift')).toBe(true)
+  onEnd({ target: seat, propertyName: 'transform' })
+  expect(seat.style.transform).toBe('')
+  expect(seat.style.transition).toBeUndefined()
+  expect(attributes.has('data-template-panel-lift')).toBe(false)
+
+  transformValue = 'translateY(-256px)'
+  attributes.add('data-template-panel-lift')
+  seat.closest = () => ({ getAttribute: () => 'active' })
+  helpers.releaseTemplatePanelLift(seat)
+  expect(seat.style.transform).toBe('')
+  expect(attributes.has('data-template-panel-lift')).toBe(false)
+  delete seat.closest
+  args[1].parentElement.getAttribute = () => 'active'
+  transformValue = 'translateY(-180px)'
+  attributes.add('data-template-panel-lift')
+  sync()
+  expect(seat.style.transform).toBe('')
+  expect(attributes.has('data-template-panel-lift')).toBe(false)
+
+  let started = 'hero'
+  transformValue = 'translateY(-256px)'
+  attributes.add('data-template-panel-lift')
+  seat.closest = () => ({ getAttribute: () => started })
+  seat.querySelector = () => ({})
+  helpers.releaseTemplatePanelLift(seat)
+  expect(seat.style.transform).toBe('translateY(-256px)')
+  started = 'active'
+  await Promise.resolve()
+  expect(seat.style.transform).toBe('')
+  expect(attributes.has('data-template-panel-lift')).toBe(false)
+})

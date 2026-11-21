@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { aboutDetail, bundledHarnessVersion } from '../src/main/version-info'
+import { aboutDetail, bundledHarnessVersion, withPublishedHarnessVersion } from '../src/main/version-info'
 
 const temporaryRoots: string[] = []
 
@@ -34,6 +34,49 @@ describe('desktop version information', () => {
     }))
 
     expect(bundledHarnessVersion(root)).toBe('0.1.0-rc.8')
+  })
+
+  it('publishes the installed Harness version as DSH_VERSION and drops an inherited value', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-version-info-'))
+    temporaryRoots.push(root)
+    const harnessRoot = join(root, 'node_modules', '@deepseek-ai', 'dsh')
+    await mkdir(harnessRoot, { recursive: true })
+    await writeFile(join(root, 'package.json'), JSON.stringify({
+      dependencies: { '@deepseek-ai/dsh': '0.2.2-rc.0' }
+    }))
+    await writeFile(join(harnessRoot, 'package.json'), JSON.stringify({
+      version: '0.2.2-rc.1'
+    }))
+
+    const published = withPublishedHarnessVersion({
+      DSH_VERSION: '9.9.9',
+      DSH_CLIENT_VERSION: '0.12.1'
+    }, root)
+
+    expect(published.DSH_VERSION).toBe('0.2.2-rc.1')
+    expect(published.DSH_CLIENT_VERSION).toBe('0.12.1')
+  })
+
+  it('removes an inherited DSH_VERSION when the bundled Harness version has a padded prerelease', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-version-info-'))
+    temporaryRoots.push(root)
+    const harnessRoot = join(root, 'node_modules', '@deepseek-ai', 'dsh')
+    await mkdir(harnessRoot, { recursive: true })
+    await writeFile(join(harnessRoot, 'package.json'), JSON.stringify({ version: '0.2.2-rc.01' }))
+
+    expect(withPublishedHarnessVersion({ DSH_VERSION: '0.2.1-rc.1' }, root).DSH_VERSION).toBeUndefined()
+  })
+
+  it('removes an inherited DSH_VERSION when the bundled Harness version is not a publishable semver', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-version-info-'))
+    temporaryRoots.push(root)
+    await writeFile(join(root, 'package.json'), JSON.stringify({
+      dependencies: { '@deepseek-ai/dsh': '^0.2.2-rc.1' }
+    }))
+
+    const published = withPublishedHarnessVersion({ DSH_VERSION: '0.2.1-rc.1' }, root)
+
+    expect(published.DSH_VERSION).toBeUndefined()
   })
 
   it('explains that Harness updates arrive with Desktop', () => {

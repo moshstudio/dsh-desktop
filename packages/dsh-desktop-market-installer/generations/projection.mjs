@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, win32 } from 'node:path'
+import { syncProjectedMarketLock } from './market-lock.mjs'
 import { resolveEnabledGenerations } from './registry.mjs'
 import { readDisabledPlugins } from '../plugin-state.mjs'
 
@@ -26,10 +27,13 @@ import { readDisabledPlugins } from '../plugin-state.mjs'
  *     optional bundles, stay owned by the Profile's plugin manager.
  *
  * Generation plugins appear in `dependencies` at their installed version so
- * dsh-market can present them as ordinary installed releases. A root override
- * records the immutable local source, but Desktop's pnpm runner temporarily
- * removes both generated fields before every Profile package operation. pnpm
- * therefore never owns the projected node_modules path.
+ * dsh-market can present them as ordinary installed releases. The profile root
+ * `pnpm-lock.yaml` importer repeats the generation lock's resolved version and
+ * integrity, because the skin market accepts an npm install only from that
+ * importer. A root override records the immutable local source, but Desktop's
+ * pnpm runner temporarily removes the generated manifest fields and those
+ * importer entries before every Profile package operation. pnpm therefore
+ * never owns the projected node_modules path.
  *
  * The projection is derived, never authored. Losing it costs a reprojection,
  * not a repair.
@@ -49,6 +53,19 @@ const PROJECTION_VERSION = 1
 
 function profileDir(dshHome, profile = 'web') {
   return join(dshHome, 'profiles', profile)
+}
+
+function projectedPluginNames(manifestState) {
+  const projection = manifestState.manifest?.dsh?.desktop?.generationProjection
+  if (projection?.version !== PROJECTION_VERSION || !isRecord(projection.plugins)) return []
+  return Object.keys(projection.plugins)
+}
+
+async function publishProjectedManifest(dir, manifestState, enabled, linkSpecs, options) {
+  const previousNames = projectedPluginNames(manifestState)
+  const bundles = await syncProfileManifest(dir, enabled, linkSpecs, manifestState, options)
+  await syncProjectedMarketLock(dir, enabled, previousNames)
+  return bundles
 }
 
 function isInsideDirectory(parent, candidate) {
@@ -276,7 +293,7 @@ export async function projectGenerations(dshHome, profile = 'web') {
     }
     // All package entries commit together with the manifest. Retain old real
     // directories and links until its atomic publication has succeeded.
-    bundles = await syncProfileManifest(dir, enabled, linkSpecs, manifestState)
+    bundles = await publishProjectedManifest(dir, manifestState, enabled, linkSpecs)
   } catch (error) {
     const failures = [error]
     for (const change of [...switches].reverse()) {
@@ -425,7 +442,7 @@ export async function publishInstalledGeneration(dshHome, pluginName, profile = 
         })
       }
       if (await profileLinkMatches(link, target)) {
-        const bundles = await syncProfileManifest(dir, enabled, linkSpecs, manifestState, { syncBundles })
+        const bundles = await publishProjectedManifest(dir, manifestState, enabled, linkSpecs, { syncBundles })
         return { plugins: [pluginName], bundles }
       }
     } catch (error) {
@@ -438,7 +455,7 @@ export async function publishInstalledGeneration(dshHome, pluginName, profile = 
     )
     // Validate through the public profile path, exactly where the market reads.
     if (!(await profileLinkMatches(link, target))) throw new Error(`Plugin link switch did not select ${pluginName}`)
-    const bundles = await syncProfileManifest(dir, enabled, linkSpecs, manifestState, { syncBundles })
+    const bundles = await publishProjectedManifest(dir, manifestState, enabled, linkSpecs, { syncBundles })
     // Old plugin bytes remain in their generation for already-loaded modules.
     await rm(oldLink, { force: true, recursive: previousIsDirectory }).catch(() => {})
     return { plugins: [pluginName], bundles }
@@ -462,7 +479,7 @@ export async function publishInstalledGeneration(dshHome, pluginName, profile = 
 export async function publishGenerationManifest(dshHome, profile = 'web', { syncBundles = false } = {}) {
   const { dir, manifestState, enabled, linkSpecs } =
     await prepareGenerationProjection(dshHome, profile)
-  const bundles = await syncProfileManifest(dir, enabled, linkSpecs, manifestState, {
+  const bundles = await publishProjectedManifest(dir, manifestState, enabled, linkSpecs, {
     syncBundles
   })
   return { plugins: [...enabled.keys()], bundles }

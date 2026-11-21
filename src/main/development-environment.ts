@@ -8,19 +8,64 @@ export function skipBlockingWindowsDevHmr(packaged: boolean, platform: NodeJS.Pl
 }
 
 /**
- * Local account HTTP API used by unpackaged development when none is configured.
- * 5432 is the gateway's Postgres; the HTTP routes listen on 8787.
+ * Local account HTTP API. 5432 is the gateway's Postgres; the HTTP routes listen on 8787.
+ * `GET /health` returns `{ ok: true }` only when that process and its database are up.
  */
 export const DEVELOPMENT_GATEWAY_URL = 'http://127.0.0.1:8787'
 
+/** Public account gateway used when the local process is not healthy. */
+export const PRODUCTION_GATEWAY_URL = 'https://taichi-gateway.moshangwangluo.com'
+
+const LOCAL_GATEWAY_PROBE_MS = 1_000
+
+export interface GatewayUrlProbe {
+  fetchImpl?: typeof fetch
+  timeoutMs?: number
+  localUrl?: string
+  productionUrl?: string
+}
+
+function configuredGatewayUrl(env: NodeJS.ProcessEnv): string | undefined {
+  const configured = env.TAICHI_GATEWAY_URL?.trim().replace(/\/$/u, '')
+  return configured === undefined || configured === '' ? undefined : configured
+}
+
+function healthyGateway(body: unknown): boolean {
+  return typeof body === 'object' && body !== null && 'ok' in body && body.ok === true
+}
+
+/** A local listener that is not the healthy account gateway must not capture the session. */
+async function localGatewayReady(localUrl: string, probe: GatewayUrlProbe): Promise<boolean> {
+  const fetchImpl = probe.fetchImpl ?? fetch
+  const timeoutMs = probe.timeoutMs ?? LOCAL_GATEWAY_PROBE_MS
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, timeoutMs)
+  try {
+    const response = await fetchImpl(`${localUrl}/health`, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: controller.signal
+    })
+    if (!response.ok) return false
+    return healthyGateway(await response.json())
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
- * Production keeps the process environment. Development fills the local gateway
- * only when `TAICHI_GATEWAY_URL` is absent, so an explicit address still wins.
+ * Explicit `TAICHI_GATEWAY_URL` wins. Otherwise both unpackaged and installed
+ * launches use the local gateway when its health check succeeds, and the
+ * production gateway when it does not.
  */
-export function developmentGatewayUrl(development: boolean, env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const configured = env.TAICHI_GATEWAY_URL?.trim()
+export async function resolveGatewayUrl(env: NodeJS.ProcessEnv = process.env, probe: GatewayUrlProbe = {}): Promise<string> {
+  const configured = configuredGatewayUrl(env)
   if (configured) return configured
-  return development ? DEVELOPMENT_GATEWAY_URL : undefined
+  const localUrl = probe.localUrl ?? DEVELOPMENT_GATEWAY_URL
+  const productionUrl = probe.productionUrl ?? PRODUCTION_GATEWAY_URL
+  return (await localGatewayReady(localUrl, probe)) ? localUrl : productionUrl
 }
 
 /** Development overrides isolate concurrent worktrees without changing production identity. */

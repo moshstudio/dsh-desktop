@@ -10,9 +10,9 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { generateImage, ImageGenError, type UpstreamConfig } from './engine.ts'
+import { generateImage, ImageGenError, runImageCalls, type UpstreamConfig } from './engine.ts'
 import { generateVideo, VideoGenError } from './video-engine.ts'
-import { ensureImageModels, generateTaichiImage, TAICHI_CHANNEL_ID, TaichiGatewayError, videoReservedMessage, type TaichiReferenceImage } from './taichi-gateway.ts'
+import { ensureImageModels, ensureVideoModels, generateTaichiImage, generateTaichiVideo, TAICHI_CHANNEL_ID, TaichiGatewayError, type TaichiReferenceImage } from './taichi-gateway.ts'
 import { applyPlan, adoptPlan, planVideo, requirePrompt, VideoPlanError, type ChatCompleter } from './video-director.ts'
 import { describeVideoModel } from './video-model-catalog.ts'
 import { appendVideoHistory } from './video-store.ts'
@@ -95,7 +95,7 @@ export class ImageGenerationRuntime {
   ) {
     // Every task runs in parallel up to this small host-wide limit; a
     // four-model comparison fits within it in a single wave.
-    this.queue = new GenerationTaskQueue((request, signal) => this.run(request, signal), 4)
+    this.queue = new GenerationTaskQueue((request, signal, report) => this.run(request, signal, report), 4)
     // Video concurrency is 1: renders are minutes long and providers queue
     // them anyway, so parallel submits only make the queue less predictable.
     this.videoQueue = new VideoTaskQueue((request, signal) => this.runVideo(request, signal), 1)
@@ -174,6 +174,23 @@ export class ImageGenerationRuntime {
     )
   }
 
+  /** Account-gateway video: `POST /v1/videos`, then poll until the clip is ready. */
+  private async renderTaichiVideo(request: VideoGenerateRequest, signal?: AbortSignal) {
+    try {
+      return await generateTaichiVideo({
+        modelId: request.upstream ?? request.model,
+        prompt: request.prompt,
+        aspectRatio: request.aspectRatio,
+        seconds: request.seconds,
+        mode: request.mode,
+        images: [request.image, ...(request.images ?? []), request.firstFrame, request.lastFrame],
+      }, process.env, signal)
+    } catch (error) {
+      if (error instanceof TaichiGatewayError) throw new VideoGenError(error.message, error.code)
+      throw error
+    }
+  }
+
   /** Generate one video: submit, poll, download, then persist the clip. */
   async runVideo(request: VideoGenerateRequest, signal?: AbortSignal): Promise<VideoGenerateResult> {
     // ---- code path --------------------------------------------------------
@@ -183,14 +200,11 @@ export class ImageGenerationRuntime {
     // provider (and no video model alias) is needed.
     if (request.renderer === 'code') return await this.runVideoCode(request, signal)
 
-    await ensureImageModels()
+    await Promise.all([ensureImageModels(), ensureVideoModels()])
     const view = this.resolve()
     const channel = this.videoChannel(request.model, request.channelId, view)
     if (channel === undefined) {
       throw new VideoGenError('请先登录后再使用。', 'AUTH')
-    }
-    if (channel.id === TAICHI_CHANNEL_ID) {
-      throw new VideoGenError(videoReservedMessage(), 'video-not-ready')
     }
     // Map the panel's alias onto the channel's upstream id, exactly like the
     // image path does, so the engine always sends the real gateway model id.
@@ -244,11 +258,13 @@ export class ImageGenerationRuntime {
       effective = applyPlan(effective, plan)
     }
 
-    const result = await generateVideo(
-      { apiUrl: channel.apiUrl, apiKey: channel.apiKey, apiUrlFull: channel.apiUrlFull, protocol: channel.protocol, preset: channel.preset, autoReferenceLimit: channel.autoReferenceLimit !== false, channelName: channel.name } satisfies UpstreamConfig,
-      effective,
-      { ...signal === undefined ? {} : { signal }, family },
-    )
+    const result = channel.id === TAICHI_CHANNEL_ID
+      ? { videos: [await this.renderTaichiVideo(effective, signal)] }
+      : await generateVideo(
+        { apiUrl: channel.apiUrl, apiKey: channel.apiKey, apiUrlFull: channel.apiUrlFull, protocol: channel.protocol, preset: channel.preset, autoReferenceLimit: channel.autoReferenceLimit !== false, channelName: channel.name } satisfies UpstreamConfig,
+        effective,
+        { ...signal === undefined ? {} : { signal }, family },
+      )
     const entryId = randomUUID()
     try {
       const history = await appendVideoHistory({
@@ -466,14 +482,19 @@ export class ImageGenerationRuntime {
     }
   }
 
-  private async generateTaichi(request: GenerateRequest, signal?: AbortSignal): Promise<GenerateResult> {
+  private async generateTaichi(
+    request: GenerateRequest,
+    signal?: AbortSignal,
+    report?: (partial: Pick<GenerateResult, 'images' | 'slots'>) => void,
+  ): Promise<GenerateResult> {
     const references = taichiReferences(request)
     const outputFormat = request.outputFormat === 'gif' || request.outputFormat === 'svg' ? request.outputFormat : 'png'
     const mime = outputFormat === 'gif' ? 'image/gif' : outputFormat === 'svg' ? 'image/svg+xml' : 'image/png'
     try {
       const count = Math.max(1, Math.min(4, Math.trunc(request.n) || 1))
-      const images: GeneratedImage[] = []
-      for (let index = 0; index < count; index += 1) {
+      // One request per picture, all in flight together. A failure stays on
+      // that picture; the ones that returned are kept and shown.
+      return await runImageCalls(Array.from({ length: count }, () => async () => {
         const bytes = await generateTaichiImage({
           prompt: request.prompt,
           modelId: (request.upstream ?? request.model).trim(),
@@ -485,16 +506,19 @@ export class ImageGenerationRuntime {
           mode: request.mode,
           ...references.length > 0 ? { images: references } : {},
         }, process.env, signal)
-        images.push({ b64: bytes.toString('base64'), mime })
-      }
-      return { images }
+        return [{ b64: bytes.toString('base64'), mime }]
+      }), signal, report)
     } catch (error) {
       if (error instanceof TaichiGatewayError) throw new ImageGenError(error.message, error.code)
       throw error
     }
   }
 
-  async run(request: GenerateRequest, signal?: AbortSignal): Promise<GenerateResult> {
+  async run(
+    request: GenerateRequest,
+    signal?: AbortSignal,
+    report?: (partial: Pick<GenerateResult, 'images' | 'slots'>) => void,
+  ): Promise<GenerateResult> {
     // The code path needs no image model, so it is resolved before any channel
     // lookup: requiring a configured image channel here would be a lie.
     if (request.renderer === 'code') return await this.runImageCode(request, signal)
@@ -512,10 +536,10 @@ export class ImageGenerationRuntime {
       throw new ImageGenError('当前无法生成 GIF。', 'gif-unsupported')
     }
     const result = channel.id === TAICHI_CHANNEL_ID
-      ? await this.generateTaichi(request, signal)
+      ? await this.generateTaichi(request, signal, report)
       : channel.auth === 'subscription' && channel.subscription !== undefined
-        ? { images: await this.generateSubscription(channel.subscription, request, signal) }
-        : await generateImage({ apiUrl: channel.apiUrl, apiKey: channel.apiKey, apiUrlFull: channel.apiUrlFull, protocol: channel.protocol, preset: channel.preset, autoReferenceLimit: channel.autoReferenceLimit !== false, channelName: channel.name, watermark: channel.watermark } satisfies UpstreamConfig, request, { signal })
+        ? await this.generateSubscription(channel.subscription, request, signal, report)
+        : await generateImage({ apiUrl: channel.apiUrl, apiKey: channel.apiKey, apiUrlFull: channel.apiUrlFull, protocol: channel.protocol, preset: channel.preset, autoReferenceLimit: channel.autoReferenceLimit !== false, channelName: channel.name, watermark: channel.watermark } satisfies UpstreamConfig, request, { signal, onProgress: report })
     try {
       // Same contract as the code path: the id must exist before the append so
       // the caller can echo it back as `embedId` and resolve the written files.
@@ -557,26 +581,33 @@ export class ImageGenerationRuntime {
   }
 
   /** Generate images through one logged-in subscription account. */
-  private async generateSubscription(provider: SubscriptionProvider, request: GenerateRequest, signal?: AbortSignal): Promise<GeneratedImage[]> {
+  private async generateSubscription(
+    provider: SubscriptionProvider,
+    request: GenerateRequest,
+    signal?: AbortSignal,
+    report?: (partial: Pick<GenerateResult, 'images' | 'slots'>) => void,
+  ): Promise<Pick<GenerateResult, 'images' | 'slots'>> {
     if (this.subscriptions === undefined) {
       throw new ImageGenError('请先登录后再使用。', 'subscription-unavailable')
     }
     const references = subscriptionReferences(request)
     const count = Math.max(1, Math.min(4, Math.trunc(request.n) || 1))
-    const batches = await Promise.all(Array.from({ length: count }, async () => await this.subscriptions!.generate({
-      vendor: vendorOf(provider),
-      prompt: request.prompt,
-      size: request.size,
-      quality: request.quality,
-      ...(references.length > 0 ? { referenceImages: references } : {}),
-      ...(signal === undefined ? {} : { signal }),
-    })))
-    return batches.flatMap(batch => batch.flatMap(row => {
-      const bytes = Buffer.from(row.b64_json, 'base64')
-      const mime = detectImageMime(bytes)
-      if (mime === undefined) throw new ImageGenError('订阅图像返回了无法识别的图片格式', 'subscription-invalid-image')
-      return [{ b64: row.b64_json, mime, ...row.revisedPrompt === undefined ? {} : { revisedPrompt: row.revisedPrompt } }]
-    }))
+    return runImageCalls(Array.from({ length: count }, () => async () => {
+      const batch = await this.subscriptions!.generate({
+        vendor: vendorOf(provider),
+        prompt: request.prompt,
+        size: request.size,
+        quality: request.quality,
+        ...(references.length > 0 ? { referenceImages: references } : {}),
+        ...(signal === undefined ? {} : { signal }),
+      })
+      return batch.flatMap(row => {
+        const bytes = Buffer.from(row.b64_json, 'base64')
+        const mime = detectImageMime(bytes)
+        if (mime === undefined) throw new ImageGenError('订阅图像返回了无法识别的图片格式', 'subscription-invalid-image')
+        return [{ b64: row.b64_json, mime, ...row.revisedPrompt === undefined ? {} : { revisedPrompt: row.revisedPrompt } }]
+      })
+    }), signal, report)
   }
 }
 

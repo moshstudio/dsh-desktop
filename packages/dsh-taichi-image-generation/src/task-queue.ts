@@ -24,7 +24,11 @@ export class GenerationTaskQueue {
   private running = 0
 
   constructor(
-    private readonly run: (request: GenerateRequest, signal: AbortSignal) => Promise<GenerateResult>,
+    private readonly run: (
+      request: GenerateRequest,
+      signal: AbortSignal,
+      report?: (partial: Pick<GenerateResult, 'images' | 'slots'>) => void,
+    ) => Promise<GenerateResult>,
     private readonly concurrency = 1,
   ) {}
 
@@ -67,6 +71,7 @@ export class GenerationTaskQueue {
     const task = this.tasks.find(item => item.id === id)
     if (task === undefined || task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') return task
     task.status = 'cancelled'
+    task.result = undefined
     task.finishedAt = Date.now()
     this.controllers.get(id)?.abort()
     this.publish(task)
@@ -127,7 +132,14 @@ export class GenerationTaskQueue {
     const controller = new AbortController()
     this.controllers.set(task.id, controller)
     try {
-      const result = await this.run(task.request, controller.signal)
+      const result = await this.run(task.request, controller.signal, partial => {
+        if (task.status !== 'running') return
+        task.result = {
+          images: partial.images,
+          ...partial.slots === undefined ? {} : { slots: partial.slots },
+        }
+        this.publish(task)
+      })
       if (this.tasks.find(item => item.id === task.id)?.status !== 'cancelled') {
         task.status = 'completed'
         task.result = result
@@ -138,6 +150,7 @@ export class GenerationTaskQueue {
     } catch (error) {
       if (this.tasks.find(item => item.id === task.id)?.status !== 'cancelled') {
         task.status = 'failed'
+        task.result = undefined
         task.error = error instanceof Error ? error.message : String(error)
         task.finishedAt = Date.now()
         this.publish(task)
@@ -172,6 +185,8 @@ export class GenerationTaskQueue {
       ...task.finishedAt === undefined ? {} : { finishedAt: task.finishedAt },
       ...task.error === undefined ? {} : { error: task.error },
       resultAvailable: task.result !== undefined,
+      readyImages: task.result?.images.length ?? 0,
+      readySlots: task.result?.slots?.length ?? 0,
     }
   }
 

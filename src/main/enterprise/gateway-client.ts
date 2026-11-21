@@ -4,6 +4,7 @@ import {
   type AccountCreditDay,
   type AccountCredits,
   type AccountLongContextPrice,
+  type AccountMediaModel,
   type AccountModelPrice,
   type AccountOrder,
   type AccountPeakPrice
@@ -67,6 +68,14 @@ export class GatewayClient {
 
   models(accessToken: string): Promise<GatewayResult> {
     return this.send('/v1/models', { method: 'GET', token: accessToken })
+  }
+
+  imageModels(accessToken: string): Promise<GatewayResult> {
+    return this.send('/v1/images/models', { method: 'GET', token: accessToken })
+  }
+
+  videoModels(accessToken: string): Promise<GatewayResult> {
+    return this.send('/v1/videos/models', { method: 'GET', token: accessToken })
   }
 
   private async send(path: string, init: { method: string; body?: Record<string, string>; token?: string }): Promise<GatewayResult> {
@@ -218,6 +227,46 @@ export interface GatewayModelProfile {
   input?: Array<'text' | 'image'>
   reasoningEfforts?: Record<string, string>
   price?: AccountModelPrice
+}
+
+/** Image and video rows the account page can price. `undefined` means the body was not a list. */
+export function readMediaModels(body: unknown, kind: 'image' | 'video'): AccountMediaModel[] | undefined {
+  if (!isRecord(body) || !Array.isArray(body.data)) return undefined
+  const models: AccountMediaModel[] = []
+  for (const item of body.data) {
+    const model = readMediaModel(item, kind)
+    if (model) models.push(model)
+  }
+  return models
+}
+
+function readMediaModel(value: unknown, kind: 'image' | 'video'): AccountMediaModel | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string') return undefined
+  const id = value.id.trim()
+  if (id.length === 0) return undefined
+  if (kind === 'image' && value.show_in_picker === false) return undefined
+  const published = typeof value.name === 'string' ? value.name.trim() : ''
+  const credits = nonNegativeNumber(value.credits)
+  const qualityCredits = kind === 'image' ? readQualityCredits(value.quality_credits) : undefined
+  return {
+    id,
+    name: published.length > 0 ? published : id,
+    ...(credits !== undefined ? { credits } : {}),
+    ...(qualityCredits ? { qualityCredits } : {})
+  }
+}
+
+const QUALITY_TIERS = ['1k', '2k', '4k'] as const
+
+function readQualityCredits(value: unknown): AccountMediaModel['qualityCredits'] {
+  if (!isRecord(value)) return undefined
+  const tiers: NonNullable<AccountMediaModel['qualityCredits']> = []
+  for (const tier of QUALITY_TIERS) {
+    const credits = nonNegativeInt(value[tier])
+    if (credits === undefined) continue
+    tiers.push({ tier, credits })
+  }
+  return tiers.length > 0 ? tiers : undefined
 }
 
 /** Models the official listing fully described. Incomplete rows are omitted so route defaults cannot fill them. */

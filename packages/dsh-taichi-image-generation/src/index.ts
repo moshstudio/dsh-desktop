@@ -29,7 +29,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { IMAGEGEN_SETTINGS_NAMESPACE, isChannelProtocolPreference, isSubscriptionProvider, type CanvasSkillConfigApplyRequest, type CanvasSkillConfigApplyResult, type CanvasSkillConfigSaveRequest, type CanvasSkillConfigSaveResult, type CanvasSkillConfigView, type CanvasSkillInstallRequest, type CanvasSkillInstallResult, type CanvasSkillLibrary, type CanvasSkillRemoveResult, type ChannelConfig, type ModelMapping } from './protocol.ts'
 import { makeRoutes, type SettingsSeam } from './routes.ts'
 import { aspectsOf, outputFormatsOf } from './image-request-options.ts'
-import { cachedImageModels, ensureImageModels, resolveTaichiChatConfig, TAICHI_CHANNEL_ID, taichiRuntimeChannel } from './taichi-gateway.ts'
+import { cachedImageModels, ensureImageModels, ensureVideoModels, resolveTaichiChatConfig, TAICHI_CHANNEL_ID, taichiRuntimeChannel } from './taichi-gateway.ts'
 import { SubscriptionManager } from './subscription/manager.ts'
 import { syncAllTemplates } from './templates-store.ts'
 import { setStorageSyncHandler, putObject, type StorageSyncConfig } from './storage-sync.ts'
@@ -364,7 +364,7 @@ export { registerAgentVideoTools, resolveAgentVideoModel, AGENT_VIDEO_TOOL_NAMES
 export { latestSessionImage, registerEditImageCommand } from './edit-image-command.ts'
 export { PptTaskStore } from './ppt-task-store.ts'
 export { pptActivity, PptProgressMonitor } from './ppt-progress.ts'
-export { appendGallery, appendGalleryVideo, clearGallery, GALLERY_TRASH_RETENTION_MS, listGallery, listGalleryTrash, purgeGallery, readGalleryImage, readGalleryVideo, removeGallery, restoreGallery, updateGalleryTags } from './gallery-store.ts'
+export { appendGallery, appendGalleryVideo, clearGallery, GALLERY_TRASH_RETENTION_MS, listGallery, listGalleryTrash, purgeGallery, purgeGalleryEntry, readGalleryImage, readGalleryVideo, removeGallery, restoreGallery, splitGalleryEntries, updateGalleryTags } from './gallery-store.ts'
 export { listTemplates, readTemplateImage, refreshTemplates, sampleTemplates, syncAllTemplates, clearTemplateMemo } from './templates-store.ts'
 export { addTemplateFavorite, clearTemplateFavoritesMemo, listTemplateFavorites, removeTemplateFavorite } from './template-favorites.ts'
 export { putObject, setStorageSyncHandler, testStorage, type StorageSyncConfig } from './storage-sync.ts'
@@ -724,7 +724,7 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
   // The live source the surfaces read: the settings section once the settings
   // service is attached, the composition entry otherwise.
   let current: () => Config = () => config ?? {}
-  const refreshModels = ensureImageModels()
+  const refreshModels = Promise.all([ensureImageModels(), ensureVideoModels()])
   const resolve = (): EffectiveConfig => {
     const value = unwrapConfig(current())
     setImageDataRoot(value.localStoragePath)

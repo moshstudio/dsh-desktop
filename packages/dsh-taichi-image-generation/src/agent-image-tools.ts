@@ -331,17 +331,22 @@ export function registerAgentImageTools(ctx: Context, runtime: ImageGenerationRu
         return file === '' ? null : historyImageAbsolutePath(file)
       }).filter((file): file is string => typeof file === 'string' && file.length > 0)
     })()
+    const slotErrors = (task.result?.slots ?? []).flatMap(slot => typeof slot.error === 'string' && slot.error !== '' ? [slot.error] : [])
     return {
       task_id: task.id,
       status: task.status,
       message: task.status === 'completed'
-        ? 'Generation completed. The images are shown beside this tool call and can be reused as source_image in edit_image.'
+        ? slotErrors.length > 0
+          ? `Generated ${images.length} image(s). ${slotErrors.length} failed: ${slotErrors.join('; ')}. The images that succeeded are shown beside this tool call.`
+          : 'Generation completed. The images are shown beside this tool call and can be reused as source_image in edit_image.'
         : task.status === 'failed'
           ? 'Generation failed.'
           : task.status === 'cancelled'
             ? 'Generation was cancelled.'
             : 'Generation is still running. Query the task again when you need its current status.',
-      ...task.error === undefined ? {} : { error: task.error },
+      ...slotErrors.length > 0
+        ? { error: slotErrors.join('\n') }
+        : task.error === undefined ? {} : { error: task.error },
       ...typeof task.result?.embedId === 'string' && task.result.embedId !== '' ? { embed_id: task.result.embedId } : {},
       ...resultFiles.length > 0 ? { files: resultFiles } : {},
       images,

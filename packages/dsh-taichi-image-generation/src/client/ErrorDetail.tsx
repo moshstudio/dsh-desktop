@@ -12,16 +12,19 @@
  * the exact original string, selectable and copyable.
  */
 import { useState } from 'react'
+import { generationFailureSummaryKey } from './generation-failure.ts'
 import { tt } from './helpers.ts'
 import css from './error-detail.module.css'
 
 export interface ErrorDetailProps {
   /** The provider's own message, shown unchanged once expanded. */
   message: string
-  /** Localized one-line summary; defaults to 「生成失败」. */
+  /** Localized one-line summary. Omitted: classified from `message`. */
   summary?: string
   /** Tone of the summary line. `inline` keeps it on the caller's own row. */
   layout?: 'block' | 'inline'
+  /** `center` for a node card; banners stay start-aligned. */
+  align?: 'start' | 'center'
 }
 
 /**
@@ -30,21 +33,25 @@ export interface ErrorDetailProps {
  * @param props.layout - `block` puts the summary on its own line above the
  *   disclosure (canvas error banner, task rows); `inline` appends the
  *   disclosure to the caller's text so a compact row stays one line.
+ * @param props.align - `center` centers the headline inside a node card.
  */
-export function ErrorDetail({ message, summary, layout = 'block' }: ErrorDetailProps): React.JSX.Element {
+export function ErrorDetail({ message, summary, layout = 'block', align = 'start' }: ErrorDetailProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const headline = summary ?? tt('canvas.generateFailed')
-  return <div className={css.root} data-error-detail="" data-layout={layout}>
+  const classified = summary === undefined ? generationFailureSummaryKey(message) : null
+  const headline = summary ?? (classified === null ? message.trim() : tt(classified))
+  const raw = message.trim()
+  const showRaw = raw !== '' && raw !== headline.trim()
+  return <div className={css.root} data-error-detail="" data-layout={layout} data-align={align}>
     <p className={css.summary} role="alert">
       <span>{headline}</span>
-      <button
+      {showRaw ? <button
         type="button"
         className={css.toggle}
         aria-expanded={open}
         data-error-toggle=""
         onClick={() => { setOpen(value => !value) }}
-      >{tt(open ? 'error.detailHide' : 'error.detailShow')}</button>
+      >{tt(open ? 'error.detailHide' : 'error.detailShow')}</button> : null}
     </p>
-    {open ? <pre className={css.detail} data-error-raw="" tabIndex={0}>{message}</pre> : null}
+    {open && showRaw ? <pre className={css.detail} data-error-raw="" tabIndex={0}>{message}</pre> : null}
   </div>
 }

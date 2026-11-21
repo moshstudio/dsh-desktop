@@ -24,6 +24,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CanvasAssetRef, CanvasDocument, CanvasLayerKind, CanvasNode, CanvasPoseRig, CanvasPromptSetItem, CanvasRect, CanvasSketchStroke } from '../../protocol.ts'
 import type { ImageGenApi } from '../api.ts'
+import { ErrorDetail } from '../ErrorDetail.tsx'
 import { tt } from '../helpers.ts'
 import type { ImageGenKey } from '../locales.ts'
 import type { ImageModelGroup } from '../settings-scope.ts'
@@ -223,6 +224,18 @@ export interface NodeBodyActions {
  * `S` 与 `A` 分开传而不是摊平成几十个 props：两者都是**稳定引用**（上层用
  * `useMemo`/对象字面量持有），摊平会让每次渲染都重建一遍这些箭头函数。
  */
+/** Stagger spinners that share one batch so they don't pulse in lockstep. */
+function batchSpinnerDelay(node: CanvasNode, nodes: readonly CanvasNode[] | undefined): string | undefined {
+  const taskId = nodeMetadata(node).taskId
+  if (taskId === undefined || nodes === undefined) return undefined
+  const index = nodes
+    .filter(item => item.type === node.type && nodeMetadata(item).taskId === taskId)
+    .sort((left, right) => left.y - right.y || left.x - right.x)
+    .findIndex(item => item.id === node.id)
+  if (index <= 0) return undefined
+  return `${index * 0.2}s`
+}
+
 export function NodeBody(props: { node: CanvasNode; S: NodeBodyState; A: NodeBodyActions }): React.JSX.Element {
   const { node, S, A } = props
 const metadata = S.nodeMetadata(node)
@@ -234,6 +247,9 @@ const asset = S.assetOf(node)
 // style slip: a video placeholder fell through to the "no clip yet" branch
 // and painted 生成失败 on its first frame while it was still rendering.
 const isGenerating = (node.type === 'image' || node.type === 'video') && metadata.status === 'generating'
+const imageSpinnerDelay = node.type === 'image' && isGenerating
+  ? batchSpinnerDelay(node, S.canvasDocument?.nodes)
+  : undefined
 const isError = (node.type === 'image' || node.type === 'video') && metadata.status === 'error'
 const isConnectTarget = S.connecting?.targetId === node.id
 /*
@@ -580,7 +596,7 @@ return <>
           : isGenerating || metadata.status === 'idle'
             ? <div className={css.nodeState} data-video-generating=""><span className={css.nodeSpinner} aria-hidden="true" /><span>{tt('canvas.videoGeneratingNode')}</span></div>
             : isError
-              ? <div className={css.nodeStateError} data-video-error="">{metadata.error ?? tt('canvas.generateFailed')}{metadata.renderer === 'code' ? <span className={css.nodeStateHint}>{tt('canvas.rendererFailedHint')}</span> : null}<button type="button" onClick={() => { void A.retryVideoGeneration(node) }}>{tt('canvas.retry')}</button></div>
+              ? <div className={css.nodeStateError} data-video-error=""><ErrorDetail message={metadata.error ?? tt('canvas.generateFailed')} align="center" />{metadata.renderer === 'code' ? <span className={css.nodeStateHint}>{tt('canvas.rendererFailedHint')}</span> : null}<button type="button" onClick={() => { void A.retryVideoGeneration(node) }}>{tt('canvas.retry')}</button></div>
               : <div className={css.nodeState} data-video-empty=""><span>{tt('canvas.videoEmptyNode')}</span></div>}
       </div>
     : isFile
@@ -602,9 +618,9 @@ return <>
         </div>
     : <div className={css.nodeBody} data-node-body="image">
         {isGenerating
-          ? <div className={css.nodeState}><span className={css.nodeSpinner} aria-hidden="true" /><span>{tt('canvas.generatingNode')}</span></div>
+          ? <div className={css.nodeState}><span className={css.nodeSpinner} style={imageSpinnerDelay === undefined ? undefined : { animationDelay: imageSpinnerDelay }} aria-hidden="true" /><span>{tt('canvas.generatingNode')}</span></div>
           : isError
-            ? <div className={css.nodeStateError}>{metadata.error ?? tt('canvas.generateFailed')}{metadata.renderer === 'code' ? <span className={css.nodeStateHint}>{tt('canvas.rendererFailedHint')}</span> : null}<button type="button" onClick={() => { void A.retryGeneration(node) }}>{tt('canvas.retry')}</button></div>
+            ? <div className={css.nodeStateError}><ErrorDetail message={metadata.error ?? tt('canvas.generateFailed')} align="center" />{metadata.renderer === 'code' ? <span className={css.nodeStateHint}>{tt('canvas.rendererFailedHint')}</span> : null}<button type="button" onClick={() => { void A.retryGeneration(node) }}>{tt('canvas.retry')}</button></div>
             : hasImage
               ? <img src={asset.url} alt={node.title} title={tt('canvas.preview.doubleClick')} draggable={false} onDragStart={event => event.preventDefault()} />
               : <button type="button" className={css.nodeEmpty} onClick={() => S.imageFileRef.current?.click()}><S.ToolbarIcon name="image" /><span>{tt('canvas.emptyImageNode')}</span></button>}

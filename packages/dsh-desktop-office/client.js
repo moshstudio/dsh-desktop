@@ -101,24 +101,115 @@ window.__ModuleLoader__.load({ id: 'dsh-desktop-office', factory: require => {
   }
 
   // Share the existing Composer seat geometry used by the PPT chooser.
+  // Blank-session composer is vertically centered. Lift it while a template dock is open.
+  const TEMPLATE_LIFT_TOP_PX = 24
+  const TEMPLATE_LIFT_TRANSITION = 'transform 320ms cubic-bezier(.22, 1, .36, 1)'
+  function templateLiftMotion() {
+    try { return typeof matchMedia !== 'function' || matchMedia('(prefers-reduced-motion: reduce)').matches !== true }
+    catch { return true }
+  }
+  const templateLiftEnd = new WeakMap()
+  function clearTemplatePanelLift(seat) {
+    if (!seat) return
+    const listener = templateLiftEnd.get(seat)
+    if (listener) { seat.removeEventListener?.('transitionend', listener); templateLiftEnd.delete(seat) }
+    seat.style?.removeProperty?.('transform')
+    seat.style?.removeProperty?.('transition')
+    seat.removeAttribute?.('data-template-panel-lift')
+  }
+  function templateLiftHero(seat) {
+    if (typeof seat?.closest !== 'function') return true
+    const phase = seat.closest('[data-content-phase]')?.getAttribute('data-content-phase')
+      ?? seat.closest('[data-phase]')?.getAttribute('data-phase')
+    return phase == null || phase === 'hero'
+  }
+  function foreignTemplatePanels(seat, owningRoot) {
+    const selector = '[data-office-ppt-template-panel], [data-office-dock]'
+    const nodes = typeof seat?.querySelectorAll === 'function' ? [...seat.querySelectorAll(selector)]
+      : typeof seat?.querySelector === 'function' && seat.querySelector(selector) ? [seat.querySelector(selector)] : []
+    return nodes.filter(node => node && (owningRoot == null || typeof owningRoot.contains !== 'function' || !owningRoot.contains(node)))
+  }
+  function dropTemplateLiftAfterPhase(seat) {
+    const drop = () => { if (seat?.hasAttribute?.('data-template-panel-lift') && !templateLiftHero(seat)) clearTemplatePanelLift(seat) }
+    if (typeof queueMicrotask === 'function') queueMicrotask(drop)
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(drop)
+  }
+  function releaseTemplatePanelLift(seat, owningRoot) {
+    if (!seat?.hasAttribute?.('data-template-panel-lift')) return
+    if (!templateLiftHero(seat) || !templateLiftMotion()) { clearTemplatePanelLift(seat); return }
+    if (foreignTemplatePanels(seat, owningRoot).length > 0) { dropTemplateLiftAfterPhase(seat); return }
+    seat.style.transition = TEMPLATE_LIFT_TRANSITION
+    seat.style.transform = 'translateY(0px)'
+    const finishOnEnd = event => {
+      if (event?.target !== seat || event.propertyName !== 'transform') return
+      seat.removeEventListener('transitionend', finishOnEnd)
+      templateLiftEnd.delete(seat)
+      if (seat.style.transform !== 'translateY(0px)') return
+      clearTemplatePanelLift(seat)
+    }
+    templateLiftEnd.set(seat, finishOnEnd)
+    seat.addEventListener('transitionend', finishOnEnd)
+    dropTemplateLiftAfterPhase(seat)
+  }
   function useDockGeometry(root, panel, visible) {
     React.useLayoutEffect(() => {
       if (!visible || !root.current || !panel.current) return
       const element = root.current, body = element.closest('[data-conversation-scroll]')
       const card = element.closest('[data-composer-seat]')?.querySelector('[data-composer-card]')
       if (!body || !card) return
+      const seat = typeof card.closest === 'function' ? card.closest('[data-composer-seat]') : null
+      let frame = 0
       const sync = () => {
         const bodyRect = body.getBoundingClientRect(), cardRect = card.getBoundingClientRect()
         element.style.setProperty('--dso-dock-width', `${Math.min(cardRect.width, bodyRect.width)}px`)
-        element.style.setProperty('--dso-dock-height', `${Math.max(200, Math.floor(bodyRect.bottom - panel.current.getBoundingClientRect().top - 12))}px`)
+        const hero = body.parentElement?.getAttribute('data-content-phase') === 'hero'
+        const readTranslate = element => {
+          try {
+            if (element?.nodeType === 1 && typeof getComputedStyle === 'function') {
+              const value = getComputedStyle(element).transform
+              if (value && value !== 'none') {
+                const offset = new DOMMatrix(value).m42
+                if (Number.isFinite(offset)) return offset
+              }
+              return 0
+            }
+          } catch { /* use the inline target when computed style is unavailable */ }
+          const matched = /translateY\(([-\d.]+)px\)/.exec(element?.style?.transform ?? '')
+          return matched ? Number(matched[1]) : 0
+        }
+        let panelTop = panel.current.getBoundingClientRect().top
+        if (!hero && seat?.hasAttribute('data-template-panel-lift')) clearTemplatePanelLift(seat)
+        if (hero && seat) {
+          const applied = readTranslate(seat)
+          const lift = Math.max(0, Math.round(seat.getBoundingClientRect().top - applied - bodyRect.top - TEMPLATE_LIFT_TOP_PX))
+          if (templateLiftMotion()) seat.style.transition = TEMPLATE_LIFT_TRANSITION
+          else seat.style.removeProperty('transition')
+          if (lift > 0) {
+            seat.style.transform = `translateY(${-lift}px)`
+            seat.setAttribute('data-template-panel-lift', '')
+          } else if (seat.hasAttribute('data-template-panel-lift')) {
+            seat.style.removeProperty('transform')
+            seat.removeAttribute('data-template-panel-lift')
+          }
+          panelTop = panel.current.getBoundingClientRect().top
+          const target = Number(/translateY\(([-\d.]+)px\)/.exec(seat.style?.transform ?? '')?.[1] ?? 0)
+          if (templateLiftMotion() && Math.abs(readTranslate(seat) - target) > 0.5 && typeof requestAnimationFrame === 'function') {
+            cancelAnimationFrame(frame)
+            frame = requestAnimationFrame(sync)
+          }
+        }
+        element.style.setProperty('--dso-dock-height', `${Math.max(200, Math.floor(bodyRect.bottom - panelTop - 12))}px`)
       }
       const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(sync) : null
       observer?.observe(body); observer?.observe(card)
+      const phaseObserver = body.parentElement && typeof MutationObserver === 'function' ? new MutationObserver(sync) : null
+      phaseObserver?.observe(body.parentElement, { attributes: true, attributeFilter: ['data-content-phase'] })
       window.addEventListener('resize', sync)
-      const frame = window.requestAnimationFrame(sync)
+      frame = window.requestAnimationFrame(sync)
       return () => {
-        window.cancelAnimationFrame(frame); observer?.disconnect(); window.removeEventListener('resize', sync)
+        window.cancelAnimationFrame(frame); observer?.disconnect(); phaseObserver?.disconnect(); window.removeEventListener('resize', sync)
         element.style.removeProperty('--dso-dock-width'); element.style.removeProperty('--dso-dock-height')
+        releaseTemplatePanelLift(seat, element)
       }
     }, [root, panel, visible])
   }

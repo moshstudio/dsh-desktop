@@ -181,6 +181,41 @@ describe('account profile partial failures', () => {
       credits: { recharge: [{ id: 'checkin-1', kind: 'checkin' }] }
     })
   })
+
+  it('keeps chat models when the image catalog fails and treats an empty video list as ready', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-account-media-'))
+    directories.push(home)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const fetchImpl: typeof fetch = async input => {
+      const url = String(input)
+      if (url.endsWith('/login')) return Response.json({ accessToken: 'access', refreshToken: 'refresh' })
+      if (url.endsWith('/v1/images/models')) return Response.json({ error: 'offline' }, { status: 503 })
+      if (url.endsWith('/v1/videos/models')) return Response.json({ data: [] })
+      if (url.endsWith('/v1/models')) return Response.json({ data: [listed('demo')] })
+      return Response.json({ balance: 4 })
+    }
+    const account = new DesktopAccountService({
+      gatewayUrl: 'https://gateway.test',
+      sessionFile: join(home, 'session.json'),
+      profileDir: join(home, 'profile'),
+      secretBox: box,
+      fetchImpl
+    })
+    await expect(account.login('owner@example.com', 'password')).resolves.toMatchObject({
+      signedIn: true,
+      models: [{ id: 'demo', name: 'demo' }],
+      imageModels: [],
+      videoModels: [],
+      message: '',
+      profile: { models: 'ready', balance: 'ready', images: 'failed', videos: 'ready' }
+    })
+    await expect(account.logout()).resolves.toMatchObject({
+      signedIn: false,
+      models: [],
+      imageModels: [],
+      videoModels: []
+    })
+  })
 })
 
 

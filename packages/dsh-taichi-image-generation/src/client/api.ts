@@ -405,15 +405,17 @@ export class ImageGenApi {
   }
 
   /** Append one image to the gallery. The host assigns the id and skips the
-   *  append when a content-identical image is already in the gallery. */
-  async galleryAppend(entry: HistoryEntryInput): Promise<{ entries: HistoryEntry[]; added: boolean }> {
+   *  append when a content-identical image is already on the shelf. A match
+   *  that only lives in the trash is restored, and `trash` is the shelf's
+   *  trash after that change. */
+  async galleryAppend(entry: HistoryEntryInput): Promise<{ entries: HistoryEntry[]; trash?: HistoryEntry[]; added: boolean }> {
     const response = await fetch(GALLERY_API.append, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ entry }),
     })
-    const body = await readEnvelope<{ ok: true; entries: HistoryEntry[]; added: boolean }>(response)
-    return { entries: body.entries, added: body.added }
+    const body = await readEnvelope<{ ok: true; entries: HistoryEntry[]; trash?: HistoryEntry[]; added: boolean }>(response)
+    return { entries: body.entries, ...body.trash === undefined ? {} : { trash: body.trash }, added: body.added }
   }
 
   /** Move one gallery entry to the trash (soft delete: its files stay). */
@@ -427,9 +429,25 @@ export class ImageGenApi {
     return { entries: body.entries, trash: body.trash ?? [] }
   }
 
-  /** Bring one trashed entry back into the gallery. */
-  async galleryRestore(id: string): Promise<{ entries: HistoryEntry[]; trash: HistoryEntry[] }> {
+  /** Bring one trashed entry back into the gallery.
+   *  `missing` means it expired before the click landed; `duplicate` means the
+   *  shelf already had the same picture, so the trash copy was dropped. */
+  async galleryRestore(id: string): Promise<{ entries: HistoryEntry[]; trash: HistoryEntry[]; outcome: 'restored' | 'missing' | 'duplicate' }> {
     const response = await fetch(GALLERY_API.restore, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    const body = await readEnvelope<{ ok: true; entries: HistoryEntry[]; trash?: HistoryEntry[]; outcome?: string }>(response)
+    const outcome = body.outcome === 'restored' || body.outcome === 'missing' || body.outcome === 'duplicate'
+      ? body.outcome
+      : body.entries.some(entry => entry.id === id) ? 'restored' : 'missing'
+    return { entries: body.entries, trash: body.trash ?? [], outcome }
+  }
+
+  /** Permanently delete one trashed entry and its files. */
+  async galleryPurgeOne(id: string): Promise<{ entries: HistoryEntry[]; trash: HistoryEntry[] }> {
+    const response = await fetch(GALLERY_API.purgeOne, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id }),

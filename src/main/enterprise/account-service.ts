@@ -1,4 +1,4 @@
-import { isRechargeYuan, type AccountCredits, type AccountModel, type AccountPurchaseResult, type AccountStatus } from '../../shared/account-gateway'
+import { isRechargeYuan, type AccountCredits, type AccountMediaModel, type AccountModel, type AccountPurchaseResult, type AccountStatus } from '../../shared/account-gateway'
 import { validModelEndpoint } from '../recovery/startup-config-recovery'
 import {
   GatewayClient,
@@ -6,6 +6,7 @@ import {
   readCreditSummary,
   readError,
   readGatewayModels,
+  readMediaModels,
   readPurchaseOrder,
   readTokenPair
 } from './gateway-client'
@@ -77,9 +78,13 @@ export class DesktopAccountService {
   private needsRestart = false
   private message = ''
   private models: AccountModel[] = []
+  private imageModels: AccountMediaModel[] = []
+  private videoModels: AccountMediaModel[] = []
   private credits: AccountCredits | null = null
   private modelsFailed = false
   private balanceFailed = false
+  private imagesFailed = false
+  private videosFailed = false
   private checkedIn = false
 
   constructor(private readonly options: AccountServiceOptions) {
@@ -101,6 +106,8 @@ export class DesktopAccountService {
         name: model.name,
         ...(model.price ? { price: { ...model.price } } : {})
       })),
+      imageModels: this.imageModels.map(copyMediaModel),
+      videoModels: this.videoModels.map(copyMediaModel),
       credits: this.credits ? {
         consumed: this.credits.consumed,
         recharged: this.credits.recharged,
@@ -111,7 +118,9 @@ export class DesktopAccountService {
       } : null,
       profile: {
         models: this.modelsFailed ? 'failed' : 'ready',
-        balance: this.balanceFailed ? 'failed' : 'ready'
+        balance: this.balanceFailed ? 'failed' : 'ready',
+        images: this.imagesFailed ? 'failed' : 'ready',
+        videos: this.videosFailed ? 'failed' : 'ready'
       },
       checkedIn: this.checkedIn
     }
@@ -261,9 +270,13 @@ export class DesktopAccountService {
     this.email = email
     this.balance = null
     this.models = []
+    this.imageModels = []
+    this.videoModels = []
     this.credits = null
     this.modelsFailed = false
     this.balanceFailed = false
+    this.imagesFailed = false
+    this.videosFailed = false
     this.checkedIn = false
     this.message = ''
     await this.publish(tokens.accessToken)
@@ -310,7 +323,37 @@ export class DesktopAccountService {
       this.message = 'profile_unavailable'
     }
     await this.loadCredits(accessToken)
+    await this.loadMediaCatalog(accessToken, 'image')
+    await this.loadMediaCatalog(accessToken, 'video')
     if (!this.modelsFailed && !this.balanceFailed && this.message === 'profile_unavailable') this.message = ''
+  }
+
+  /** Image and video prices stay off the chat provider. A miss there does not undo sign-in. */
+  private async loadMediaCatalog(accessToken: string, kind: 'image' | 'video'): Promise<void> {
+    if (!this.client) return
+    try {
+      const listed = kind === 'image'
+        ? await this.client.imageModels(accessToken)
+        : await this.client.videoModels(accessToken)
+      const models = readMediaModels(listed.body, kind)
+      if (listed.status !== 200 || models === undefined) throw new AccountResponseError(listed.status)
+      if (kind === 'image') {
+        this.imageModels = models
+        this.imagesFailed = false
+      } else {
+        this.videoModels = models
+        this.videosFailed = false
+      }
+    } catch (error) {
+      console.error(`[account] ${kind} catalog could not be read`, safeDiagnostic(error))
+      if (kind === 'image') {
+        this.imageModels = []
+        this.imagesFailed = true
+      } else {
+        this.videoModels = []
+        this.videosFailed = true
+      }
+    }
   }
 
   private async loadCredits(accessToken: string): Promise<void> {
@@ -355,10 +398,23 @@ export class DesktopAccountService {
     this.email = ''
     this.balance = null
     this.models = []
+    this.imageModels = []
+    this.videoModels = []
     this.credits = null
     this.modelsFailed = false
     this.balanceFailed = false
+    this.imagesFailed = false
+    this.videosFailed = false
     this.checkedIn = false
     this.message = ''
+  }
+}
+
+function copyMediaModel(model: AccountMediaModel): AccountMediaModel {
+  return {
+    id: model.id,
+    name: model.name,
+    ...(model.credits !== undefined ? { credits: model.credits } : {}),
+    ...(model.qualityCredits ? { qualityCredits: model.qualityCredits.map(tier => ({ tier: tier.tier, credits: tier.credits })) } : {})
   }
 }

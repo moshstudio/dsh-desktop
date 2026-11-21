@@ -68,6 +68,23 @@
 .field[data-compact] .title { font-size: 12px; }
 .field[data-compact] .hint { font-size: 11px; }
 
+.field[data-tile] {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  min-height: 160px;
+}
+.field[data-tile] .badge {
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  padding: 8px 12px;
+  text-align: left;
+  border-radius: var(--dsw-radius-lg);
+}
+.field[data-tile] .title { font-size: 12px; }
+.field[data-tile] .hint { font-size: 11px; }
+
 @media (prefers-reduced-motion: reduce) {
   .dot { animation: none; opacity: 0.65; }
 }

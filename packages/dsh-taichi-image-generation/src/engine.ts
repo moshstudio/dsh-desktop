@@ -8,7 +8,7 @@
  * it directly.
  */
 
-import { isChatCompletionsUrl, qwenDrawBaseUrl, resolveChannelProtocol, type ChannelProtocolPreference, type GeneratedImage, type GenerateRequest, type GenerateResult } from './protocol.ts'
+import { isChatCompletionsUrl, qwenDrawBaseUrl, resolveChannelProtocol, type ChannelProtocolPreference, type GeneratedImage, type GeneratedImageSlot, type GenerateRequest, type GenerateResult } from './protocol.ts'
 import { detectImageMime } from './image-format.ts'
 import { clampGifFrameCount, clampGifFrameDurationMs, modelFamily, promptCharLimit, supportsGifOutput } from './model-catalog.ts'
 import { bodyByteLength, excerptOf, networkErrorFields, readResponseExcerpt, readResponseText, recordDiagnostic, type DiagnosticPhase } from './diagnostics-store.ts'
@@ -1476,6 +1476,110 @@ async function requestOneImage(
 }
 
 /**
+ * Keep every image a parallel fan-out actually produced.
+ *
+ * `Promise.all` rejected the whole count when one call failed, and the
+ * pictures that had already come back were discarded with it. A failed call
+ * becomes a slot error. The batch fails only when nothing came back.
+ * Cancellation is the caller's job (`runImageCalls`): an aborted batch must
+ * not be saved as a partial success.
+ */
+export function collectImageBatch(settled: readonly PromiseSettledResult<GeneratedImage[]>[]): Pick<GenerateResult, 'images' | 'slots'> {
+  const images: GeneratedImage[] = []
+  const slots: GeneratedImageSlot[] = []
+  let firstFailure: unknown
+  for (const outcome of settled) {
+    if (outcome.status === 'rejected') {
+      firstFailure ??= outcome.reason
+      slots.push({ error: batchFailureMessage(outcome.reason) })
+      continue
+    }
+    if (outcome.value.length === 0) {
+      const empty = new ImageGenError('上游返回了 0 张图片', 'upstream-empty')
+      firstFailure ??= empty
+      slots.push({ error: empty.message })
+      continue
+    }
+    for (const image of outcome.value) {
+      slots.push({ imageIndex: images.length })
+      images.push(image)
+    }
+  }
+  if (images.length === 0) throw asImageGenError(firstFailure)
+  if (!slots.some(slot => slot.error !== undefined)) return { images }
+  return { images, slots }
+}
+
+/** Called once per settled call, with every picture that has finished so far. */
+export type ImageBatchListener = (partial: Pick<GenerateResult, 'images' | 'slots'>) => void
+
+/**
+ * Pictures that have settled, in request order.
+ *
+ * Rebuilt from scratch after each call so an earlier request that finishes
+ * later keeps its own index. Pending calls are left out; the caller treats a
+ * missing index as still in flight.
+ */
+function snapshotImageBatch(
+  settled: ReadonlyArray<PromiseSettledResult<GeneratedImage[]> | undefined>,
+): Pick<GenerateResult, 'images' | 'slots'> {
+  const images: GeneratedImage[] = []
+  const slots: GeneratedImageSlot[] = []
+  for (let index = 0; index < settled.length; index += 1) {
+    const outcome = settled[index]
+    if (outcome === undefined) continue
+    if (outcome.status === 'rejected') {
+      slots.push({ index, error: batchFailureMessage(outcome.reason) })
+      continue
+    }
+    if (outcome.value.length === 0) {
+      slots.push({ index, error: '上游返回了 0 张图片' })
+      continue
+    }
+    slots.push({ index, imageIndex: images.length })
+    images.push(...outcome.value)
+  }
+  return { images, slots }
+}
+
+/**
+ * Run image calls together. One rejection does not cancel the others.
+ * `onProgress` fires after each call settles and before the slower ones return.
+ */
+export async function runImageCalls(
+  calls: ReadonlyArray<() => Promise<GeneratedImage[]>>,
+  signal?: AbortSignal,
+  onProgress?: ImageBatchListener,
+): Promise<Pick<GenerateResult, 'images' | 'slots'>> {
+  const settled: Array<PromiseSettledResult<GeneratedImage[]> | undefined> = Array.from({ length: calls.length }, () => undefined)
+  await Promise.all(calls.map(async (call, index) => {
+    try {
+      settled[index] = { status: 'fulfilled', value: await call() }
+    } catch (reason) {
+      settled[index] = { status: 'rejected', reason }
+    }
+    if (signal?.aborted === true || onProgress === undefined) return
+    onProgress(snapshotImageBatch(settled))
+  }))
+  if (signal?.aborted === true) throw new ImageGenError('任务已取消', 'cancelled')
+  return collectImageBatch(settled.filter((item): item is PromiseSettledResult<GeneratedImage[]> => item !== undefined))
+}
+
+function batchFailureMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim() !== '') return error.message
+  return '生成失败'
+}
+
+function asImageGenError(error: unknown): ImageGenError {
+  if (error instanceof ImageGenError) return error
+  if (error instanceof Error) {
+    const code = 'code' in error && typeof error.code === 'string' && error.code !== '' ? error.code : 'generate-failed'
+    return new ImageGenError(error.message.trim() === '' ? '生成失败' : error.message, code)
+  }
+  return new ImageGenError(batchFailureMessage(error), 'generate-failed')
+}
+
+/**
  * Google Generative Language native generation (:generateContent with an
  * x-goog-api-key). The body has no `n`, so the requested count is satisfied
  * with parallel single-image calls and flattened in order.
@@ -1485,12 +1589,14 @@ async function generateGoogleNativeImages(
   baseUrl: string,
   request: GenerateRequest,
   signal?: AbortSignal,
-): Promise<GeneratedImage[]> {
+  onProgress?: ImageBatchListener,
+): Promise<Pick<GenerateResult, 'images' | 'slots'>> {
   const count = effectiveCount(request)
-  const batches = await Promise.all(
-    Array.from({ length: count }, () => requestOneGoogleNativeImage(upstream, baseUrl, request, signal)),
+  return runImageCalls(
+    Array.from({ length: count }, () => () => requestOneGoogleNativeImage(upstream, baseUrl, request, signal)),
+    signal,
+    onProgress,
   )
-  return batches.flat()
 }
 
 /** Extract the image parts of one :generateContent reply. Thinking parts are
@@ -1930,7 +2036,8 @@ async function generateQwenDrawImages(
   upstream: UpstreamConfig,
   request: GenerateRequest,
   signal?: AbortSignal,
-): Promise<GeneratedImage[]> {
+  onProgress?: ImageBatchListener,
+): Promise<Pick<GenerateResult, 'images' | 'slots'>> {
   const baseUrl = qwenDrawBaseUrl(baseUrlInput)
   const model = wireModel(request)
   let referenceIds: string[] = []
@@ -1962,7 +2069,7 @@ async function generateQwenDrawImages(
     ...megapixels === undefined ? {} : { megapixels },
   })
   const count = effectiveCount(request)
-  const images = await Promise.all(Array.from({ length: count }, async () => {
+  return runImageCalls(Array.from({ length: count }, () => async () => {
     const drawUrl = `${baseUrl}/api/draw`
     const context = attemptContext(upstream, request, 'generate', drawUrl, 'POST', body, Date.now())
     const budget = requestSignal(signal, UPSTREAM_TIMEOUT_MS)
@@ -2023,12 +2130,11 @@ async function generateQwenDrawImages(
       if (resultUrl === '') throw new ImageGenError('千问生图 API 任务完成但没有返回图片地址', 'upstream-empty')
       const absoluteUrl = new URL(resultUrl, `${baseUrl}/`).toString()
       const normalized = await normalizeItem({ url: absoluteUrl }, upstream, signal)
-      return { b64: normalized.b64, mime: normalized.mime }
+      return [{ b64: normalized.b64, mime: normalized.mime }]
     } finally {
       budget.dispose()
     }
-  }))
-  return images
+  }), signal, onProgress)
 }
 
 /**
@@ -2267,21 +2373,23 @@ async function generateChatCompletionImages(
   baseUrl: string,
   request: GenerateRequest,
   signal?: AbortSignal,
-): Promise<GeneratedImage[]> {
+  onProgress?: ImageBatchListener,
+): Promise<Pick<GenerateResult, 'images' | 'slots'>> {
   const count = effectiveCount(request)
-  const batches = await Promise.all(
-    Array.from({ length: count }, () => requestOneChatImage(upstream, baseUrl, request, signal)),
+  return runImageCalls(
+    Array.from({ length: count }, () => () => requestOneChatImage(upstream, baseUrl, request, signal)),
+    signal,
+    onProgress,
   )
-  return batches.flat()
 }
 
 /**
  * Forward one generate request to the configured endpoint. The requested image
  * count is satisfied with N parallel single-image requests (the `n` batch
  * parameter is never sent, because Responses-API-based gateways reject it as
- * `tools[0].n`), then the results are flattened in order.
+ * `tools[0].n`). A call that fails leaves the images the other calls produced.
  */
-export async function generateImage(upstream: UpstreamConfig, request: GenerateRequest, options: { signal?: AbortSignal } = {}): Promise<GenerateResult> {
+export async function generateImage(upstream: UpstreamConfig, request: GenerateRequest, options: { signal?: AbortSignal; onProgress?: ImageBatchListener } = {}): Promise<GenerateResult> {
   const configuredBaseUrl = upstream.apiUrl.trim().replace(/\/+$/, '')
   const baseUrl = normalizeModelScopeBaseUrl(configuredBaseUrl, upstream.apiUrlFull === true)
   if (baseUrl === '') throw new ImageGenError('请先登录后再使用。', 'config-missing')
@@ -2297,7 +2405,7 @@ export async function generateImage(upstream: UpstreamConfig, request: GenerateR
     if (request.outputFormat === 'gif') {
       throw new ImageGenError('当前无法生成 GIF。', 'gif-protocol-unsupported')
     }
-    return { images: await generateGoogleNativeImages(upstream, baseUrl, request, options.signal) }
+    return generateGoogleNativeImages(upstream, baseUrl, request, options.signal, options.onProgress)
   }
   if (protocol === 'chat-completions') {
     // This body carries only model/messages/stream — there is no output_format
@@ -2306,13 +2414,13 @@ export async function generateImage(upstream: UpstreamConfig, request: GenerateR
     if (request.outputFormat === 'gif') {
       throw new ImageGenError('当前无法生成 GIF。', 'gif-protocol-unsupported')
     }
-    return { images: await generateChatCompletionImages(upstream, baseUrl, request, options.signal) }
+    return generateChatCompletionImages(upstream, baseUrl, request, options.signal, options.onProgress)
   }
   if (protocol === 'qwen-draw') {
     if (request.outputFormat === 'gif') {
       throw new ImageGenError('当前无法生成 GIF。', 'gif-protocol-unsupported')
     }
-    return { images: await generateQwenDrawImages(baseUrl, upstream, request, options.signal) }
+    return generateQwenDrawImages(baseUrl, upstream, request, options.signal, options.onProgress)
   }
   // A complete URL is an explicit escape hatch to the exact provider endpoint:
   // use the generic OpenAI-compatible request shape instead of native family
@@ -2328,10 +2436,11 @@ export async function generateImage(upstream: UpstreamConfig, request: GenerateR
   }
   const params = effectiveParams(request, upstream)
   const count = effectiveCount(request)
-  const batches = await Promise.all(
-    Array.from({ length: count }, () => requestOneImage(baseUrl, upstream, request, params, options.signal)),
+  return runImageCalls(
+    Array.from({ length: count }, () => () => requestOneImage(baseUrl, upstream, request, params, options.signal)),
+    options.signal,
+    options.onProgress,
   )
-  return { images: batches.flat() }
 }
 
 /**

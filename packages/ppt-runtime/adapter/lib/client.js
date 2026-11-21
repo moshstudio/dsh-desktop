@@ -96,6 +96,77 @@ button[data-desktop-ppt]:focus-visible{outline:2px solid var(--dsw-alias-label-p
 		const TEMPLATE_PREVIEW_WHEEL_LOCK_MS = 180;
 		const TEMPLATE_DOCK_BOTTOM_PX = 12;
 		const TEMPLATE_PANEL_MIN_HEIGHT_PX = 200;
+		// Blank-session composer is vertically centered. Lift it toward the top of the
+		// scrollport while a template dock is open so the dock can use the space below.
+		const TEMPLATE_LIFT_TOP_PX = 24;
+		const TEMPLATE_LIFT_TRANSITION = "transform 320ms cubic-bezier(.22, 1, .36, 1)";
+		function templateLiftMotion() {
+			try {
+				return typeof matchMedia !== "function" || matchMedia("(prefers-reduced-motion: reduce)").matches !== true;
+			} catch {
+				return true;
+			}
+		}
+		const templateLiftEnd = new WeakMap();
+		function clearTemplatePanelLift(seat) {
+			if (!seat) return;
+			const listener = templateLiftEnd.get(seat);
+			if (listener) {
+				seat.removeEventListener?.("transitionend", listener);
+				templateLiftEnd.delete(seat);
+			}
+			seat.style?.removeProperty?.("transform");
+			seat.style?.removeProperty?.("transition");
+			seat.removeAttribute?.("data-template-panel-lift");
+		}
+		/** The start page is the only place the composer should stay lifted. */
+		function templateLiftHero(seat) {
+			if (typeof seat?.closest !== "function") return true;
+			const phase = seat.closest("[data-content-phase]")?.getAttribute("data-content-phase")
+				?? seat.closest("[data-phase]")?.getAttribute("data-phase");
+			return phase == null || phase === "hero";
+		}
+		function foreignTemplatePanels(seat, owningRoot) {
+			const selector = "[data-office-ppt-template-panel], [data-office-dock]";
+			const nodes = typeof seat?.querySelectorAll === "function" ? [...seat.querySelectorAll(selector)]
+				: typeof seat?.querySelector === "function" && seat.querySelector(selector) ? [seat.querySelector(selector)] : [];
+			return nodes.filter((node) => node && (owningRoot == null || typeof owningRoot.contains !== "function" || !owningRoot.contains(node)));
+		}
+		function dropTemplateLiftAfterPhase(seat) {
+			const drop = () => {
+				if (seat?.hasAttribute?.("data-template-panel-lift") && !templateLiftHero(seat)) clearTemplatePanelLift(seat);
+			};
+			if (typeof queueMicrotask === "function") queueMicrotask(drop);
+			if (typeof requestAnimationFrame === "function") requestAnimationFrame(drop);
+		}
+		/**
+		 * Slide the blank-session composer back. The phase attribute is updated by an
+		 * ancestor after this dock unmounts, while its own panel is still in the tree,
+		 * so a panel still being removed must not keep the offset.
+		 */
+		function releaseTemplatePanelLift(seat, owningRoot) {
+			if (!seat?.hasAttribute?.("data-template-panel-lift")) return;
+			if (!templateLiftHero(seat) || !templateLiftMotion()) {
+				clearTemplatePanelLift(seat);
+				return;
+			}
+			if (foreignTemplatePanels(seat, owningRoot).length > 0) {
+				dropTemplateLiftAfterPhase(seat);
+				return;
+			}
+			seat.style.transition = TEMPLATE_LIFT_TRANSITION;
+			seat.style.transform = "translateY(0px)";
+			const finishOnEnd = (event) => {
+				if (event?.target !== seat || event.propertyName !== "transform") return;
+				seat.removeEventListener("transitionend", finishOnEnd);
+				templateLiftEnd.delete(seat);
+				if (seat.style.transform !== "translateY(0px)") return;
+				clearTemplatePanelLift(seat);
+			};
+			templateLiftEnd.set(seat, finishOnEnd);
+			seat.addEventListener("transitionend", finishOnEnd);
+			dropTemplateLiftAfterPhase(seat);
+		}
 		const STAGED_MODE_KEY = "\0dsh-ppt-unbound";
 		function modeKey(sessionId) {
 			return typeof sessionId === "string" && sessionId.trim().length > 0 ? sessionId : STAGED_MODE_KEY;
@@ -923,25 +994,68 @@ button[data-desktop-ppt]:focus-visible{outline:2px solid var(--dsw-alias-label-p
 				const scrollBody = root.closest("[data-conversation-scroll]");
 				const composerCard = root.closest("[data-composer-seat]")?.querySelector("[data-composer-card]") ?? null;
 				if (scrollBody === null || composerCard === null) return;
+				let frame = 0;
 				const syncGeometry = () => {
 					const scrollRect = scrollBody.getBoundingClientRect();
 					const cardRect = composerCard.getBoundingClientRect();
 					root.style.setProperty("--office-ppt-template-panel-width", `${Math.min(cardRect.width, scrollRect.width)}px`);
-					const panelRect = panel.getBoundingClientRect();
-					const availableHeight = Math.max(TEMPLATE_PANEL_MIN_HEIGHT_PX, Math.floor(scrollRect.bottom - panelRect.top - TEMPLATE_DOCK_BOTTOM_PX));
+					const seat = typeof composerCard.closest === "function" ? composerCard.closest("[data-composer-seat]") : null;
+					const hero = scrollBody.parentElement?.getAttribute("data-content-phase") === "hero";
+					const readTranslate = (element) => {
+						try {
+							if (element?.nodeType === 1 && typeof getComputedStyle === "function") {
+								const value = getComputedStyle(element).transform;
+								if (value && value !== "none") {
+									const offset = new DOMMatrix(value).m42;
+									if (Number.isFinite(offset)) return offset;
+								}
+								return 0;
+							}
+						} catch { /* use the inline target when computed style is unavailable */ }
+						const matched = /translateY\(([-\d.]+)px\)/.exec(element?.style?.transform ?? "");
+						return matched ? Number(matched[1]) : 0;
+					};
+					let panelTop = panel.getBoundingClientRect().top;
+					if (!hero && seat !== null && seat.hasAttribute("data-template-panel-lift")) clearTemplatePanelLift(seat);
+					if (hero && seat !== null) {
+						const applied = readTranslate(seat);
+						const lift = Math.max(0, Math.round(seat.getBoundingClientRect().top - applied - scrollRect.top - TEMPLATE_LIFT_TOP_PX));
+						if (templateLiftMotion()) seat.style.transition = TEMPLATE_LIFT_TRANSITION;
+						else seat.style.removeProperty("transition");
+						if (lift > 0) {
+							seat.style.transform = `translateY(${-lift}px)`;
+							seat.setAttribute("data-template-panel-lift", "");
+						} else if (seat.hasAttribute("data-template-panel-lift")) {
+							seat.style.removeProperty("transform");
+							seat.removeAttribute("data-template-panel-lift");
+						}
+						// Follow the eased position so the template bottom stays put while the composer moves.
+						panelTop = panel.getBoundingClientRect().top;
+						const target = Number(/translateY\(([-\d.]+)px\)/.exec(seat.style?.transform ?? "")?.[1] ?? 0);
+						if (templateLiftMotion() && Math.abs(readTranslate(seat) - target) > 0.5 && typeof requestAnimationFrame === "function") {
+							cancelAnimationFrame(frame);
+							frame = requestAnimationFrame(syncGeometry);
+						}
+					}
+					const availableHeight = Math.max(TEMPLATE_PANEL_MIN_HEIGHT_PX, Math.floor(scrollRect.bottom - panelTop - TEMPLATE_DOCK_BOTTOM_PX));
 					root.style.setProperty("--office-ppt-template-panel-height", `${availableHeight}px`);
 				};
 				const resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(syncGeometry) : null;
 				resizeObserver?.observe(scrollBody);
 				resizeObserver?.observe(composerCard);
+				const phaseHost = scrollBody.parentElement;
+				const phaseObserver = phaseHost && typeof MutationObserver === "function" ? new MutationObserver(syncGeometry) : null;
+				phaseObserver?.observe(phaseHost, { attributes: true, attributeFilter: ["data-content-phase"] });
 				window.addEventListener("resize", syncGeometry);
-				const frame = window.requestAnimationFrame(syncGeometry);
+				frame = window.requestAnimationFrame(syncGeometry);
 				return () => {
 					window.cancelAnimationFrame(frame);
 					resizeObserver?.disconnect();
+					phaseObserver?.disconnect();
 					window.removeEventListener("resize", syncGeometry);
 					root.style.removeProperty("--office-ppt-template-panel-height");
 					root.style.removeProperty("--office-ppt-template-panel-width");
+					releaseTemplatePanelLift(typeof composerCard.closest === "function" ? composerCard.closest("[data-composer-seat]") : null, root);
 				};
 			}, [placement, state.activeMode]);
 			if (placement === "trigger") return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {

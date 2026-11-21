@@ -88,7 +88,9 @@ window.__ModuleLoader__.load({
       .dshDeskAccountEntryTime{margin:2px 0 0;color:var(--dsw-alias-label-caption);font-size:12px;line-height:16px}
       .dshDeskAccountEntryAmount{flex:none;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary)}
       .dshDeskAccountEntryAmount[data-sign="plus"]{color:var(--dsw-alias-state-success-primary)}
-      .dshDeskAccountModelSort{align-self:flex-start;width:fit-content;max-width:100%;margin:0 0 12px}
+      .dshDeskAccountCatalogBar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px}
+      .dshDeskAccountModelSort{align-self:flex-start;width:fit-content;max-width:100%;margin:0}
+      .dshDeskAccountSort{display:flex;align-items:center;margin-left:auto;flex:none}
       .dshDeskAccountVendors{display:flex;flex-direction:column;gap:16px}
       .dshDeskAccountVendor{display:flex;flex-direction:column;gap:8px}
       .dshDeskAccountVendorName{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-caption)}

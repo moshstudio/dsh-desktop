@@ -297,8 +297,15 @@ html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ss
    A slot entry renders straight into the anchor (renderOutletContent returns
    the entry element itself), so the plugin page is a DIRECT child of the
    anchor. Only the Conversation may stay: its entry is the phase-bearing root,
-   or the `main.conversation` anchor that wraps one. */
-html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main'] > :not([data-dsh-imagegen-view]):not([data-phase]):not([data-slot='main.conversation']) {
+   or the `main.conversation` anchor that wraps one.
+
+   0.2.2's ConversationPanel always returns `desktop.workbench.frame`, and that
+   outlet is emitted even when nothing registers the frame (the conversation is
+   the fallback child). The anchor is `display: contents`, so hiding it also
+   hides the conversation while the chat track stays an empty column. The frame
+   is spared the same way as `main.conversation`; a real shell panel is still a
+   direct child of `main` and still matches this rule. */
+html[data-dsh-imagegen-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]) [data-slot='main'] > :not([data-dsh-imagegen-view]):not([data-phase]):not([data-slot='main.conversation']):not([data-slot='desktop.workbench.frame']) {
   display: none !important;
 }
 
@@ -2989,6 +2996,22 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
   outline-offset: 1px;
 }
 
+.imageCard[data-batch-pending] {
+  cursor: default;
+  height: 100%;
+  justify-content: center;
+  padding: 12px;
+}
+
+.imageReveal {
+  animation: imageReveal 420ms ease-out both;
+}
+
+@keyframes imageReveal {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 .image {
   display: block;
   flex: 1 1 0;
@@ -3573,9 +3596,23 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
   border-radius: 999px;
   box-shadow: var(--dsw-shadow-lv2);
   backdrop-filter: blur(6px);
-  pointer-events: none;
+  pointer-events: auto;
   animation: dshImageGenToastIn 160ms ease-out;
 }
+
+.galleryToastUndo {
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  color: var(--dsw-alias-brand-primary);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.galleryToastUndo:hover { text-decoration: underline; }
 
 @keyframes dshImageGenToastIn {
   from { opacity: 0; transform: translate(-50%, 6px); }
@@ -3610,6 +3647,7 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
     transition: none;
     animation-duration: 1.5s;
   }
+  .imageReveal { animation: none; }
 }
 
 /* --- gallery workspace -------------------------------------------------------- */
@@ -3643,7 +3681,11 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
 .galleryToolbarActions { display: flex; flex: 1 1 720px; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; max-width: 100%; flex-wrap: wrap; }
 .galleryToolbarActions > * { flex-shrink: 0; }
 .galleryToolbarActions .gallerySearch { flex: 0 1 180px; max-width: 100%; }
-.galleryToolbarActions .gallerySort { width: auto; min-width: 112px; min-height: 32px; }
+/* The sort control is a Menu host. The field variant stretches that host to
+   100% and, with flex-shrink: 0, takes the rest of the row so the folder and
+   clear buttons wrap. Keep the host and trigger on the label width. */
+.galleryToolbarActions > :has(> .gallerySort) { display: inline-flex; width: auto; flex: 0 0 auto; max-width: max-content; }
+.galleryToolbarActions .gallerySort[data-dsh-select] { width: auto; max-width: none; min-width: 0; min-height: 32px; white-space: nowrap; }
 .gallerySelectMode, .galleryBulkButton, .gallerySelectionClear { min-height: 32px; padding: 0 12px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: var(--dsw-radius-md); color: var(--dsw-alias-label-secondary); background: transparent; cursor: pointer; font: inherit; font-size: 13px; }
 .gallerySelectMode:hover, .gallerySelectMode[data-active], .galleryBulkButton:hover:not(:disabled) { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l4); background: var(--dsw-alias-interactive-bg-hover); }
 .galleryBulkButton:disabled { cursor: not-allowed; opacity: .45; }
@@ -3704,7 +3746,9 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
 .galleryCardAction { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; gap: 4px; min-height: 28px; padding: 0 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2); cursor: pointer; font: inherit; font-size: 10px; font-weight: 500; white-space: nowrap; }
 .galleryCardAction:hover, .galleryCardAction:focus-visible { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); outline: none; }
 .galleryCardAction:disabled { cursor: wait; opacity: .55; }
-.galleryCardFooter { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 10px 12px; }
+.galleryCardFooter { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; min-width: 0; padding: 10px 12px; }
+/* Edit and trash are one row at the card's content width so they sit on opposite ends, clear of the tag chips. */
+.galleryCardManage { display: flex; flex: 1 0 100%; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .galleryAvatar { display: grid; flex: none; width: 27px; height: 27px; place-items: center; border-radius: 50%; color: var(--dsw-alias-label-primary-foreground); background: var(--dsw-alias-brand-primary); font-size: 12px; font-weight: 700; }
 .galleryCardInfo { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
 .galleryCardInfo strong, .galleryCardInfo small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3713,7 +3757,9 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
 .galleryTags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .galleryTags button { overflow: hidden; max-width: 96px; min-height: 19px; padding: 1px 6px; border: 0; border-radius: var(--dsw-radius-xs); color: var(--dsw-alias-brand-primary); background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent); cursor: pointer; font: inherit; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .galleryTags button:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 17%, transparent); }
-.galleryTags .galleryTagEdit { flex: none; color: var(--dsw-alias-label-tertiary); background: transparent; }
+.galleryTagEdit { flex: none; min-height: 24px; padding: 0 7px; border: 0; border-radius: 999px; color: var(--dsw-alias-label-tertiary); background: transparent; cursor: pointer; font: inherit; font-size: 10px; white-space: nowrap; }
+.galleryTagEdit:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
+.galleryTagEdit:focus-visible, .galleryRemove:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
 .galleryTagEditor { display: flex; align-items: center; gap: 6px; padding: 0 12px 10px 48px; }
 .galleryTagEditor input { min-width: 0; flex: 1; height: 27px; padding: 0 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); outline: none; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); font: inherit; font-size: 11px; }
 .galleryTagEditor input:focus { border-color: var(--dsw-alias-brand-primary); }
@@ -3721,6 +3767,19 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
 .galleryTagEditor button[type='submit'] { color: var(--dsw-alias-brand-primary); }
 .galleryRemove { flex: none; min-height: 24px; padding: 0 7px; border: 0; border-radius: 999px; color: var(--dsw-alias-label-tertiary); background: transparent; cursor: pointer; font: inherit; font-size: 10px; white-space: nowrap; }
 .galleryRemove:hover { color: var(--dsw-alias-state-error-primary); background: var(--dsw-alias-bg-layer-2); }
+.galleryTrash { display: flex; flex-direction: column; gap: 8px; flex: none; min-width: 0; margin: -4px 0 16px; padding: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-1); }
+.galleryTrashHeader { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.galleryTrashMeta { flex: 1; min-width: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
+.galleryTrashList { display: flex; flex-direction: column; gap: 6px; max-height: min(360px, 40vh); margin: 0; padding: 0; overflow: auto; list-style: none; }
+.galleryTrashRow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.galleryTrashThumb { display: grid; flex: none; width: 44px; height: 44px; place-items: center; overflow: hidden; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-2); }
+.galleryTrashThumb img, .galleryTrashThumb video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.galleryTrashMain { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+.galleryTrashTitle, .galleryTrashMain small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.galleryTrashTitle { color: var(--dsw-alias-label-primary); font-size: 12px; font-weight: 500; }
+.galleryTrashMain small { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.galleryTrashPurge { color: var(--dsw-alias-state-error-primary); }
+.galleryTrashPurge:hover { color: var(--dsw-alias-state-error-primary); border-color: var(--dsw-alias-state-error-primary); }
 
 @media (max-width: 760px) {
   .ecommerceParamGrid { grid-template-columns: 1fr; }
@@ -3901,6 +3960,13 @@ html[data-dsh-imagegen-chat-collapsed] [data-dsh-imagegen-chat-resizer] {
   gap: 16px;
   min-height: 0;
   overflow: auto;
+}
+
+/* Same failure banner as the image result area. The canvas rule insets it by
+   14px; here the body already has padding, so the banner lines up with the
+   composer card above it. */
+.videoBody > .canvasError {
+  margin: 0;
 }
 
 /* The clip lists DO use horizontal space when the panel is wide, wrapping into

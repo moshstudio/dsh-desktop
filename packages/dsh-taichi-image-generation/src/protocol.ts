@@ -387,6 +387,11 @@ export const HISTORY_API = {
  */
 export const MODEL_API = { list: '/api/dsh-imagegen/models/list', save: '/api/dsh-imagegen/models/save', image: '/api/dsh-imagegen/models/image' } as const
 
+/** How long a soft-deleted gallery entry stays recoverable. The client copy
+ *  interpolates the day count so the three dictionaries cannot drift from it. */
+export const GALLERY_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+export const GALLERY_TRASH_RETENTION_DAYS = GALLERY_TRASH_RETENTION_MS / (24 * 60 * 60 * 1000)
+
 export const GALLERY_API = {
   list: '/api/dsh-imagegen/gallery/list',
   append: '/api/dsh-imagegen/gallery/append',
@@ -395,6 +400,8 @@ export const GALLERY_API = {
   restore: '/api/dsh-imagegen/gallery/restore',
   /** Permanently delete every trashed entry and its files. */
   purge: '/api/dsh-imagegen/gallery/purge',
+  /** Permanently delete one trashed entry and its files. */
+  purgeOne: '/api/dsh-imagegen/gallery/purge-one',
   clear: '/api/dsh-imagegen/gallery/clear',
   tags: '/api/dsh-imagegen/gallery/tags',
   image: '/api/dsh-imagegen/gallery/image',
@@ -2669,9 +2676,32 @@ export interface GeneratedImage {
   revisedPrompt?: string
 }
 
+/**
+ * One requested image inside a multi-image call.
+ *
+ * `imageIndex` points into `GenerateResult.images` so the bytes are stored
+ * once. A slot with `error` and no index is a picture that failed while its
+ * siblings were kept. `index` is the position in the request. Progress
+ * snapshots set it so a later call can finish first without moving the
+ * pictures already on screen. The finished batch leaves it off and stays in
+ * request order.
+ */
+export interface GeneratedImageSlot {
+  index?: number
+  imageIndex?: number
+  error?: string
+}
+
 /** Successful generate outcome. */
 export interface GenerateResult {
   images: GeneratedImage[]
+  /**
+   * Per-picture outcomes. A finished task includes this only when some
+   * pictures failed and the rest were kept. A task that is still running
+   * lists the pictures that have already settled, each with `index`, so the
+   * ones still in flight can keep their own placeholder.
+   */
+  slots?: GeneratedImageSlot[]
   /** Id of the history entry persisted for this generation (files[] paths key off it). */
   embedId?: string
   /** Updated host-persisted history, when returned by the generate route. */
@@ -2778,11 +2808,16 @@ export interface GenerationTask extends EcommerceTaskMeta {
 }
 
 /**
- * Wire shape for the queue poll. Reference-image and result payloads stay
- * host-side; the client hydrates a completed task once through TASK_API.get.
+ * Wire shape for the queue poll. Reference-image payloads stay host-side.
+ * `readyImages` and `readySlots` grow while a batch is still running, so the
+ * client can hydrate the pictures that finished without waiting for the rest.
  */
 export interface GenerationTaskSummary extends Omit<GenerationTask, 'result'> {
   resultAvailable: boolean
+  /** Images already stored on the task, including a batch that is still running. */
+  readyImages: number
+  /** Settled picture slots already stored. A failure increments this without adding an image. */
+  readySlots: number
 }
 
 /** What one upstream attempt was doing (see diagnostics-store.ts). */
@@ -2916,11 +2951,18 @@ export interface HistoryEntry extends EcommerceTaskMeta {
   video?: GalleryVideoRef
   /**
    * When set, the entry sits in the gallery's trash: removal is a soft delete
-   * that keeps the files readable for 30 days, and this timestamp is what the
-   * restore window and the lazy sweep are measured against. Absent = live, so
-   * a manifest written by an older host reads back unchanged.
+   * that keeps the files readable for `GALLERY_TRASH_RETENTION_MS`, and this
+   * timestamp is what the restore window and the lazy sweep are measured
+   * against. Absent = live, so a manifest written by an older host reads back
+   * unchanged.
    */
   deletedAt?: number
+  /**
+   * On-disk size of this entry's files, in bytes. Filled for trash rows so the
+   * client can say how much emptying them would free. Absent on older hosts
+   * and on shelf rows.
+   */
+  bytes?: number
 }
 
 /** A clip referenced by a gallery entry. */

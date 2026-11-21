@@ -137,12 +137,19 @@ window.__ModuleLoader__.load({
       function profileFlags(status) {
         const profile = status?.profile
         if (profile && (profile.models === 'ready' || profile.models === 'failed') && (profile.balance === 'ready' || profile.balance === 'failed')) {
-          return { models: profile.models === 'failed', balance: profile.balance === 'failed' }
+          return {
+            models: profile.models === 'failed',
+            balance: profile.balance === 'failed',
+            images: profile.images === 'failed',
+            videos: profile.videos === 'failed'
+          }
         }
         const failed = status?.message === 'profile_unavailable'
         return {
           models: failed && (!Array.isArray(status?.models) || status.models.length === 0),
-          balance: failed && status?.balance == null
+          balance: failed && status?.balance == null,
+          images: false,
+          videos: false
         }
       }
 
@@ -161,6 +168,25 @@ window.__ModuleLoader__.load({
           const model = { id: item.id, name }
           if (vendor) model.vendor = vendor
           if (price) model.price = price
+          models.push(model)
+        }
+        return models
+      }
+
+      function accountMedia(value) {
+        if (!Array.isArray(value)) return []
+        const models = []
+        for (const item of value) {
+          if (typeof item === 'string' && item.length > 0) {
+            models.push({ id: item, name: item })
+            continue
+          }
+          if (item === null || typeof item !== 'object' || typeof item.id !== 'string' || item.id.length === 0) continue
+          const name = typeof item.name === 'string' && item.name.length > 0 ? item.name : item.id
+          const model = { id: item.id, name }
+          if (typeof item.credits === 'number' && Number.isFinite(item.credits) && item.credits >= 0) model.credits = item.credits
+          const qualityCredits = mediaQualityCredits(item.qualityCredits)
+          if (qualityCredits) model.qualityCredits = qualityCredits
           models.push(model)
         }
         return models
@@ -253,6 +279,22 @@ window.__ModuleLoader__.load({
         if (leftOut !== rightOut) return leftOut - rightOut
         const byName = compareText(left.model.name, right.model.name)
         return byName !== 0 ? byName : left.index - right.index
+      }
+
+      function mediaByPrice(models) {
+        return models
+          .map((model, index) => ({ model, index }))
+          .sort((left, right) => {
+            const leftCredits = left.model.credits
+            const rightCredits = right.model.credits
+            const leftMissing = leftCredits === undefined
+            const rightMissing = rightCredits === undefined
+            if (leftMissing !== rightMissing) return leftMissing ? 1 : -1
+            if (!leftMissing && leftCredits !== rightCredits) return leftCredits - rightCredits
+            const byName = compareText(left.model.name, right.model.name)
+            return byName !== 0 ? byName : left.index - right.index
+          })
+          .map(item => item.model)
       }
 
       function compareVendor(left, right, t) {
@@ -869,13 +911,96 @@ window.__ModuleLoader__.load({
         })
       }
 
-      function HomeScreen({ t, status, busy, task, errorCode, section, onSection, range, onRange, modelSort, onModelSort, modelsId, usageId, rechargeId, onCheckIn, onRecharge, onLogout, onRetry }) {
+      const MEDIA_TIERS = ['1k', '2k', '4k']
+
+      function mediaQualityCredits(value) {
+        if (!Array.isArray(value)) return undefined
+        const byTier = new Map()
+        for (const item of value) {
+          if (item === null || typeof item !== 'object') continue
+          const tier = typeof item.tier === 'string' ? item.tier.trim().toLowerCase() : ''
+          if (!MEDIA_TIERS.includes(tier)) continue
+          if (typeof item.credits !== 'number' || !Number.isInteger(item.credits) || item.credits < 0) continue
+          byTier.set(tier, item.credits)
+        }
+        const tiers = MEDIA_TIERS.filter(tier => byTier.has(tier)).map(tier => ({ tier, credits: byTier.get(tier) }))
+        return tiers.length > 0 ? tiers : undefined
+      }
+
+      function mediaTierGroups(tiers) {
+        const groups = []
+        for (const row of tiers) {
+          const last = groups[groups.length - 1]
+          if (last && last.credits === row.credits) last.tiers.push(row.tier)
+          else groups.push({ tiers: [row.tier], credits: row.credits })
+        }
+        return groups
+      }
+
+      function mediaTierLabel(tiers) {
+        return tiers.map(tier => tier.toUpperCase()).join(' / ')
+      }
+
+      function mediaRate(label, credits, unit) {
+        return React.createElement(
+          'div',
+          { className: 'dshDeskAccountRate', key: label || 'price' },
+          label ? React.createElement('span', { className: 'dshDeskAccountRateLabel' }, label) : null,
+          React.createElement(
+            'span',
+            { className: 'dshDeskAccountRateValues' },
+            React.createElement('span', { className: 'dshDeskAccountRateNow' }, formatCredits(credits)),
+            React.createElement('span', { className: 'dshDeskAccountRateUnit' }, unit)
+          )
+        )
+      }
+
+      function mediaPriceView(t, model, unitKey) {
+        const groups = mediaTierGroups(model.qualityCredits ?? [])
+        if (groups.length > 0) {
+          const unit = t(unitKey)
+          return React.createElement(
+            'div',
+            { className: 'dshDeskAccountRates' },
+            groups.map(group => mediaRate(mediaTierLabel(group.tiers), group.credits, unit))
+          )
+        }
+        if (model.credits === undefined) return React.createElement('p', { className: 'dshDeskAccountPrice' }, t('priceUnavailable'))
+        return React.createElement('div', { className: 'dshDeskAccountRates' }, mediaRate('', model.credits, t(unitKey)))
+      }
+
+      function mediaCards(t, models, unitKey) {
+        return models.map((model, index) => React.createElement(
+          'li',
+          { key: `${model.id}-${index}` },
+          React.createElement(
+            'article',
+            { className: 'dshDeskAccountModel' },
+            React.createElement(
+              'div',
+              { className: 'dshDeskAccountModelHead' },
+              React.createElement('h4', { className: 'dshDeskAccountModelName' }, model.name)
+            ),
+            mediaPriceView(t, model, unitKey)
+          )
+        ))
+      }
+
+      function mediaCatalog(t, models, failed, emptyKey, unreadKey, unitKey) {
+        if (failed) return React.createElement('p', { className: 'dshDeskAccountEmpty' }, t(unreadKey))
+        if (models.length === 0) return React.createElement('p', { className: 'dshDeskAccountEmpty' }, t(emptyKey))
+        return React.createElement('ul', { className: 'dshDeskAccountModels' }, mediaCards(t, mediaByPrice(models), unitKey))
+      }
+
+      function HomeScreen({ t, status, busy, task, errorCode, section, onSection, range, onRange, modelSort, onModelSort, catalog, onCatalog, modelsId, usageId, rechargeId, onCheckIn, onRecharge, onLogout, onRetry }) {
         const flags = profileFlags(status)
         const checkedIn = status.checkedIn === true || status.message === 'checked_in'
         const balance = status.balance == null ? '—' : status.balance
         const balanceCaption = status.balance == null ? t('balanceUnread') : checkedIn ? t('checked_in') : t('balance')
         const announced = checkedIn && status.balance != null
         const models = accountModels(status?.models)
+        const imageModels = accountMedia(status?.imageModels)
+        const videoModels = accountMedia(status?.videoModels)
         const credits = accountCredits(status?.credits)
         const activeRange = range === 'today' || range === 'yesterday' || range === '30' || range === 'all' ? range : '7'
         const stats = credits ? rangeStats(credits, activeRange) : undefined
@@ -891,38 +1016,63 @@ window.__ModuleLoader__.load({
             ? credits?.recharge.map(entry => activityEntry(entry.id, t(GRANT_KEYS[entry.kind]), formatWhen(entry.createdAt), entry.amount, 'plus')) ?? []
             : []
         const sort = modelSort === 'price' ? 'price' : 'vendor'
+        const kind = catalog === 'image' || catalog === 'video' ? catalog : 'chat'
         const vendorGroups = sort === 'vendor' ? modelsByVendor(models, t) : []
-        const catalog = flags.models
+        const chatCatalog = flags.models
           ? React.createElement('p', { className: 'dshDeskAccountEmpty' }, t('modelsUnread'))
           : models.length > 0
-            ? React.createElement(
-              React.Fragment,
-              null,
-              React.createElement(SegmentedControl, {
-                id: 'dsh-taichi-account-model-sort',
-                className: 'dshDeskAccountModelSort',
-                label: t('sortModels'),
-                value: sort,
-                options: [
-                  { value: 'vendor', label: t('sortByVendor') },
-                  { value: 'price', label: t('sortByPrice') }
-                ],
-                onChange: onModelSort
-              }),
-              sort === 'price' || vendorGroups.length < 2
-                ? React.createElement('ul', { className: 'dshDeskAccountModels' }, modelCards(t, sort === 'price' ? modelsByPrice(models) : vendorGroups[0].models))
-                : React.createElement(
-                  'div',
-                  { className: 'dshDeskAccountVendors' },
-                  vendorGroups.map(group => React.createElement(
-                    'section',
-                    { key: group.key || 'other', className: 'dshDeskAccountVendor' },
-                    React.createElement('h3', { className: 'dshDeskAccountVendorName' }, group.label),
-                    React.createElement('ul', { className: 'dshDeskAccountModels' }, modelCards(t, group.models))
-                  ))
-                )
-            )
+            ? sort === 'price' || vendorGroups.length < 2
+              ? React.createElement('ul', { className: 'dshDeskAccountModels' }, modelCards(t, sort === 'price' ? modelsByPrice(models) : vendorGroups[0].models))
+              : React.createElement(
+                'div',
+                { className: 'dshDeskAccountVendors' },
+                vendorGroups.map(group => React.createElement(
+                  'section',
+                  { key: group.key || 'other', className: 'dshDeskAccountVendor' },
+                  React.createElement('h3', { className: 'dshDeskAccountVendorName' }, group.label),
+                  React.createElement('ul', { className: 'dshDeskAccountModels' }, modelCards(t, group.models))
+                ))
+              )
             : React.createElement('p', { className: 'dshDeskAccountEmpty' }, t('modelsEmpty'))
+        const catalogSwitch = React.createElement(SegmentedControl, {
+          id: 'dsh-taichi-account-catalog',
+          className: 'dshDeskAccountModelSort',
+          label: t('catalogKind'),
+          value: kind,
+          options: [
+            { value: 'chat', label: t('catalogChat') },
+            { value: 'image', label: t('catalogImage') },
+            { value: 'video', label: t('catalogVideo') }
+          ],
+          onChange: onCatalog
+        })
+        const sortSwitch = React.createElement(
+          'div',
+          { className: 'dshDeskAccountSort' },
+          React.createElement(Button, {
+            type: 'button',
+            variant: 'ghost',
+            size: 'sm',
+            'aria-label': t('sortModels'),
+            'aria-pressed': sort === 'price',
+            onClick: () => { onModelSort(sort === 'price' ? 'vendor' : 'price') }
+          }, t(sort === 'price' ? 'sortByPrice' : 'sortByVendor'))
+        )
+        const modelsView = React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(
+            'div',
+            { className: 'dshDeskAccountCatalogBar' },
+            catalogSwitch,
+            kind === 'chat' && !flags.models && models.length > 0 ? sortSwitch : null
+          ),
+          kind === 'image'
+            ? mediaCatalog(t, imageModels, flags.images, 'imagesEmpty', 'imagesUnread', 'pricePerImage')
+            : kind === 'video'
+              ? mediaCatalog(t, videoModels, flags.videos, 'videosEmpty', 'videosUnread', 'pricePerVideo')
+              : chatCatalog
+        )
         const ledger = !credits
           ? React.createElement('p', { className: 'dshDeskAccountEmpty' }, t('creditsUnread'))
           : activity.length > 0
@@ -1055,10 +1205,10 @@ window.__ModuleLoader__.load({
             React.createElement(
               'div',
               { className: 'dshDeskAccountPanel', role: 'tabpanel', id: panelId, 'aria-labelledby': panelLabel },
-              active === 'models' ? catalog : ledger
+              active === 'models' ? modelsView : ledger
             )
           ),
-          flags.models || flags.balance
+          flags.models || flags.balance || flags.images || flags.videos
             ? React.createElement(
               'div',
               { className: 'dshDeskAccountRetry' },
@@ -1149,6 +1299,7 @@ window.__ModuleLoader__.load({
         const [section, setSection] = useState('models')
         const [range, setRange] = useState('7')
         const [modelSort, setModelSort] = useState('vendor')
+        const [catalog, setCatalog] = useState('chat')
         const [email, setEmail] = useState(rememberedEmail)
         const [password, setPassword] = useState('')
         const [confirm, setConfirm] = useState('')
@@ -1210,7 +1361,9 @@ window.__ModuleLoader__.load({
               needsRestart: false,
               message: '',
               models: [],
-              profile: { models: 'ready', balance: 'ready' },
+              imageModels: [],
+              videoModels: [],
+              profile: { models: 'ready', balance: 'ready', images: 'ready', videos: 'ready' },
               checkedIn: false
             })
           })
@@ -1633,6 +1786,8 @@ window.__ModuleLoader__.load({
                 onRange: setRange,
                 modelSort,
                 onModelSort: setModelSort,
+                catalog,
+                onCatalog: setCatalog,
                 modelsId,
                 usageId,
                 rechargeId,

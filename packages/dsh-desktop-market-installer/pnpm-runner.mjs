@@ -29,6 +29,7 @@ import { existsSync, realpathSync, watch } from 'node:fs'
 import { readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { holdProjectedMarketLock } from './generations/market-lock.mjs'
 import { hideConsoleImportArguments } from './windows-hide-console.mjs'
 
 export const SIDELINE_MARKER = '.dsh-old-'
@@ -246,6 +247,7 @@ export async function suspendGenerationProjectionForPnpm(profileDirectory) {
     throw new Error('Profile dependency fields are invalid before pnpm projection isolation.')
   }
 
+  const releaseLock = await holdProjectedMarketLock(profileDirectory, projectedPlugins)
   const owned = new Map(projectedPlugins.map((name) => [name, {
     dependency: Object.hasOwn(dependencies, name)
       ? { present: true, value: dependencies[name] }
@@ -265,7 +267,7 @@ export async function suspendGenerationProjectionForPnpm(profileDirectory) {
       changed = true
     }
   }
-  if (!changed) return { plugins: [], restore: async () => undefined }
+  if (!changed) return { plugins: [], restore: releaseLock }
 
   manifest.dependencies = dependencies
   if (Object.keys(overrides).length > 0) pnpm.overrides = overrides
@@ -278,33 +280,37 @@ export async function suspendGenerationProjectionForPnpm(profileDirectory) {
   return {
     plugins: projectedPlugins,
     restore: async () => {
-      if (restored) return
-      const currentText = await readFile(manifestPath, 'utf8')
-      let current
       try {
-        current = JSON.parse(currentText)
-      } catch (error) {
-        throw new Error(`Profile manifest is invalid after pnpm projection isolation: ${errorText(error)}`)
+        if (restored) return
+        const currentText = await readFile(manifestPath, 'utf8')
+        let current
+        try {
+          current = JSON.parse(currentText)
+        } catch (error) {
+          throw new Error(`Profile manifest is invalid after pnpm projection isolation: ${errorText(error)}`)
+        }
+        if (!isRecord(current)) {
+          throw new Error('Profile manifest root is invalid after pnpm projection isolation.')
+        }
+        const currentDependencies = isRecord(current.dependencies) ? current.dependencies : {}
+        const currentPnpm = isRecord(current.pnpm) ? current.pnpm : {}
+        const currentOverrides = isRecord(currentPnpm.overrides) ? currentPnpm.overrides : {}
+        for (const [name, state] of owned) {
+          if (state.dependency.present) currentDependencies[name] = state.dependency.value
+          else delete currentDependencies[name]
+          if (state.override.present) currentOverrides[name] = state.override.value
+          else delete currentOverrides[name]
+        }
+        current.dependencies = currentDependencies
+        if (Object.keys(currentOverrides).length > 0) currentPnpm.overrides = currentOverrides
+        else delete currentPnpm.overrides
+        if (Object.keys(currentPnpm).length > 0) current.pnpm = currentPnpm
+        else delete current.pnpm
+        await writeJsonAtomically(manifestPath, current)
+        restored = true
+      } finally {
+        await releaseLock()
       }
-      if (!isRecord(current)) {
-        throw new Error('Profile manifest root is invalid after pnpm projection isolation.')
-      }
-      const currentDependencies = isRecord(current.dependencies) ? current.dependencies : {}
-      const currentPnpm = isRecord(current.pnpm) ? current.pnpm : {}
-      const currentOverrides = isRecord(currentPnpm.overrides) ? currentPnpm.overrides : {}
-      for (const [name, state] of owned) {
-        if (state.dependency.present) currentDependencies[name] = state.dependency.value
-        else delete currentDependencies[name]
-        if (state.override.present) currentOverrides[name] = state.override.value
-        else delete currentOverrides[name]
-      }
-      current.dependencies = currentDependencies
-      if (Object.keys(currentOverrides).length > 0) currentPnpm.overrides = currentOverrides
-      else delete currentPnpm.overrides
-      if (Object.keys(currentPnpm).length > 0) current.pnpm = currentPnpm
-      else delete current.pnpm
-      await writeJsonAtomically(manifestPath, current)
-      restored = true
     }
   }
 }

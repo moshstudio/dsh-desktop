@@ -53,8 +53,10 @@ const emptyStatus = (overrides: Partial<AccountStatus> = {}): AccountStatus => (
   needsRestart: false,
   message: '',
   models: [],
+  imageModels: [],
+  videoModels: [],
   credits: null,
-  profile: { models: 'ready', balance: 'ready' },
+  profile: { models: 'ready', balance: 'ready', images: 'ready', videos: 'ready' },
   checkedIn: false,
   ...overrides
 })
@@ -762,6 +764,86 @@ describe('desktop account page', () => {
     expect(nodes(home.tree, node => node.children.includes('creditsUnread'))).toHaveLength(1)
   })
 
+  it('shows image and video prices apart from chat models', async () => {
+    const { rerender } = await mountReady({
+      status: async () => emptyStatus({
+        signedIn: true,
+        email: 'owner@example.com',
+        balance: 10,
+        models: [{ id: 'demo-chat', name: 'demo-chat' }],
+        imageModels: [
+          { id: 'later', name: 'Later', credits: 80 },
+          { id: 'sooner', name: 'Sooner', credits: 12 },
+          { id: 'unpriced', name: 'Unpriced' }
+        ],
+        videoModels: [{ id: 'veo', name: 'Veo', credits: 2600 }]
+      })
+    })
+    const chat = rerender().tree
+    expect(nodes(chat, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children)).toEqual([['demo-chat']])
+    choose(chat, 'catalogImage')
+    const images = rerender().tree
+    expect(nodes(images, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children)).toEqual([['Sooner'], ['Later'], ['Unpriced']])
+    expect(nodes(images, node => node.props.className === 'dshDeskAccountRateNow').map(node => node.children)).toEqual([['12'], ['80']])
+    expect(nodes(images, node => node.children.includes('pricePerImage'))).toHaveLength(2)
+    expect(nodes(images, node => node.children.includes('priceUnavailable'))).toHaveLength(1)
+    expect(nodes(images, node => node.children.includes('demo-chat'))).toHaveLength(0)
+    choose(images, 'catalogVideo')
+    const videos = rerender().tree
+    expect(nodes(videos, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children)).toEqual([['Veo']])
+    expect(nodes(videos, node => node.props.className === 'dshDeskAccountRateNow').map(node => node.children)).toEqual([['2,600']])
+    expect(nodes(videos, node => node.children.includes('pricePerVideo'))).toHaveLength(1)
+    expect(nodes(videos, node => node.children.includes('imagesEmpty'))).toHaveLength(0)
+  })
+
+  it('merges image tier prices that cost the same number of credits', async () => {
+    const { rerender } = await mountReady({
+      status: async () => emptyStatus({
+        signedIn: true,
+        email: 'owner@example.com',
+        imageModels: [{
+          id: 'gpt-image-2',
+          name: 'GPT Image 2',
+          credits: 150,
+          qualityCredits: [
+            { tier: '1k', credits: 150 },
+            { tier: '4k', credits: 400 },
+            { tier: '2k', credits: 400 }
+          ]
+        }]
+      })
+    })
+    choose(rerender().tree, 'catalogImage')
+    const images = rerender().tree
+    expect(nodes(images, node => node.props.className === 'dshDeskAccountRateLabel').map(node => node.children)).toEqual([['1K'], ['2K / 4K']])
+    expect(nodes(images, node => node.props.className === 'dshDeskAccountRateNow').map(node => node.children)).toEqual([['150'], ['400']])
+    expect(nodes(images, node => node.children.includes('pricePerImage'))).toHaveLength(2)
+    expect(JSON.stringify(images)).not.toContain('vip')
+  })
+
+  it('keeps an empty media catalog distinct from a failed read', async () => {
+    const { rerender } = await mountReady({
+      status: async () => emptyStatus({
+        signedIn: true,
+        email: 'owner@example.com',
+        imageModels: [],
+        videoModels: [{ id: 'ignored', name: 'Ignored', credits: 1 }],
+        profile: { models: 'ready', balance: 'ready', images: 'ready', videos: 'failed' }
+      })
+    })
+    choose(rerender().tree, 'catalogImage')
+    const images = rerender().tree
+    expect(nodes(images, node => node.children.includes('imagesEmpty'))).toHaveLength(1)
+    expect(nodes(images, node => node.children.includes('imagesUnread'))).toHaveLength(0)
+    expect(nodes(images, node => node.type === 'article')).toHaveLength(0)
+    choose(images, 'catalogVideo')
+    const videos = rerender().tree
+    expect(nodes(videos, node => node.children.includes('videosUnread'))).toHaveLength(1)
+    expect(nodes(videos, node => node.children.includes('videosEmpty'))).toHaveLength(0)
+    expect(nodes(videos, node => node.children.includes('Ignored'))).toHaveLength(0)
+    expect(nodes(videos, node => node.children.includes('retry'))).toHaveLength(1)
+  })
+
   it('reloads the model list each time the account page is opened', async () => {
     const refresh = vi.fn(async () => emptyStatus({
       signedIn: true,
@@ -913,12 +995,12 @@ describe('desktop account page', () => {
     })
     const names = (tree: unknown) => nodes(tree, node => node.props.className === 'dshDeskAccountModelName').map(node => node.children[0])
     const home = rerender().tree
-    expect(segment(home, 'sortByVendor').props.value).toBe('vendor')
+    expect(nodes(home, node => node.children.includes('sortByVendor') && node.props['aria-pressed'] === false)).toHaveLength(1)
     expect(nodes(home, node => node.props.className === 'dshDeskAccountVendorName').map(node => node.children[0])).toEqual(['OpenAI', 'Anthropic', 'vendorOther'])
     expect(names(home)).toEqual(['Mini', 'GPT', 'o1', 'Claude', 'Plain'])
-    choose(home, 'sortByPrice')
+    click(home, 'sortByVendor')
     const priced = rerender().tree
-    expect(segment(priced, 'sortByPrice').props.value).toBe('price')
+    expect(nodes(priced, node => node.children.includes('sortByPrice') && node.props['aria-pressed'] === true)).toHaveLength(1)
     expect(nodes(priced, node => node.props.className === 'dshDeskAccountVendorName')).toHaveLength(0)
     expect(names(priced)).toEqual(['Plain', 'Mini', 'Claude', 'GPT', 'o1'])
   })
@@ -1046,7 +1128,7 @@ describe('desktop account page', () => {
         email: 'a@example.com',
         message: 'profile_unavailable',
         balance: null,
-        profile: { models: 'failed', balance: 'failed' }
+        profile: { models: 'failed', balance: 'failed', images: 'ready', videos: 'ready' }
       }),
       refresh
     })
@@ -1498,7 +1580,7 @@ describe('desktop account page', () => {
         email: 'owner@example.com',
         message: 'profile_unavailable',
         balance: null,
-        profile: { models: 'failed', balance: 'failed' }
+        profile: { models: 'failed', balance: 'failed', images: 'ready', videos: 'ready' }
       })
     }), key => dictionary[key] ?? key)
     for (const effect of view.effects) effect()

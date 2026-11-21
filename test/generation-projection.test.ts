@@ -433,6 +433,88 @@ describe('generation projection onto the app-boot contract', () => {
     expect(await readFile(join(dir, 'pnpm-lock.yaml'), 'utf8')).not.toContain('plugin-a')
   })
 
+  it('publishes a generation npm resolution into the profile lock importer', async () => {
+    const home = await freshHome()
+    await ensureRegistryDirectories(home)
+    const dir = join(home, 'profiles', 'web')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'package.json'), JSON.stringify({
+      name: 'dsh-profile-web', private: true, dependencies: {}, dsh: { profile: { bundles: [] } }
+    }))
+    await writeFile(join(dir, 'pnpm-lock.yaml'), [
+      "lockfileVersion: '9.0'",
+      'importers:',
+      '  .:',
+      '    dependencies:',
+      '      kept-package:',
+      '        specifier: 3.0.0',
+      '        version: 3.0.0',
+      'packages:',
+      '  kept-package@3.0.0:',
+      '    resolution: {integrity: sha512-kept}',
+      ''
+    ].join('\n'))
+    await fakeGeneration(home, 'a+1+x', 'plugin-a', '1.0.0')
+    await writeFile(join(registryLayout(home).generations, 'a+1+x', 'pnpm-lock.yaml'), [
+      "lockfileVersion: '9.0'",
+      'importers:',
+      '  .:',
+      '    dependencies:',
+      '      plugin-a:',
+      '        specifier: 1.0.0',
+      '        version: 1.0.0(peer@1)',
+      'packages:',
+      '  plugin-a@1.0.0(peer@1):',
+      '    resolution: {integrity: sha512-plugin, tarball: https://registry.example/plugin-a.tgz}',
+      ''
+    ].join('\n'))
+    await fakeGeneration(home, 'git+1+x', 'plugin-git', '1.0.0')
+    await writeFile(join(registryLayout(home).generations, 'git+1+x', 'pnpm-lock.yaml'), [
+      "lockfileVersion: '9.0'",
+      'importers:',
+      '  .:',
+      '    dependencies:',
+      '      plugin-git:',
+      '        specifier: github:example/plugin-git#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      '        version: https://codeload.github.com/example/plugin-git/tar.gz/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      ''
+    ].join('\n'))
+    await writeDesired(home, ['a+1+x', 'git+1+x'])
+    await projectGenerations(home)
+
+    const { parse } = await import('yaml')
+    const lock = parse(await readFile(join(dir, 'pnpm-lock.yaml'), 'utf8'))
+    expect(lock.importers['.'].dependencies['plugin-a']).toEqual({
+      specifier: '1.0.0',
+      version: '1.0.0(peer@1)'
+    })
+    expect(lock.packages['plugin-a@1.0.0(peer@1)'].resolution).toEqual({
+      integrity: 'sha512-plugin',
+      tarball: 'https://registry.example/plugin-a.tgz'
+    })
+    expect(lock.importers['.'].dependencies['kept-package'].version).toBe('3.0.0')
+    expect(lock.packages['kept-package@3.0.0'].resolution.integrity).toBe('sha512-kept')
+    expect(lock.importers['.'].dependencies).not.toHaveProperty('plugin-git')
+
+    const isolation = await suspendGenerationProjectionForPnpm(dir)
+    const during = parse(await readFile(join(dir, 'pnpm-lock.yaml'), 'utf8'))
+    expect(during.importers['.'].dependencies).not.toHaveProperty('plugin-a')
+    expect(during.packages).not.toHaveProperty('plugin-a@1.0.0(peer@1)')
+    expect(during.importers['.'].dependencies['kept-package'].version).toBe('3.0.0')
+    await isolation.restore()
+    const restored = parse(await readFile(join(dir, 'pnpm-lock.yaml'), 'utf8'))
+    expect(restored.importers['.'].dependencies['plugin-a'].specifier).toBe('1.0.0')
+    expect(restored.packages['plugin-a@1.0.0(peer@1)'].resolution.integrity).toBe('sha512-plugin')
+    expect(restored.importers['.'].dependencies['kept-package'].version).toBe('3.0.0')
+
+    await writeDesired(home, ['git+1+x'])
+    await projectGenerations(home)
+    const retired = parse(await readFile(join(dir, 'pnpm-lock.yaml'), 'utf8'))
+    expect(retired.importers['.'].dependencies).not.toHaveProperty('plugin-a')
+    expect(retired.packages).not.toHaveProperty('plugin-a@1.0.0(peer@1)')
+    expect(retired.importers['.'].dependencies['kept-package'].version).toBe('3.0.0')
+  })
+
   it('reconstructs market-facing fields at cold start after an interrupted pnpm run', async () => {
     const home = await freshHome()
     await ensureRegistryDirectories(home)

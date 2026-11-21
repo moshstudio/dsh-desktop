@@ -52,4 +52,4 @@
 - 成功安装的新 generation 应通过现有 publication 流程对活动 Profile 可见；旧 generation 的清理遵循冷启动和引用检查，不能删除运行中仍引用的目录。
 - peer 校验从目标插件及其 manifest 出发，兼容 exports、可选 peer 和宿主共享依赖；不要以仓库根目录的 `require.resolve` 代替真实插件上下文。
 - Windows symlink/junction、占用文件及 pnpm 路径规范化需平台验证；fixture 的临时根目录必要时先 `realpath`，不要假设短路径与实际路径字符串相同。
-- 第三方 market 仅按其真实协议集成，不假设它识别宿主自定义返回字段。
+- 第三方 market 仅按其真实协议集成，不假设它识别宿主自定义返回字段。皮肤市场核对 profile 根 `pnpm-lock.yaml` 的 root importer；generation 投影要把已安装 generation 锁里的精确版本和 integrity 写到那里，并在 pnpm 运行期间临时移走。

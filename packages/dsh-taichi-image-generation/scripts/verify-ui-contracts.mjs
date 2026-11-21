@@ -2533,7 +2533,9 @@ const mainSlotPage = `<!doctype html><html><head><style>
   <div id="centre" data-dsh-imagegen-center-col>
     <div data-dsh-imagegen-view id="studio">studio</div>
     <div data-slot="main" style="display: contents">
-      <div data-slot="main.conversation" style="display: contents"><div id="conversation" data-phase="hero">conversation</div></div>
+      <div id="workbenchFrame" data-slot="desktop.workbench.frame" style="display: contents">
+        <div data-slot="main.conversation" style="display: contents"><div id="conversation" data-phase="hero">conversation</div></div>
+      </div>
       <div id="shellPanel">plugin market page</div>
     </div>
     <div data-other-plugin-entry id="otherEntry">another plugin</div>
@@ -2691,6 +2693,7 @@ const takeover = await send4('Runtime.evaluate', {
     return {
       shellPanel: display('shellPanel'),
       conversation: display('conversation'),
+      workbenchFrame: display('workbenchFrame'),
       studio: display('studio'),
       otherEntry: display('otherEntry'),
       anchor: display('centre'),
@@ -2703,7 +2706,7 @@ if (takeover.result?.exceptionDetails !== undefined) {
   throw new Error(`page threw: ${JSON.stringify(takeover.result.exceptionDetails)}`)
 }
 const slot = takeover.result.result.value
-console.log(`main slot: shell panel=${slot.shellPanel}, conversation=${slot.conversation}, studio=${slot.studio}, other plugin=${slot.otherEntry}`)
+console.log(`main slot: shell panel=${slot.shellPanel}, conversation=${slot.conversation}, workbench frame=${slot.workbenchFrame}, studio=${slot.studio}, other plugin=${slot.otherEntry}`)
 if (slot.shellPanel !== 'none') {
   console.error('\nFAIL: a shell panel inside the keyed `main` slot is still rendered (#38).')
   console.error('The Conversation and a shell-global panel (the plugin market page)')
@@ -2715,6 +2718,12 @@ if (slot.conversation === 'none') {
   console.error('\nFAIL: the takeover hid the Conversation along with the shell panel.')
   console.error('The studio keeps the conversation in its chat track, so the rule has to')
   console.error('let the phase-bearing Conversation entry through.')
+  process.exit(1)
+}
+if (slot.workbenchFrame === 'none') {
+  console.error('\nFAIL: the takeover hid desktop.workbench.frame, so the chat track is an empty column.')
+  console.error('0.2.2 wraps the conversation in that frame even when nothing registers it.')
+  console.error('The anchor is display:contents; hiding it hides the conversation with it.')
   process.exit(1)
 }
 if (slot.studio === 'none') {

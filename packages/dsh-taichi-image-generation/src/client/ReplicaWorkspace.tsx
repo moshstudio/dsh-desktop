@@ -26,6 +26,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChannelConfig, GeneratedImage, GenerationTask, GenerationTaskSummary } from '../protocol.ts'
 import type { ImageGenApi } from './api.ts'
+import { ErrorDetail } from './ErrorDetail.tsx'
 import { errorMessage, tt } from './helpers.ts'
 import { useImageGenLanguageTick } from './use-language.ts'
 import { ModelPicker, resolveModelChoice, type ModelPickerValue } from './ModelPicker.tsx'
@@ -597,7 +598,7 @@ export function ReplicaWorkspace(props: ReplicaWorkspaceProps): React.JSX.Elemen
                 ? tt('replica.submitHintEmpty', { limit: capacity.limit })
                 : tt('replica.submitHint', { used: Math.min(capacity.usable, picked), picked })}
             </span>
-            {error !== null ? <p className={css.error}>{error}</p> : null}
+            {error !== null ? <div className={css.error}><ErrorDetail message={error} /></div> : null}
           </div>
         </form>
 

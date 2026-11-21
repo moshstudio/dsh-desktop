@@ -8,6 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { useEffect, useMemo, useState } from 'react'
 import { AGENT_IMAGE_API } from '../protocol.ts'
 import { CHAT_IMAGE_EVENT } from './conversation-sync.ts'
+import { ErrorDetail } from './ErrorDetail.tsx'
 import { tt } from './helpers.ts'
 import { useImageGenLanguageTick } from './use-language.ts'
 import css from './image-toolview.module.css'
@@ -78,17 +79,18 @@ function textOf(block: ToolCallBlock): string {
     .join('\n')
 }
 
-function resultInfo(block: ToolCallBlock): { status: string; message: string } {
-  if (!isSettled(block)) return { status: 'running', message: tt('canvas.generating') }
+function resultInfo(block: ToolCallBlock): { status: string; message: string; detail: string } {
+  if (!isSettled(block)) return { status: 'running', message: tt('canvas.generating'), detail: '' }
   const text = textOf(block)
   try {
-    const parsed = JSON.parse(text) as { status?: unknown; message?: unknown }
+    const parsed = JSON.parse(text) as { status?: unknown; message?: unknown; error?: unknown }
     return {
       status: typeof parsed.status === 'string' ? parsed.status : block.isError ? 'failed' : 'completed',
       message: typeof parsed.message === 'string' ? parsed.message : '',
+      detail: typeof parsed.error === 'string' ? parsed.error : '',
     }
   } catch {
-    return { status: block.isError ? 'failed' : 'completed', message: text }
+    return { status: block.isError ? 'failed' : 'completed', message: text, detail: '' }
   }
 }
 
@@ -169,7 +171,8 @@ export function registerImageToolviews(ctx: ClientContext): void {
     // tick here or a DSH language switch leaves this block in the old language.
     useImageGenLanguageTick()
     const refs = useMemo(() => imageRefsOf(props.block), [props.block])
-    const { status, message } = resultInfo(props.block)
+    const { status, message, detail } = resultInfo(props.block)
+    const failure = detail !== '' ? detail : status === 'failed' ? message : ''
     const { images, error } = useAttachmentImages(props.sessionId, refs, load)
 
     useEffect(() => {
@@ -188,7 +191,7 @@ export function registerImageToolviews(ctx: ClientContext): void {
         <strong>{props.toolName}</strong>
         <span className={css.status}>{statusLabel(status)}</span>
       </header>
-      {message !== '' && <p className={css.message}>{message}</p>}
+      {failure !== '' ? <ErrorDetail message={failure} /> : message !== '' ? <p className={css.message}>{message}</p> : null}
       {images.length > 0 && <div className={css.images}>
         {images.map(image => <a
           className={css.imageLink}

@@ -1,8 +1,34 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js b/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js
-index f4bc5b6..9c855f1 100644
+index f4bc5b6..6d7c5ce 100644
 --- a/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js
-@@ -10063,6 +10063,7 @@ function isExplicitFilePath(value) {
+@@ -1985,6 +1985,7 @@ function clipped(anchor) {
+ * @param props.onlyWhenClipped - show the bubble only when the anchor or an HTML element inside it
+ * overflows horizontally, measured when the bubble is about to show; for labels that repeat
+ * text an ellipsis may cut off. Defaults to false.
++* @param props.className - optional class appended to the bubble so a host can share one tooltip skin. Placement stays inside Tooltip.
+ * @param props.children - a single anchor element; its own ref (callback or object) is forwarded alongside the tooltip's.
+ * @returns the cloned anchor plus a fixed-position bubble, optionally portaled to the body.
+ * The bubble stays hidden until ResizeObserver supplies its size for viewport fitting; clicking the
+@@ -1993,7 +1994,7 @@ function clipped(anchor) {
+ * tooltips; tapping still invokes the child's action and can open an openOnClick explanation.
+ * When no side fits, the viewport-bounded fallback may overlap the anchor; oversized content is scrollable when pinned.
+ */
+-function Tooltip({ label, shortcutKeys, side = "right", align = "center", delayMs = 0, focusDelayMs = 0, gap = 8, disabled = false, portal = false, maxWidth, openOnClick = false, onlyWhenClipped = false, children }) {
++function Tooltip({ label, shortcutKeys, side = "right", align = "center", delayMs = 0, focusDelayMs = 0, gap = 8, disabled = false, portal = false, maxWidth, openOnClick = false, onlyWhenClipped = false, className, children }) {
+ 	const id = useId();
+ 	const [pinned, setPinned] = useState(false);
+ 	const anchor = useRef(null);
+@@ -2152,7 +2153,7 @@ function Tooltip({ label, shortcutKeys, side = "right", align = "center", delayM
+ 	const content = visible && !suppressed && jsxs("span", {
+ 		ref: bubble,
+ 		id: openOnClick ? id : void 0,
+-		className: css$9.bubble,
++		className: className ? `${css$9.bubble} ${className}` : css$9.bubble,
+ 		"data-side": side,
+ 		"data-portal": portal || void 0,
+ 		"data-pinned": pinned || void 0,
+@@ -10063,6 +10064,7 @@ function isExplicitFilePath(value) {
  * fragment-only links, queries, malformed escapes, or control characters.
  */
  function parseFileLink(value) {
@@ -10,7 +36,7 @@ index f4bc5b6..9c855f1 100644
  	const hash = value.indexOf("#");
  	const destination = hash < 0 ? value : value.slice(0, hash);
  	if (destination.includes("?")) return void 0;
-@@ -10073,11 +10074,14 @@ function parseFileLink(value) {
+@@ -10073,11 +10075,14 @@ function parseFileLink(value) {
  		return;
  	}
  	if (path.length === 0 || /[\u0000-\u001f\u007f]/.test(path)) return void 0;
@@ -28,7 +54,7 @@ index f4bc5b6..9c855f1 100644
  	if (match === null) return { path };
  	const line = Number(match[1]);
  	const end = match[2] === void 0 ? line : Number(match[2]);
-@@ -10487,7 +10491,7 @@ function renderNode(node, key, context) {
+@@ -10487,7 +10492,7 @@ function renderNode(node, key, context) {
  				onClick: mention.open,
  				...mention.contextMenuProps,
  				children: [jsx(LinkIconMedium, {
@@ -37,6 +63,36 @@ index f4bc5b6..9c855f1 100644
  					className: markdownCss.linkIcon
  				}), value]
  			}) }, key);
+diff --git a/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/types/Tooltip.d.ts b/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/types/Tooltip.d.ts
+index 55730be..c7a0a0f 100644
+--- a/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/types/Tooltip.d.ts
++++ b/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/types/Tooltip.d.ts
+@@ -43,6 +43,7 @@ type TooltipLabel = string | (() => string);
+  * @param props.onlyWhenClipped - show the bubble only when the anchor or an HTML element inside it
+  * overflows horizontally, measured when the bubble is about to show; for labels that repeat
+  * text an ellipsis may cut off. Defaults to false.
++ * @param props.className - optional class appended to the bubble so a host can share one tooltip skin. Placement stays inside Tooltip.
+  * @param props.children - a single anchor element; its own ref (callback or object) is forwarded alongside the tooltip's.
+  * @returns the cloned anchor plus a fixed-position bubble, optionally portaled to the body.
+  * The bubble stays hidden until ResizeObserver supplies its size for viewport fitting; clicking the
+@@ -51,7 +52,7 @@ type TooltipLabel = string | (() => string);
+  * tooltips; tapping still invokes the child's action and can open an openOnClick explanation.
+  * When no side fits, the viewport-bounded fallback may overlap the anchor; oversized content is scrollable when pinned.
+  */
+-export declare function Tooltip({ label, shortcutKeys, side, align, delayMs, focusDelayMs, gap, disabled, portal, maxWidth, openOnClick, onlyWhenClipped, children }: {
++export declare function Tooltip({ label, shortcutKeys, side, align, delayMs, focusDelayMs, gap, disabled, portal, maxWidth, openOnClick, onlyWhenClipped, className, children }: {
+     label: TooltipLabel;
+     shortcutKeys?: readonly string[] | undefined;
+     side?: TooltipSide;
+@@ -64,6 +65,7 @@ export declare function Tooltip({ label, shortcutKeys, side, align, delayMs, foc
+     maxWidth?: number;
+     openOnClick?: boolean;
+     onlyWhenClipped?: boolean;
++    className?: string;
+     children: ReactElement<AnchorProps>;
+ }): import("react").JSX.Element;
+ //# sourceMappingURL=Tooltip.d.ts.map
+\ No newline at end of file
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/types/markdown/render.d.ts b/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/types/markdown/render.d.ts
 index cd2ddbc..cdebc91 100644
 --- a/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/types/markdown/render.d.ts

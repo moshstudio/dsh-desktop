@@ -16,7 +16,7 @@ diff --git a/node_modules/@deepseek-ai/dsh/package.json b/node_modules/@deepseek
 index f41b2d4..f004613 100644
 --- a/node_modules/@deepseek-ai/dsh/package.json
 +++ b/node_modules/@deepseek-ai/dsh/package.json
-@@ -111,6 +111,23 @@
+@@ -111,6 +111,24 @@
      "@deepseek-ai/dsh-personalized-recommendations": "0.2.2-rc.1",
      "@deepseek-ai/dsh-experimental-forge-bundle": "0.2.2-rc.1"
    },
@@ -29,6 +29,7 @@ index f41b2d4..f004613 100644
 +    "dsh-desktop-hmr-fallback": "0.1.0",
 +    "dsh-desktop-log-bridge": "0.1.0",
 +    "dsh-desktop-market-installer": "0.1.0",
++    "taichi-dshmarket": "1.77.1",
 +    "dsh-desktop-preset-transfer": "0.1.0",
 +    "dsh-taichi-image-generation": "0.1.0",
 +    "react-dom": "18.3.1",

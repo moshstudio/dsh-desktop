@@ -282,6 +282,11 @@
   cursor: not-allowed;
 }
 
+.secondary[aria-busy='true']:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
 .link {
   display: inline-flex;
   flex: none;
@@ -339,7 +344,7 @@
    「4:3」, and stretched 「生成」 into a banner. Longer locales ellipsis. */
 .row {
   display: grid;
-  grid-template-columns: 16px 5em 3em minmax(0, 1fr) 7em 5.25em 40px;
+  grid-template-columns: 16px 5em 3em minmax(0, 1fr) auto 5.25em 96px;
   column-gap: 8px;
   row-gap: 8px;
   align-items: center;
@@ -430,6 +435,43 @@
   cursor: not-allowed;
 }
 
+.small[aria-busy='true']:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+
+.buttonInner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: aplusSpin 800ms linear infinite;
+}
+
+@keyframes aplusSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    border-top-color: currentColor;
+    opacity: 0.65;
+  }
+}
+
 .state {
   grid-column: 6;
   grid-row: 1;
@@ -450,19 +492,38 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-.thumbImage,
+.thumbButton,
 .thumbEmpty {
   grid-column: 7;
-  grid-row: 1;
-  align-self: center;
+  grid-row: 1 / 3;
+  align-self: stretch;
+  justify-self: stretch;
   box-sizing: border-box;
-  width: 40px;
-  height: 40px;
+  width: auto;
+  height: auto;
+  min-height: 72px;
   border-radius: var(--dsw-radius-xs);
 }
 
+.thumbButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.thumbButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
 .thumbImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
   object-fit: cover;
+  pointer-events: none;
 }
 
 .thumbEmpty {
@@ -480,8 +541,8 @@
 }
 
 /* Copy stays inside the caption column, so the title and body share that
-   field's left and right edges. The button, status and thumbnail stay on the
-   first line and do not drag the second line out from under the caption. */
+   field's left and right edges. The button and status stay on the first line.
+   The thumbnail spans both lines so the finished image is large enough to scan. */
 .copyRow {
   display: grid;
   grid-column: 4;
@@ -528,11 +589,12 @@
   line-height: 18px;
 }
 
-/* The fixed tracks need about 720px. Below that, stack the fields and let the
-   generate button shrink back to its label so the card does not scroll sideways. */
-@container aplus (width < 720px) {
+/* The fixed tracks need about 780px once the thumbnail column is 96px. Below
+   that, stack the fields and let the generate button shrink back to its label
+   so the card does not scroll sideways. */
+@container aplus (width < 780px) {
   .row {
-    grid-template-columns: 16px minmax(0, 1fr) auto 40px;
+    grid-template-columns: 16px minmax(0, 1fr) auto 72px;
     column-gap: 8px;
     padding: 8px 10px;
   }
@@ -551,14 +613,14 @@
     grid-row: 1;
   }
 
-  .thumbImage,
+  .thumbButton,
   .thumbEmpty {
     grid-column: 4;
-    grid-row: 1;
+    grid-row: 1 / 3;
   }
 
   .caption {
-    grid-column: 1 / -1;
+    grid-column: 1 / 4;
     grid-row: 2;
   }
 

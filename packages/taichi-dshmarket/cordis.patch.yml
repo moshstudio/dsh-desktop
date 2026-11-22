@@ -1,0 +1,5 @@
+# Desktop-owned loader id. The community package keeps `dsh-market`, and a
+# market switch matches rows by the ids in the disabled package's patch.
+- insert:
+    - id: taichi-dshmarket
+      name: 'taichi-dshmarket'

@@ -1,15 +1,15 @@
 /**
- * Prompt-template library drawer: a multi-source, searchable, category-
- * filtered gallery that docks to the right edge of the workspace instead of
- * covering it as a centred modal. Each registered source (TEMPLATE_SOURCES)
+ * Prompt-template library: a multi-source, searchable, category-filtered
+ * gallery shown as a centred dialog over the workspace. Each registered source (TEMPLATE_SOURCES)
  * renders as its own tab with an independent list, refresh state, and image
  * pool; case lists are served by the host (bundled snapshot, optionally
  * refreshed online or auto-synced in the background) and reference images load
  * lazily through the host's caching proxy, so browsing progressively mirrors the
  * gallery onto the local disk. Templates can be starred; favorites persist
  * host-side as full case snapshots and are reachable through the favorites
- * view grouped by source. The drawer can be dragged wider from its left edge,
- * stretched to the whole workspace, and remembers that width across sessions.
+ * view grouped by source. The dialog can be dragged wider from its left edge
+ * and stays centred. It can also stretch to the whole workspace, and it
+ * remembers that width across sessions.
  * Picking a template hands its prompt back and closes the library.
  */
 
@@ -521,8 +521,9 @@ export function TemplateLibrary(props: {
         onClick={(event) => { event.stopPropagation() }}
       >
         {fullscreen ? null : (
-          // The grab strip sits just outside the shell's left edge; the width is
-          // read from the overlay, so an anchored drawer measures its own area.
+          // The grab strip sits just outside the shell's left edge. Width is read
+          // from the overlay's content box so an anchored dialog measures its
+          // own area and stays centred while the edge moves.
           <div
             className={css.resizeHandle}
             role="separator"
@@ -540,8 +541,19 @@ export function TemplateLibrary(props: {
             }}
             onPointerMove={(event) => {
               if (!resizing) return
-              const rect = overlayRef.current?.getBoundingClientRect()
-              if (rect !== undefined && rect.width > 0) changeWidth((rect.right - event.clientX) / rect.width)
+              const overlay = overlayRef.current
+              if (overlay === null) return
+              const rect = overlay.getBoundingClientRect()
+              const style = window.getComputedStyle(overlay)
+              const padLeft = Number.parseFloat(style.paddingLeft) || 0
+              const padRight = Number.parseFloat(style.paddingRight) || 0
+              const innerWidth = rect.width - padLeft - padRight
+              if (innerWidth <= 0) return
+              // Width is measured from the centre so the left edge can move
+              // while the dialog stays centred. The old right-edge formula
+              // belonged to the docked drawer and jumped on the first drag.
+              const center = rect.left + padLeft + innerWidth / 2
+              changeWidth(((center - event.clientX) * 2) / innerWidth)
             }}
             onPointerUp={() => { setResizing(false) }}
             onPointerCancel={() => { setResizing(false) }}

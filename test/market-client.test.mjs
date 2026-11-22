@@ -58,7 +58,7 @@ function setup({ bundles = [], composed = false, language = 'en', desktop = {} }
     slots: { inject: (_name, register) => register(), register: (options, Component) => { slots.set(options.id, { Component, props: options.inject() }) } }
   }
   exported.apply(ctx)
-  const controller = slots.get(composed ? 'desktop-market-management' : 'market').props.controller
+  const controller = slots.get('desktop-market-management')?.props.controller
   const mount = id => {
     const { Component, props } = slots.get(id)
     const current = { index: 0, state: [], effects: [], mounted: false }
@@ -86,88 +86,37 @@ const text = node => typeof node === 'string' ? node : Array.isArray(node) ? nod
 const button = (tree, label) => find(tree, node => node.type === 'button' && text(node) === label)[0]
 
 describe('recommended market ordinary PluginManager client', () => {
-  it('installs through the remote contract with no HTTP calls (including no-Origin calls) or polling', async () => {
+  it('does not add a settings section that installs the community market', async () => {
     const app = setup()
     await flush()
     expect(app.inject).toContain('remote.pluginManager')
-    expect(app.controller.getSnapshot().status.phase).toBe('absent')
-    const page = app.mount('market')
-    expect(text(page.render())).toContain('Recommended version · ^1.66.47')
-    button(page.render(), 'Install plugin market').props.onClick()
-    await flush()
-    expect(app.manager.installBundle).toHaveBeenCalledExactlyOnceWith('dshmarket@^1.66.47', { enabled: true })
-    expect(app.controller.getSnapshot().status).toMatchObject({ phase: 'installed', enabled: true, application: 'restart-required', installedVersion: '1.66.47' })
-    expect(text(page.render())).toContain('Restart Harness once')
+    expect(app.slots.has('market')).toBe(false)
+    expect(app.slots.has('desktop-market-management')).toBe(false)
+    expect(app.manager.listBundles).not.toHaveBeenCalled()
+    expect(app.dictionaries()).toBeUndefined()
     expect(app.fetch).not.toHaveBeenCalled()
     expect(app.setTimeout).not.toHaveBeenCalled()
-    app.dispose()
-  })
-
-  it('holds the busy state across changed events and ignores duplicate install/remove attempts', async () => {
-    const app = setup()
-    await flush()
-    const pending = deferred()
-    app.manager.installBundle.mockReturnValueOnce(pending.promise)
-    const installing = app.controller.install()
-    const page = app.mount('market')
-    expect(button(page.render(), 'Install plugin market').props.disabled).toBe(true)
-    await app.events.get('plugin-manager/changed')()
-    expect(app.controller.getSnapshot().status.phase).toBe('installing')
-    await app.controller.install()
-    await app.controller.uninstall()
-    expect(app.manager.installBundle).toHaveBeenCalledTimes(1)
-    expect(app.manager.removeBundle).not.toHaveBeenCalled()
-    pending.resolve(changed())
-    await installing
-    expect(app.controller.getSnapshot().status.phase).not.toBe('installing')
-    app.dispose()
-  })
-
-  it.each(['failed', 'cancelled', 'overridden'])('does not mistake ok:true application=%s for installation success and allows retry', async application => {
-    const app = setup()
-    await flush()
-    app.manager.installBundle.mockResolvedValueOnce(changed({ application, error: { code: 'operation-error', diagnostic: 'install rejected' } }))
-    await app.controller.install()
-    const page = app.mount('market')
-    expect(text(page.render())).toContain('install rejected')
-    expect(button(page.render(), 'Try again').props.disabled).toBe(false)
-    await app.controller.install()
-    expect(app.controller.getSnapshot().error).toBeUndefined()
-    expect(app.controller.getSnapshot().status.enabled).toBe(true)
     app.dispose()
   })
 
   it.each([
     { ok: false, error: { code: 'remote-error', diagnostic: 'remote rejected' } },
     new Error('connection lost')
-  ])('recovers from transport failure without staying busy', async result => {
-    const app = setup()
+  ])('recovers from an update transport failure without staying busy', async result => {
+    const app = setup({ composed: true, bundles: [bundle()] })
     await flush()
     if (result instanceof Error) app.manager.installBundle.mockRejectedValueOnce(result)
     else app.manager.installBundle.mockResolvedValueOnce(result)
-    await app.controller.install()
+    await app.controller.update()
     expect(app.controller.getSnapshot().error).toMatch(/remote rejected|connection lost/)
     expect(app.controller.getSnapshot().status.phase).not.toBe('installing')
-    await app.controller.install()
+    await app.controller.update()
     expect(app.manager.installBundle).toHaveBeenCalledTimes(2)
     app.dispose()
   })
 
-  it('enables an installed disabled market instead of reinstalling and distinguishes applied results', async () => {
-    const app = setup({ bundles: [bundle({ enabled: false })] })
-    await flush()
-    const page = app.mount('market')
-    expect(button(page.render(), 'Enable plugin market').props.disabled).toBe(false)
-    app.manager.setBundleEnabled.mockImplementationOnce(async () => changed({ application: 'applied' }))
-    await app.controller.install()
-    expect(app.manager.setBundleEnabled).toHaveBeenCalledExactlyOnceWith('dshmarket', true)
-    expect(app.manager.installBundle).not.toHaveBeenCalled()
-    expect(app.controller.getSnapshot().status.application).toBe('applied')
-    app.dispose()
-  })
-
   it('refreshes inventory after manager changes and connection resets, ignoring stale reads', async () => {
-    const app = setup()
+    const app = setup({ composed: true })
     await flush()
     const stale = deferred()
     app.manager.listBundles.mockReturnValueOnce(stale.promise)
@@ -179,15 +128,14 @@ describe('recommended market ordinary PluginManager client', () => {
     app.dispose()
   })
 
-  it('reports inventory failures and repairs missing packages with installBundle', async () => {
-    const app = setup({ bundles: [bundle({ availability: 'missing' })] })
+  it('reports inventory failures on the management tab', async () => {
+    const app = setup({ composed: true, bundles: [bundle({ availability: 'missing' })] })
     await flush()
     expect(app.controller.getSnapshot().status.phase).toBe('incomplete')
     app.manager.listBundles.mockResolvedValueOnce({ ok: false, error: { diagnostic: 'inventory unavailable' } })
     await app.controller.refresh()
     expect(app.controller.getSnapshot().error).toBe('inventory unavailable')
-    await app.controller.install()
-    expect(app.manager.installBundle).toHaveBeenCalledTimes(1)
+    expect(app.slots.has('market')).toBe(false)
     app.dispose()
   })
 
@@ -229,7 +177,7 @@ describe('recommended market ordinary PluginManager client', () => {
   })
 
   it('cleans up events, style and subscriptions, and ignores pending operations after disposal', async () => {
-    const app = setup()
+    const app = setup({ composed: true, bundles: [bundle()] })
     await flush()
     const notify = vi.fn()
     const unsubscribe = app.controller.subscribe(notify)
@@ -238,7 +186,7 @@ describe('recommended market ordinary PluginManager client', () => {
     unsubscribe()
     const pending = deferred()
     app.manager.installBundle.mockReturnValueOnce(pending.promise)
-    const installing = app.controller.install()
+    const installing = app.controller.update()
     const snapshot = app.controller.getSnapshot()
     const style = app.getStyle()
     const reads = app.manager.listBundles.mock.calls.length
@@ -254,7 +202,7 @@ describe('recommended market ordinary PluginManager client', () => {
   })
 
   it('ignores pending inventory after disposal', async () => {
-    const app = setup()
+    const app = setup({ composed: true })
     await flush()
     const pending = deferred()
     app.manager.listBundles.mockReturnValueOnce(pending.promise)
@@ -263,17 +211,6 @@ describe('recommended market ordinary PluginManager client', () => {
     app.dispose()
     pending.resolve(ok([bundle()])); await refreshing
     expect(app.controller.getSnapshot()).toBe(snapshot)
-  })
-
-  it('honors the host restartRequired flag even when the manager applied its persisted change', async () => {
-    const app = setup()
-    await flush()
-    app.manager.installBundle.mockResolvedValueOnce(changed({ application: 'applied', restartRequired: true }))
-    app.manager.listBundles.mockResolvedValueOnce(ok([bundle()]))
-    await app.controller.install()
-    expect(app.controller.getSnapshot().status.application).toBe('restart-required')
-    expect(text(app.mount('market').render())).toContain('Restart Harness once')
-    app.dispose()
   })
 
   it('offers enable in the composed management tab and respects a non-removable bundle', async () => {
@@ -288,24 +225,30 @@ describe('recommended market ordinary PluginManager client', () => {
     app.dispose()
   })
 
-  it.each(['zh', 'en'])('keeps the recommended market entry and matching copy in %s', async language => {
-    const app = setup({ language })
+  it.each(['zh', 'en'])('keeps management copy in %s and does not offer community install', async language => {
+    const app = setup({ composed: true, language })
     await flush()
     const copy = app.dictionaries()[language]
-    const page = app.mount('market')
-    expect(text(page.render())).toContain(copy.community)
+    expect(copy).not.toHaveProperty('intro')
+    expect(copy).not.toHaveProperty('install')
+    expect(copy).not.toHaveProperty('nav')
+    expect(copy).not.toHaveProperty('community')
     expect(app.dictionaries().zh).toHaveProperty('enable')
     expect(Object.keys(app.dictionaries().zh).sort()).toEqual(Object.keys(app.dictionaries().en).sort())
+    const page = app.mount('desktop-market-management')
+    expect(text(page.render())).toContain(copy.managementIntro)
+    expect(text(page.render())).not.toContain('安装 dsh-market')
+    expect(text(page.render())).not.toContain('Install dsh-market')
     app.dispose()
   })
 
   it.each([
-    [false, false, 'en'], [false, true, 'zh'], [true, false, 'zh'], [true, true, 'en']
-  ])('offers explicit replacement in composed=%s enabled=%s locale=%s without changing selection', async (composed, enabled, language) => {
-    const app = setup({ composed, language, bundles: [bundle({ version: '1.66.40', enabled })] })
+    [false, 'en'], [true, 'zh']
+  ])('offers explicit replacement when enabled=%s locale=%s without changing selection', async (enabled, language) => {
+    const app = setup({ composed: true, language, bundles: [bundle({ version: '1.66.40', enabled })] })
     await flush()
     const copy = app.dictionaries()[language]
-    const page = app.mount(composed ? 'desktop-market-management' : 'market')
+    const page = app.mount('desktop-market-management')
     const label = copy.update + ' · dshmarket@^1.66.47'
     const pending = deferred()
     app.manager.installBundle.mockImplementationOnce(async () => {
@@ -344,9 +287,9 @@ describe('recommended market ordinary PluginManager client', () => {
   })
 
   it.each(['2.0.0', '3.1.0-beta.1', undefined, 'invalid'])('prevents recommended-major replacement for installed version %s', async version => {
-    const app = setup({ bundles: [bundle({ version })] })
+    const app = setup({ composed: true, bundles: [bundle({ version })] })
     await flush()
-    const page = app.mount('market')
+    const page = app.mount('desktop-market-management')
     expect(button(page.render(), 'Update/reinstall recommended version · dshmarket@^1.66.47').props.disabled).toBe(true)
     expect(text(page.render())).toContain('avoid a downgrade')
     await app.controller.update()

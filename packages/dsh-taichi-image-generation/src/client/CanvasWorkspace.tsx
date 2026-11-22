@@ -1310,13 +1310,17 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
   //
   // 一份画布都没打开时也照常轮询：提案条没有内容可显示，但下拉里的「有 N 条
   // 待确认」不依赖当前打开的是哪一本。
+  //
+  // 切到别的工作区时这个实例还在，但 `active` 为 false：停掉定时器，避免藏着
+  // 的画布继续打宿主。回到这一页时 effect 重跑，会立刻再拉一次。
   useEffect(() => {
+    if (!active) return
     setProposals([])
     if (document?.id !== undefined) setProposalError(null)
     void refreshProposals()
     const timer = window.setInterval(() => { void refreshProposals() }, 5000)
     return () => { window.clearInterval(timer) }
-  }, [document?.id, refreshProposals])
+  }, [active, document?.id, refreshProposals])
 
   /**
    * 接受一条提案。
@@ -5306,9 +5310,33 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
   // -------------------------------------------------------------- loading
 
   useEffect(() => {
+    if (!active) return
+    // 切走后实例还在。宿主上还在的那张画布，只要本地有没写出去的编辑，回来就
+    // 留着，不用宿主那份盖掉。宿主已经没有这张（空库、或它被删了）时才按
+    // 首次打开的规则处理，这样不会凭空 canvasCreate。
     let disposed = false
-    void api.canvasList().then(async list => {
+    const dirty = (): boolean => {
+      const live = documentRef.current
+      return live !== null && JSON.stringify(live) !== syncedRef.current
+    }
+    void (async () => {
+      // 让同一轮里的导入先落到 documentRef，再决定要不要用宿主覆盖。
+      await new Promise(resolve => { window.setTimeout(resolve, 0) })
       if (disposed) return
+      const list = await api.canvasList()
+      if (disposed) return
+      const live = documentRef.current
+      if (live !== null && live.id !== '' && list.some(project => project.id === live.id)) {
+        if (dirty()) return
+        const next = await api.canvasRead(live.id)
+        if (disposed || dirty()) return
+        setProjects(list)
+        setDocument(normalizeConfigNodeSizes(next))
+        syncedRef.current = JSON.stringify(next)
+        setSaveState('saved')
+        return
+      }
+      if (dirty() && live !== null && live.id === '' && list[0] !== undefined) return
       // A library with no canvases opens on an EMPTY canvas that does not exist
       // on disk yet. It used to call `canvasCreate` right here, so merely
       // opening the tab left a saved canvas behind — one the user never made,
@@ -5334,13 +5362,13 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
       syncedRef.current = JSON.stringify(first)
       setSaveState('saved')
       if (openCanvasId !== undefined) onOpenCanvasHandled?.()
-    }).catch(caught => { if (!disposed) { setError(caught instanceof Error ? caught.message : String(caught)); setSaveState('error') } })
+    })().catch(caught => { if (!disposed) { setError(caught instanceof Error ? caught.message : String(caught)); setSaveState('error') } })
     return () => { disposed = true }
     // `openCanvasId` 故意不进依赖：它只决定**首次**打开哪一张。挂载之后
-    // 再点历史里的画布由下面的 effect 接住，这里重跑会把当前编辑中的文档
-    // 丢掉（还会和自动保存抢同一份 revision）。
+    // 再点历史里的画布由下面的 effect 接住。`active` 要进依赖：切回来时
+    // 未保存的编辑留在这张还在的画布上，已经落盘的则按当前 id 重读。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, draftDocument])
+  }, [active, api, draftDocument])
 
   /**
    * 加载服务端那一版，丢掉本地未保存的改动。
@@ -7532,6 +7560,7 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
     ref={rootRef}
     className={css.root}
     data-canvas-workspace=""
+    hidden={!active}
     data-dsh-taichi-imagegen-scheme={colorScheme}
     data-zoom-band={zoomBand}
     style={{

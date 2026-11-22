@@ -320,22 +320,7 @@ window.__ModuleLoader__.load({
           [data-dsh-better-sidebar-settings-nav] svg { display:none !important; }
           :root { --dsh-page-title-top-spacing:56px; }
           /* Dialog chrome only. --dsw-radius-panel stays 28px because the composer card uses it.
-             The mask stays a light tint plus a short blur so the page behind remains readable.
-             Variables are set on the mask sibling; the dialog content keeps the theme mask color. */
-          html body {
-            --dsh-dialog-mask-blur: blur(12px);
-            --dsh-dialog-mask-fill: color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent);
-          }
-          @media (prefers-reduced-transparency: reduce) {
-            html body {
-              --dsh-dialog-mask-blur: none;
-              --dsh-dialog-mask-fill: color-mix(in srgb, var(--dsw-alias-label-primary) 28%, transparent);
-            }
-          }
-          html body :has(> [role="dialog"]) > :not([role="dialog"]) {
-            --dsw-mask-blur: var(--dsh-dialog-mask-blur);
-            --dsw-alias-bg-mask-1: var(--dsh-dialog-mask-fill);
-          }
+             The mask itself stays the UI kit default; Desktop does not paint a second one. */
           html [role="dialog"] { border-radius: var(--dsw-radius-md); }
           /* Keep Desktop actions beside Settings, without relocating other slot contributions. */
           [data-dsh-sidebar-settings]:has([data-dsh-desktop-utilities]) {

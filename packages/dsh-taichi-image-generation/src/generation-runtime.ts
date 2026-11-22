@@ -489,7 +489,7 @@ export class ImageGenerationRuntime {
   ): Promise<GenerateResult> {
     const references = taichiReferences(request)
     const outputFormat = request.outputFormat === 'gif' || request.outputFormat === 'svg' ? request.outputFormat : 'png'
-    const mime = outputFormat === 'gif' ? 'image/gif' : outputFormat === 'svg' ? 'image/svg+xml' : 'image/png'
+    const fallbackMime = outputFormat === 'gif' ? 'image/gif' : outputFormat === 'svg' ? 'image/svg+xml' : 'image/png'
     try {
       const count = Math.max(1, Math.min(4, Math.trunc(request.n) || 1))
       // One request per picture, all in flight together. A failure stays on
@@ -506,6 +506,10 @@ export class ImageGenerationRuntime {
           mode: request.mode,
           ...references.length > 0 ? { images: references } : {},
         }, process.env, signal)
+        // Grok returns JPEG even when the request asked for png. Label the
+        // bytes we actually got, or the panel's data URL and the history file
+        // are both decoded as PNG and show nothing.
+        const mime = detectImageMime(bytes) ?? fallbackMime
         return [{ b64: bytes.toString('base64'), mime }]
       }), signal, report)
     } catch (error) {

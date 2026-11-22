@@ -2126,7 +2126,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: max(24px, var(--dsh-frame-overlay-top, 24px)) 24px;
   background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
   backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
   -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));

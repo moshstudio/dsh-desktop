@@ -46,6 +46,7 @@ describe('Desktop account UI composition', () => {
       })
       expect(entries.find((entry) => entry.id === 'dsh-desktop-market-installer')?.name)
         .toBe('dsh-desktop-market-installer')
+      expect(entries.find((entry) => entry.id === 'taichi-dshmarket')?.name).toBe('taichi-dshmarket')
       expect(entries.find((entry) => entry.id === 'dsh-desktop-office')).toMatchObject({
         name: 'dsh-desktop-office',
         config: {
@@ -67,6 +68,7 @@ describe('Desktop account UI composition', () => {
       expect(safeEntries.find((entry) => entry.id === 'dsh-desktop-activity')?.name).toBe('dsh-desktop-activity')
       expect(safeEntries.find((entry) => entry.id === 'dsh-desktop-workbenches')).toBeUndefined()
       expect(safeEntries.find((entry) => entry.id === 'dsh-desktop-market-installer')).toBeUndefined()
+      expect(safeEntries.find((entry) => entry.id === 'taichi-dshmarket')).toBeUndefined()
       expect(safeEntries.find((entry) => entry.id === 'dsh-desktop-office')).toBeUndefined()
       expect(safeEntries.find((entry) => entry.id === 'dsh-ppt-composer')).toBeUndefined()
       expect(safeEntries.find((entry) => entry.id === 'taichi-imagegen')).toBeUndefined()

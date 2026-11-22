@@ -23,6 +23,7 @@ interface WindowControlsOptions {
 }
 
 const captionDoubleClicks = new WeakMap<Document, (event: Event) => void>()
+const CAPTION_CONTROL = 'button, a, input, select, textarea, label, summary, [role="button"], [role="tab"], [role="menuitem"], [role="dialog"], [role="alertdialog"], dialog, [contenteditable="true"], [data-dsh-windows-menu], [data-dsh-window-controls], [data-dsh-no-drag]'
 
 /** 1px caption glyphs on a 12px grid, the same geometry as the Windows title buttons. */
 const svg = (body: string, linecap: 'butt' | 'square' = 'butt'): string =>
@@ -38,8 +39,9 @@ const ICONS = {
 
 /**
  * Page-drawn minimize, maximize and close. z-index 40 sits above the caption
- * drag strip and the sidebar toggle, and below dialogs (about 120 and up),
- * so a modal can cover the buttons. Native overlay buttons cannot.
+ * drag strip and the sidebar toggle. Dialog layers that cover this band are
+ * opened by the caption passthrough, so the buttons stay clickable. Native
+ * overlay buttons cannot.
  */
 export function mountWindowControls(options: WindowControlsOptions): { dispose(): void } {
   const { document, ipcRenderer } = options
@@ -152,12 +154,11 @@ function bindCaptionDoubleClick(document: Document, ipcRenderer: CaptionIpc): vo
 function handleCaptionDoubleClick(document: Document, ipcRenderer: CaptionIpc, event: Event): void {
   if (!(event instanceof MouseEvent) || event.defaultPrevented || event.button !== 0) return
   if (event.clientY < 0 || event.clientY >= WINDOWS_TITLEBAR_HEIGHT) return
-  if (document.documentElement.hasAttribute('data-dsh-modal-open')) return
   const controls = document.querySelector(`[${HOST_ATTRIBUTE}]`)
   if (!controls) return
   const target = event.target
   if (!(target instanceof Element)) return
-  if (target.closest('button, a, input, select, textarea, label, summary, [role="button"], [role="tab"], [role="menuitem"], [contenteditable="true"], [data-dsh-windows-menu], [data-dsh-window-controls], [data-dsh-no-drag]')) return
+  if (target.closest(CAPTION_CONTROL)) return
   // A drag-region double-click also maximizes the window. preventDefault keeps
   // that native toggle from running in addition to the control below.
   event.preventDefault()

@@ -1,0 +1,71 @@
+{
+  "name": "taichi-dshmarket",
+  "description": "Built-in plugin market for 太极-dsh. Vendored from https://github.com/dsh-market/dsh-market at v1.77.1 and renamed so it can run beside the community dshmarket package.",
+  "version": "1.77.1",
+  "icon": "assets/logo.svg",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsh-market/dsh-market.git"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsdown && node scripts/normalize-client-banner.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit"
+  },
+  "dependencies": {
+    "js-yaml": "^4.3.2",
+    "undici": "^7.30.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1 || ^4.1.0",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.7 || ^0.1.1-rc.2 || ^0.1.2-alpha.2 || ^0.2.0-rc.1 || ^0.2.1-alpha.3 || ^0.2.1-rc.1 || ^0.2.2-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "24.10.1",
+    "@types/react": "~18.3.18",
+    "lightningcss": "1.33.0",
+    "tsdown": "0.23.7",
+    "typescript": "~5.7.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ],
+      "platform": "web"
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./update-api-v1": {
+      "types": "./lib/types/update-api-v1.d.ts",
+      "default": "./lib/update-api-v1.js"
+    },
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  }
+}

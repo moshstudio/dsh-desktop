@@ -45,11 +45,15 @@
     - id: dsh-desktop-onboarding
       name: dsh-desktop-onboarding
 
-    # DSH Desktop owns the fixed-target dsh-market installer and its lightweight
-    # settings entry. After dshmarket is installed and Harness restarts, the
-    # community plugin replaces the placeholder with its complete market UI.
+    # Host package services. The built-in market is preset, so this client does
+    # not add a settings entry that installs the community dshmarket package.
     - id: dsh-desktop-market-installer
       name: dsh-desktop-market-installer
+
+    # Built-in market. The community dshmarket package stays an optional
+    # generation; its settings install entry is not offered.
+    - id: taichi-dshmarket
+      name: taichi-dshmarket
 
     # Vendored image/video studio. Each feature is a subpath export of the same package.
     - id: taichi-imagegen

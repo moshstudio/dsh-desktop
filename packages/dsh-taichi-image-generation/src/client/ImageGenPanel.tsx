@@ -1159,6 +1159,25 @@ function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>): void
   }, [open, ref])
 }
 
+/**
+ * Fold one direct-generate history snapshot into the list already on screen.
+ *
+ * Each snapshot is the whole store after that append, newest first. Appends
+ * are serialized, so a later snapshot already contains the earlier rows. The
+ * responses themselves are not ordered: a slower module must not replace a
+ * list that already shows a newer row, and it must not put back a row the
+ * newer snapshot had already evicted.
+ */
+function adoptHistorySnapshot(current: readonly HistoryEntry[], incoming: readonly HistoryEntry[]): HistoryEntry[] {
+  const newest = (entries: readonly HistoryEntry[]): number =>
+    entries.reduce((max, entry) => Math.max(max, entry.createdAt), 0)
+  const incomingNewest = newest(incoming)
+  const currentNewest = newest(current)
+  if (incomingNewest < currentNewest) return [...current]
+  if (incomingNewest === currentNewest && current.length >= incoming.length) return [...current]
+  return [...incoming]
+}
+
 /** Render the studio. */
 export function ImageGenPanel(props: {
   api: ImageGenApi
@@ -1269,6 +1288,28 @@ export function ImageGenPanel(props: {
 
   const [tab, setTab] = useState<PanelTab>('text')
   const [workspace, setWorkspace] = useState<PanelWorkspace>('normal')
+  /**
+   * Workspaces the user has opened in this studio session.
+   *
+   * Switching tabs used to unmount the page, so a prompt, an upload list or a
+   * canvas was gone on the way back. The first visit still mounts lazily; after
+   * that the instance stays and only `active` / `hidden` change.
+   */
+  const [visitedWorkspaces, setVisitedWorkspaces] = useState<ReadonlySet<PanelWorkspace>>(() => new Set())
+  /** The video composer is a sub-tab, not a top-level workspace, so it has its own latch. */
+  const [videoKept, setVideoKept] = useState(false)
+  useEffect(() => {
+    setVisitedWorkspaces(current => {
+      if (current.has(workspace)) return current
+      const next = new Set(current)
+      next.add(workspace)
+      return next
+    })
+  }, [workspace])
+  useEffect(() => {
+    if (workspace === 'normal' && tab === 'video') setVideoKept(true)
+  }, [workspace, tab])
+  const keepWorkspace = (id: PanelWorkspace): boolean => visitedWorkspaces.has(id) || workspace === id
   const [canvasImportRequest, setCanvasImportRequest] = useState<CanvasImportRequest | undefined>()
   /** Switch to a normal-generation tab, leaving any task workspace. */
   const openTab = (next: PanelTab): void => {
@@ -1857,6 +1898,16 @@ export function ImageGenPanel(props: {
       .then(entries => { setHistory(entries) })
       .catch(caught => { setHistoryLoadError(errorMessage(caught)) })
   }, [api])
+
+  /**
+   * A+ calls `generate` directly. That route already returns the history list
+   * after the append, and no task is queued for the poller to notice. Apply
+   * the snapshot at once. Parallel modules answer out of order, so a slower
+   * response must not drop an entry a faster one already showed.
+   */
+  const adoptAplusHistory = useCallback((incoming: HistoryEntry[]): void => {
+    setHistory(current => adoptHistorySnapshot(current, incoming))
+  }, [])
 
   // The host writes poster frames *after* it has answered the first listing, so
   // a list read once at mount keeps showing the film glyph for clips whose still
@@ -3465,7 +3516,7 @@ export function ImageGenPanel(props: {
               title={tt('conversation.addVideoHint')}
               onClick={(event) => { event.stopPropagation(); void addClipToConversation(clip.url, `gallery-clip:${entry.id}`) }}
             >
-              {addingToConversation === `gallery-clip:${entry.id}` ? tt('conversation.adding') : tt('conversation.add')}
+              <span>{addingToConversation === `gallery-clip:${entry.id}` ? tt('conversation.adding') : tt('conversation.add')}</span>
             </button>
             <button
               type="button"
@@ -3474,7 +3525,7 @@ export function ImageGenPanel(props: {
               title={tt('canvas.addToCanvas')}
               onClick={(event) => { event.stopPropagation(); addClipToCanvas(clip.url, clip.mime, clip.duration, entry.prompt) }}
             >
-              {tt('canvas.addToCanvas')}
+              <span>{tt('canvas.addToCanvas')}</span>
             </button>
             <a
               className={css.galleryCardAction}
@@ -3483,7 +3534,7 @@ export function ImageGenPanel(props: {
               download
               onClick={event => event.stopPropagation()}
             >
-              {tt('video.download')}
+              <span>{tt('video.download')}</span>
             </a>
           </>) : null}
           {!isClip ? (<>
@@ -3496,7 +3547,7 @@ export function ImageGenPanel(props: {
             onClick={(event) => { event.stopPropagation(); void addGalleryEntryToConversation(entry) }}
           >
             <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10v7H3z"/><path d="M5.5 2.5h5M8 6v4M6 8h4"/></svg>
-            {galleryConversationAddingId === entry.id || conversationAttachment.busyKey === `gallery:${entry.id}` ? tt('conversation.adding') : tt('conversation.add')}
+            <span>{galleryConversationAddingId === entry.id || conversationAttachment.busyKey === `gallery:${entry.id}` ? tt('conversation.adding') : tt('conversation.add')}</span>
           </button>
           <button
             type="button"
@@ -3506,15 +3557,15 @@ export function ImageGenPanel(props: {
             onClick={(event) => { event.stopPropagation(); addEntryToCanvas('gallery', entry.id, 0) }}
           >
             <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" /><path d="M5 8h6M8 5v6" /></svg>
-            {tt('canvas.addToCanvas')}
+            <span>{tt('canvas.addToCanvas')}</span>
           </button>
           </>) : null}
         </div>
         <div className={css.galleryCardFooter}>
           <span className={css.galleryAvatar}>{entry.model.toLowerCase().startsWith('nanobanana') ? 'N' : entry.model.toLowerCase().startsWith('seedream') ? 'S' : entry.model.startsWith('grok') ? 'G' : 'D'}</span>
           <span className={css.galleryCardInfo}>
-            <strong>{entry.prompt || tt('gallery.untitled')}</strong>
-            <small>{entry.model} · {normalizeSize(entry.size)} · {formatTime(entry.createdAt)}</small>
+            <strong title={entry.prompt || tt('gallery.untitled')}>{entry.prompt || tt('gallery.untitled')}</strong>
+            <small title={`${entry.model} · ${normalizeSize(entry.size)} · ${formatTime(entry.createdAt)}`}>{entry.model} · {normalizeSize(entry.size)} · {formatTime(entry.createdAt)}</small>
             {tags.length > 0 ? (
               <span className={css.galleryTags}>
                 {tags.map(tag => <button key={tag} type="button" onClick={() => { setGalleryTagFilter(tag) }}>{tag}</button>)}
@@ -4472,7 +4523,7 @@ export function ImageGenPanel(props: {
             </section>
           </aside>
 
-          {workspace === 'canvas' ? (
+          {keepWorkspace('canvas') ? (
             <CanvasWorkspace
               api={api}
               active={active && workspace === 'canvas'}
@@ -4507,13 +4558,15 @@ export function ImageGenPanel(props: {
           ) : null}
 
           {/* ----------------------------------------------- ppt conversion */}
-          {workspace === 'outfit' ? <OutfitWorkspace api={api} config={config} scope={scope} /> : null}
+          {keepWorkspace('outfit') ? (
+            <OutfitWorkspace api={api} config={config} scope={scope} active={active && workspace === 'outfit'} />
+          ) : null}
 
-          {workspace === 'ppt' ? (
+          {keepWorkspace('ppt') ? (
             <PptWorkspace api={api} active={active && workspace === 'ppt'} onImported={() => { /* no queued import to clear */ }} />
           ) : null}
 
-          {workspace === 'replica' ? (
+          {keepWorkspace('replica') ? (
             <ReplicaWorkspace
               api={api}
               active={active && workspace === 'replica'}
@@ -4532,23 +4585,32 @@ export function ImageGenPanel(props: {
           ) : null}
 
           {/* --------------------------------------- promo image + copy */}
-          {workspace === 'promo' ? (
-            <PromoWorkspace api={api} config={config} />
+          {keepWorkspace('promo') ? (
+            <PromoWorkspace api={api} config={config} active={active && workspace === 'promo'} />
           ) : null}
 
           {/* ---------------------------------------------- A+ detail page */}
-          {workspace === 'aplus' ? (
-            <AplusWorkspace api={api} active={active && workspace === 'aplus'} modelGroups={modelGroups} defaultChannelId={defaultChannelId} channels={config?.channels ?? []} connected={connected} />
+          {keepWorkspace('aplus') ? (
+            <AplusWorkspace
+              api={api}
+              active={active && workspace === 'aplus'}
+              modelGroups={modelGroups}
+              defaultChannelId={defaultChannelId}
+              channels={config?.channels ?? []}
+              connected={connected}
+              onPreview={(images, index, source) => { openPreview(images, index, source) }}
+              onHistory={adoptAplusHistory}
+            />
           ) : null}
 
           {/* -------------------------------------------------- video studio */}
-          {isVideo ? (
-            <section className={css.canvas} data-video="true">
+          {videoKept || isVideo ? (
+            <section className={css.canvas} hidden={!isVideo} data-video="true">
               <VideoPanel
                 api={api}
                 scope={scope}
                 config={config}
-                active={active && tab === 'video'}
+                active={active && isVideo}
                 tasks={videoTasks}
                 onRefreshTasks={refreshVideoTasks}
                 onAddToConversation={addClipToConversation}

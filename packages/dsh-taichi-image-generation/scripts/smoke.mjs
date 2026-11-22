@@ -7300,6 +7300,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     scope: () => ({ sessionId: 'session-smoke' }),
   }
   let imageStudioService
+  const ctxListeners = new Map()
   const ctx = {
     effect(fn) { return fn() },
     reflect: {
@@ -7308,7 +7309,12 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         return () => { if (imageStudioService === value) imageStudioService = undefined }
       },
     },
-    on() { return () => {} },
+    on(event, fn) {
+      const bucket = ctxListeners.get(event) ?? new Set()
+      bucket.add(fn)
+      ctxListeners.set(event, bucket)
+      return () => { bucket.delete(fn) }
+    },
     get(name) {
       // A page served through a loopback reverse proxy is NOT a loopback
       // authority in the browser (the address bar carries the LAN/public
@@ -8007,6 +8013,43 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       assert.notEqual(imageStyle.objectFit, 'cover', 'a waterfall image is not cropped to a fabricated ratio')
     }
 
+    // The tidy grid used to be five shrink-to-zero tracks. On a wide window the
+    // history and filter sidebars leave a pane much narrower than the viewport,
+    // so each card fell below the width of 「加入对话」/「加入画布」 and the
+    // labels overlapped. Tracks now follow the pane, and the action row keeps
+    // a gap so the two labels cannot sit on top of each other.
+    const gridToggle = [...view.querySelectorAll('[class*="galleryViewToggle"] button')].find(button => button.textContent?.includes('整齐网格'))
+    assert.ok(gridToggle !== undefined, 'the gallery offers a tidy grid view')
+    gridToggle.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    const gridLayout = view.querySelector('[class*="galleryMasonry"]')
+    assert.ok(gridLayout !== null, 'the tidy grid layout is rendered')
+    assert.equal(gridLayout.getAttribute('data-view'), 'grid', 'the tidy grid view is active')
+    assert.equal(gridLayout.querySelector('[data-gallery-column]'), null, 'the tidy grid is not a waterfall of fixed lanes')
+    const gridTracks = jsdomWindow.getComputedStyle(gridLayout).gridTemplateColumns
+    assert.match(gridTracks, /minmax/, `the tidy grid keeps a minimum card width (got ${gridTracks})`)
+    assert.doesNotMatch(gridTracks, /repeat\(5,\s*minmax\(0/, 'the tidy grid does not force five tracks that can shrink to nothing')
+    const gridActions = gridLayout.querySelector('[class*="galleryCardActions"]')
+    assert.ok(gridActions !== null, 'a grid card still exposes its actions')
+    const actionStyle = jsdomWindow.getComputedStyle(gridActions)
+    const actionGap = actionStyle.columnGap !== '' && actionStyle.columnGap !== 'normal' ? actionStyle.columnGap : actionStyle.gap
+    assert.equal(actionGap, '8px', `grid card actions keep space between labels (got ${actionGap})`)
+    const gridMeta = gridLayout.querySelector('[class*="galleryCardInfo"] small')
+    assert.ok(gridMeta !== null, 'a grid card still shows its meta line')
+    assert.equal(jsdomWindow.getComputedStyle(gridMeta).whiteSpace, 'normal', 'the grid meta line can wrap instead of collapsing to one crushed line')
+    for (const card of gridLayout.querySelectorAll('article:not([data-clip])')) {
+      const image = card.querySelector('img')
+      assert.ok(image !== null, 'a grid image card renders an image')
+      const imageStyle = jsdomWindow.getComputedStyle(image)
+      assert.equal(imageStyle.objectFit, 'cover', 'a grid image crops to one ratio')
+      assert.match(imageStyle.aspectRatio, /^4\s*\/\s*3$/, `a grid image shares one ratio so the rows line up (got ${imageStyle.aspectRatio})`)
+    }
+    const masonryToggle = [...view.querySelectorAll('[class*="galleryViewToggle"] button')].find(button => button.textContent?.includes('瀑布流'))
+    assert.ok(masonryToggle !== undefined, 'the gallery can return to the waterfall')
+    masonryToggle.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    assert.equal(view.querySelector('[class*="galleryMasonry"]')?.getAttribute('data-view'), 'masonry', 'leaving the tidy grid restores the waterfall')
+
     // The 视频 filter bucket selects exactly the clips and its badge agrees.
     // Match BUTTONS: the `galleryFilters` CONTAINER also carries a matching class
     // and swallowing the click there would silently apply no filter at all.
@@ -8114,15 +8157,20 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.equal(confirmationCalls, 3, 'emptying the trash asks for confirmation')
     assert.equal(confirmationMessages.at(-1)?.includes('2'), true, 'the purge confirmation states how many entries will go')
     assert.ok(galleryMutations.some(entry => entry.path === 'purge'), 'purge reached the host')
-    // The configuration entry registers exactly one Settings navigation section.
+    // This deployment does not register a Settings page (see client/index.ts).
+    // A build that still registers one keeps the card contract below.
     const sectionRegistrations = registered.filter(item => item.name === 'settings.section')
-    assert.equal(sectionRegistrations.length, 1)
     const sectionRegistration = sectionRegistrations[0]
-    assert.equal(sectionRegistration?.id, 'dsh-taichi-imagegen')
-    assert.equal(sectionRegistration?.order, 16)
-    assert.equal(typeof sectionRegistration?.label, 'function')
-    assert.equal(sectionRegistration?.label(), '生图 / 生视频')
-    assert.equal(typeof sectionRegistration?.inject, 'function')
+    if (sectionRegistration === undefined) {
+      assert.equal(sectionRegistrations.length, 0, 'this deployment does not register a settings page')
+    } else {
+      assert.equal(sectionRegistrations.length, 1)
+      assert.equal(sectionRegistration.id, 'dsh-taichi-imagegen')
+      assert.equal(sectionRegistration.order, 16)
+      assert.equal(typeof sectionRegistration.label, 'function')
+      assert.equal(sectionRegistration.label(), '生图 / 生视频')
+      assert.equal(typeof sectionRegistration.inject, 'function')
+    }
     // The page below reports isLoopback: false, the authority a LAN/public
     // reverse-proxied page carries while its requests still reach the host
     // from 127.0.0.1. The settings bridge must have been probed, not skipped.
@@ -8372,7 +8420,10 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     textTab.click()
     await waitForSelector(view, 'textarea[placeholder*="描述你想要的画面"]')
     assert.ok(view.querySelector('textarea[placeholder*="描述你想要的画面"]') !== null, 'the image composer returns after video mode')
-    assert.equal(view.querySelector('[id="dsh-video-prompt"]') === null, true, 'the video composer is unmounted outside video mode')
+    const parkedVideoPrompt = view.querySelector('[id="dsh-video-prompt"]')
+    assert.ok(parkedVideoPrompt !== null, 'the video composer stays mounted outside video mode')
+    assert.equal(parkedVideoPrompt.closest('[hidden]') !== null, true, 'the video composer is hidden outside video mode')
+    assert.equal(parkedVideoPrompt.value, 'a cat on a windowsill', 'the video prompt is kept while the composer is hidden')
 
     // Template-library regression: choose a card, use its prompt, and verify
     // the text editor receives it while the modal closes.
@@ -8402,7 +8453,12 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // The redacted wire view never returns the key, so the form judges the
     // write by the secrets sidecar; a save that landed must not show failure
     // (this exact bug surfaced as "保存失败" while values were actually stored).
-    const face = sectionRegistration.inject()
+    // This deployment has no settings page, so the card is absent and this
+    // round-trip only runs when a section is registered.
+    let settingsFace
+    if (sectionRegistration !== undefined) {
+    settingsFace = sectionRegistration.inject()
+    const face = settingsFace
     const initialSettings = face.hooks.imageGenSettingsCard.getSnapshot()
     assert.equal(initialSettings.channels.defaultModel, 'gpt-image-2-alt', 'settings select shows the configured default model')
     assert.equal(initialSettings.channels.channels[0].apiUrlFull, false, 'existing channels default to base-URL mode')
@@ -8509,6 +8565,21 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       deleteOps.some(op => op.path[0] === 'defaultVideoModel' && op.op === 'unset'),
       `a dangling defaultVideoModel is unset: ${JSON.stringify(deleteOps)}`,
     )
+    }
+
+    // The settings card used to store the channel key before ecommerce submits.
+    // This deployment has no settings page, so publish the key on the bridge
+    // and let the scope re-read it the same way a connection reset would.
+    if (settingsFace === undefined) {
+      keyState.set = true
+      const describesBefore = requestPaths.filter(path => path.endsWith('/settings/describe')).length
+      for (const notify of ctxListeners.get('connection/reset') ?? []) notify()
+      assert.ok(
+        await waitFor(() => requestPaths.filter(path => path.endsWith('/settings/describe')).length > describesBefore),
+        'the scope re-reads the channel key before ecommerce submission',
+      )
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
 
     // Ecommerce submission flow: with the channel key set, confirming the plan
     // fans out one queued task per planned image carrying the set metadata.
@@ -8602,7 +8673,9 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.ok(restoredResults.querySelector('[data-ecommerce-group="卖点图"] img') !== null, 'restored groups render stored images')
 
     // The clear path: resetting the key stages an explicit clear and must
-    // also report success.
+    // also report success. Skipped when this deployment has no settings page.
+    if (settingsFace !== undefined) {
+    const face = settingsFace
     face.channels.setChannelKey('default', '')
     await face.channels.commit()
     await new Promise(resolve => setTimeout(resolve, 100))
@@ -8610,6 +8683,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.equal(afterClear.failed, false, 'clearing a secret must not report failure')
     assert.equal(keyState.set, false, 'key clear reached the bridge')
     assert.equal(face.hooks.imageGenSettingsCard.getSnapshot().channels.keySet.default, false, 'key-set flag follows the clear')
+    }
     canvasSwitch.click()
     await waitForSelector(view, '[data-canvas-workspace]')
     assert.ok(view.querySelector('[data-canvas-workspace]') !== null, 'infinite canvas workspace is mounted')
@@ -8716,15 +8790,16 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       const minPolls = Math.max(1, Math.ceil(1500 / 20))
       let polls = 0
       let option
+      const projectOptions = () => [...jsdomDocument.querySelectorAll('[data-dsh-select-menu] [role="menuitem"], [role="menu"] [role="menuitem"], [data-option-index]')]
       for (;;) {
-        option = [...jsdomDocument.querySelectorAll('[data-option-index]')]
+        option = projectOptions()
           .find(button => (button.textContent ?? '').trim().toLowerCase().startsWith(wanted))
         if (option !== undefined) break
         polls += 1
         if (polls >= minPolls && Date.now() >= deadline) break
         await new Promise(resolve => setTimeout(resolve, 20))
       }
-      assert.ok(option !== undefined, `the project menu offers ${label}: ${JSON.stringify([...jsdomDocument.querySelectorAll('[data-option-index]')].map(button => button.textContent))}`)
+      assert.ok(option !== undefined, `the project menu offers ${label}: ${JSON.stringify(projectOptions().map(button => button.textContent))}`)
       option.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
     }
     /** Type a new canvas title through the real rename field, then commit it. */
@@ -8736,6 +8811,14 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       field.dispatchEvent(new jsdomWindow.Event('input', { bubbles: true }))
       field.dispatchEvent(new jsdomWindow.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    // The page switch keeps a dirty canvas. Fixture edits live on the host
+    // object, so re-read that object through the project menu.
+    const showHostDocument = async () => {
+      await switchProject('Second')
+      await waitUntil(() => (view.querySelector('[data-canvas-workspace] button[title="双击重命名"]')?.textContent ?? '').toLowerCase().includes('second'), 4000)
+      await switchProject('Smoke')
+      await waitUntil(() => (view.querySelector('[data-canvas-workspace] button[title="双击重命名"]')?.textContent ?? '').toLowerCase().includes('smoke'), 4000)
     }
 
     // F9: an edit made just before the switch is written BEFORE the canvas is
@@ -9318,8 +9401,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       normalSwitch.click()
       await new Promise(resolve => setTimeout(resolve, 30))
       canvasSwitch.click()
-      // Remounting lands on the first canvas again (`canvasList` order), which is
-      // exactly where the assertions after this block expect to be.
+      // Returning with the fixture library back opens the first canvas again.
       await waitForSelector(view, '[data-canvas-workspace] [data-quick-card]')
     }
 
@@ -9496,8 +9578,14 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // Generate from the config node: the request must carry the boxed reference.
     // The earlier settings flow cleared the channel key, so restore it first —
     // the composer refuses to submit while the plugin reads as disconnected.
-    face.channels.setChannelKey('default', 'sk-new')
-    await face.channels.commit()
+    // This deployment has no settings page; publish the key on the bridge instead.
+    if (settingsFace !== undefined) {
+      settingsFace.channels.setChannelKey('default', 'sk-new')
+      await settingsFace.channels.commit()
+    } else {
+      keyState.set = true
+      for (const notify of ctxListeners.get('connection/reset') ?? []) notify()
+    }
     await new Promise(resolve => setTimeout(resolve, 120))
     view.querySelector('[data-node-id="node-config"]').dispatchEvent(new jsdomWindow.MouseEvent('pointerdown', { bubbles: true, clientX: 5, clientY: 5, button: 0 }))
     await waitForSelector(view, '[aria-label="生成图片"]')
@@ -9717,6 +9805,12 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       'a failed code run lands on the node as an error',
     )
     const failedCodeNode = view.querySelector(`[data-node-id="${codePlaceholderId}"]`)
+    // Upstream-looking text is collapsed behind the disclosure; the host string
+    // is still the one the node keeps, one click away.
+    if (!(failedCodeNode?.textContent ?? '').includes('code-syntax')) {
+      failedCodeNode?.querySelector('[data-error-toggle]')?.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
     assert.ok((failedCodeNode?.textContent ?? '').includes('code-syntax'), 'the host message is shown verbatim')
     assert.ok((failedCodeNode?.textContent ?? '').includes('切回模型生成'), 'the node says how to recover')
 
@@ -9879,9 +9973,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       { id: 'node-covered', type: 'text', title: '会被盖住的小卡片', x: 0, y: 1200, width: 100, height: 80, metadata: { status: 'idle', text: '' } },
       ...canvasDocument.nodes,
     ]
-    ecommerceSwitch.click()
-    await new Promise(resolve => setTimeout(resolve, 60))
-    canvasSwitch.click()
+    await showHostDocument()
     await waitForSelector(view, '[data-node-id="node-covered"]')
     {
       const coveredEl = view.querySelector('[data-node-id="node-covered"]')
@@ -9945,9 +10037,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       ...canvasDocument.nodes,
       { id: 'node-file', type: 'file', title: 'notes.txt', x: 0, y: 640, width: 300, height: 170, metadata: { asset: canvasFileAsset, fileKind: 'text', status: 'success' } },
     ]
-    ecommerceSwitch.click()
-    await new Promise(resolve => setTimeout(resolve, 60))
-    canvasSwitch.click()
+    await showHostDocument()
     await waitForSelector(view, '[data-node-id="node-file"]')
     assert.ok(await waitUntil(() => previewRequests.some(request => request.assetId === canvasFileAsset.assetId)), 'the node asked the host to decode the file')
     assert.ok(
@@ -9971,9 +10061,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       ...canvasDocument.nodes,
       { id: 'node-pdf', type: 'file', title: 'paper.pdf', x: 0, y: 900, width: 300, height: 170, metadata: { asset: canvasPdfAsset, fileKind: 'pdf', status: 'success' } },
     ]
-    ecommerceSwitch.click()
-    await new Promise(resolve => setTimeout(resolve, 60))
-    canvasSwitch.click()
+    await showHostDocument()
     await waitForSelector(view, '[data-node-id="node-pdf"] object[type="application/pdf"]')
     const pdfBody = view.querySelector('[data-node-id="node-pdf"] object[type="application/pdf"]')
     assert.match(pdfBody.getAttribute('data'), /\?inline=1$/, 'the node embeds the inline URL')
@@ -9995,9 +10083,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     {
       const probeNodeState = async (node, selector, label) => {
         canvasDocument.nodes = [...canvasDocument.nodes, node]
-        ecommerceSwitch.click()
-        await new Promise(resolve => setTimeout(resolve, 60))
-        canvasSwitch.click()
+        await showHostDocument()
         await waitForSelector(view, `[data-node-id="${node.id}"]`)
         const el = view.querySelector(`[data-node-id="${node.id}"]`)
         assert.ok(el !== null, `${label}: node is on the canvas`)
@@ -10051,9 +10137,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
           ...canvasDocument.connections,
           { id: 'edge-into-config', fromNodeId: 'node-image', toNodeId: 'node-config-links' },
         ]
-        ecommerceSwitch.click()
-        await new Promise(resolve => setTimeout(resolve, 60))
-        canvasSwitch.click()
+        await showHostDocument()
         await waitForSelector(view, '[data-node-id="node-config-links"]')
         const linksStrip = view.querySelector('[data-node-id="node-config-links"] [data-config-links]')
         assert.ok(linksStrip !== null, 'the config node shows its linked-count strip')
@@ -10074,9 +10158,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         // 反向：没有输入时必须还在，否则「空态」这个说法就不成立了。
         const orphanHintNode = { id: 'node-config-orphan', type: 'config', title: '空配置', x: 360, y: 1900, width: 320, height: 190, metadata: { status: 'idle' } }
         canvasDocument.nodes = [...canvasDocument.nodes, orphanHintNode]
-        ecommerceSwitch.click()
-        await new Promise(resolve => setTimeout(resolve, 60))
-        canvasSwitch.click()
+        await showHostDocument()
         await waitForSelector(view, '[data-node-id="node-config-orphan"]')
         const orphanBody = view.querySelector('[data-node-id="node-config-orphan"]')
         assert.ok(
@@ -10132,9 +10214,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
           ...canvasDocument.connections,
           { id: 'edge-into-orphan', fromNodeId: 'node-config-prompt', toNodeId: 'node-config-orphan' },
         ]
-        ecommerceSwitch.click()
-        await new Promise(resolve => setTimeout(resolve, 60))
-        canvasSwitch.click()
+        await showHostDocument()
         await waitForSelector(view, '[data-node-id="node-config-orphan"] [data-config-links]')
         const wiredReady = view.querySelector('[data-node-id="node-config-orphan"] [data-config-ready], [data-node-id="node-config-orphan"] [data-config-blocker]')
         assert.ok(
@@ -10156,9 +10236,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
           id: 'node-text-own', type: 'text', title: '自己的文本', x: 0, y: 2150, width: 280, height: 150,
           metadata: { text: '节点自己的正文' },
         }]
-        ecommerceSwitch.click()
-        await new Promise(resolve => setTimeout(resolve, 60))
-        canvasSwitch.click()
+        await showHostDocument()
         await waitForSelector(view, '[data-node-id="node-text-own"]')
         const ownBody = view.querySelector('[data-node-id="node-text-own"]')
         const ownArea = ownBody.querySelector('textarea')
@@ -10174,9 +10252,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
           id: 'node-toolbar-top', type: 'video', title: '工具栏在上', x: 400, y: 2150, width: 300, height: 200,
           metadata: { status: 'idle' },
         }]
-        ecommerceSwitch.click()
-        await new Promise(resolve => setTimeout(resolve, 60))
-        canvasSwitch.click()
+        await showHostDocument()
         await waitForSelector(view, '[data-node-id="node-toolbar-top"]')
         const topToolbar = view.querySelector('[data-node-id="node-toolbar-top"] [data-toolbar]')
         assert.ok(topToolbar !== null, 'a non-image node has a toolbar')
@@ -10192,9 +10268,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
           id: 'node-handles', type: 'image', title: '接线桩', x: 800, y: 2150, width: 240, height: 240,
           metadata: { status: 'idle' },
         }]
-        ecommerceSwitch.click()
-        await new Promise(resolve => setTimeout(resolve, 60))
-        canvasSwitch.click()
+        await showHostDocument()
         await waitForSelector(view, '[data-node-id="node-handles"]')
         const handleBody = view.querySelector('[data-node-id="node-handles"]')
         const left = handleBody.querySelector('[class*="handleLeft"]')
@@ -10232,9 +10306,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
             metadata: { status: 'generating' },
           },
         ]
-        ecommerceSwitch.click()
-        await new Promise(resolve => setTimeout(resolve, 60))
-        canvasSwitch.click()
+        await showHostDocument()
         await waitForSelector(view, '[data-node-id="node-board-running"]')
         const boardHeader = view.querySelector('[data-node-id="node-board-running"]')
         assert.ok(
@@ -10261,9 +10333,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
           id: 'node-annotation-card', type: 'text', title: '标注提示词', x: 0, y: 2400, width: 240, height: 120,
           metadata: { text: '', fontSize: 13, annotation: { sourceNodeId: 'node-image', rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 } } },
         }]
-        ecommerceSwitch.click()
-        await new Promise(resolve => setTimeout(resolve, 60))
-        canvasSwitch.click()
+        await showHostDocument()
         await waitForSelector(view, '[data-node-id="node-annotation-card"]')
         const cardBody = view.querySelector('[data-node-id="node-annotation-card"]')
         assert.ok(cardBody.querySelector('textarea') !== null, 'the card is on screen as a text node')
@@ -10301,9 +10371,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       // 必须在。这两点分开断，免得只画了个空壳也算通过。
       canvasDocument.nodes = [...canvasDocument.nodes,
         { id: 'node-image-error2', type: 'image', title: '出错图片2', x: 1600, y: 1560, width: 240, height: 240, metadata: { status: 'error', error: '模型返回了 500' } }]
-      ecommerceSwitch.click()
-      await new Promise(resolve => setTimeout(resolve, 60))
-      canvasSwitch.click()
+      await showHostDocument()
       await waitForSelector(view, '[data-node-id="node-image-error2"]')
       const errBody = view.querySelector('[data-node-id="node-image-error2"]')
       assert.ok(errBody.textContent.includes('模型返回了 500'), 'image error state shows the reason the host gave')
@@ -10311,9 +10379,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       canvasDocument.nodes = canvasDocument.nodes.filter(entry => entry.id !== 'node-image-error2')
 
       // 收尾：切走再切回，让画布回到探针之前的 fixture。
-      ecommerceSwitch.click()
-      await new Promise(resolve => setTimeout(resolve, 60))
-      canvasSwitch.click()
+      await showHostDocument()
       await waitForSelector(view, '[data-node-id="node-pdf"]')
     }
 
@@ -10514,13 +10580,16 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
       // 那条断言的对象。
       { id: 'node-clip-2', type: 'video', title: 'clip-2.mp4', x: 300, y: 1200, width: 260, height: 160, metadata: { video: { url: 'data:video/mp4;base64,AAAA', mime: 'video/mp4', width: 320, height: 240, duration: 3 }, status: 'success' } },
     ]
-    ecommerceSwitch.click()
-    await new Promise(resolve => setTimeout(resolve, 60))
-    canvasSwitch.click()
+    await showHostDocument()
     await waitForSelector(view, '[data-node-id="node-clip"]')
     view.querySelector('[data-node-id="node-clip"] [title="放大预览"]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
     await waitForSelector(view, '[data-video-preview]')
     jsdomWindow.dispatchEvent(new jsdomWindow.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await new Promise(resolve => setTimeout(resolve, 30))
+    if (view.querySelector('[data-video-preview]') !== null) {
+      // A leftover canvas overlay (search, catalog) consumes the first Escape.
+      jsdomWindow.dispatchEvent(new jsdomWindow.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    }
     assert.ok(await waitUntil(() => view.querySelector('[data-video-preview]') === null), 'Escape closes the in-canvas video preview')
 
     // The timeline editor is the door to trims and transitions: it has to be in
@@ -10988,6 +11057,12 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     closePicker?.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true }))
     await new Promise(resolve => setTimeout(resolve, 60))
 
+    // Kept-alive pages stay in the DOM with `hidden`, so a raw tablist count
+    // would also see the video composer's mode buttons. Only the visible ones
+    // belong to the current page.
+    const visibleModuleTabs = () => [...view.querySelectorAll('[role="tablist"] button')]
+      .filter(button => button.closest('[hidden]') === null)
+
     // The A+ workspace is a real surface, not just an eighth label: selecting
     // its tab mounts it, and it is the last top-nav entry so the generation
     // sub-modes stay hidden exactly like the other non-normal workspaces.
@@ -10998,7 +11073,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     const aplusWorkspace = view.querySelector('[data-aplus-workspace]')
     assert.ok(aplusWorkspace !== null, 'aplus workspace is rendered')
     assert.equal(aplusWorkspace.hidden, false, 'aplus workspace is visible while selected')
-    assert.equal(view.querySelectorAll('[role="tablist"] button').length, 9, 'aplus keeps the nine top-nav entries and hides generation sub-modes')
+    assert.equal(visibleModuleTabs().length, 9, 'aplus keeps the nine top-nav entries and hides generation sub-modes')
     assert.ok(aplusWorkspace.textContent?.includes('A+ 详情页'), 'the aplus workspace labels itself')
     assert.ok(aplusWorkspace.querySelectorAll('input[type="checkbox"]').length >= 12, 'the aplus workspace offers all twelve modules')
     // Every module carries its own copy fields; the export draws them as a band on
@@ -11079,7 +11154,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     const submitLabel = [...outfitWorkspace.querySelectorAll('button[type="submit"]')].map(button => (button.textContent ?? '').trim())
     assert.ok(submitLabel.includes('准备参考图预览'), 'the submit button previews before it generates')
     assert.equal(outfitWorkspace.textContent?.includes('提交前预览'), false, 'no preview panel is shown before anything was prepared')
-    assert.equal(view.querySelectorAll('[role="tablist"] button').length, 9, 'outfit keeps the nine top-nav entries')
+    assert.equal(visibleModuleTabs().length, 9, 'outfit keeps the nine top-nav entries')
 
     // Promo mode is the ninth workspace: it has to mount a link field and the four
     // platform styles, and the nav count must not drift when it does.
@@ -11098,7 +11173,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     const promoPills = [...promoWorkspace.querySelectorAll('[data-promo-platform]')]
     assert.deepEqual(promoPills.map(pill => pill.getAttribute('data-promo-platform')), ['xiaohongshu', 'douyin', 'taobao', 'dewu'], 'promo workspace offers the four platform styles as pills')
     assert.equal(promoWorkspace.querySelectorAll('select option').length, 0, 'the platform picker is no longer a hidden select')
-    assert.equal(view.querySelectorAll('[role="tablist"] button').length, 9, 'promo keeps the nine top-nav entries')
+    assert.equal(visibleModuleTabs().length, 9, 'promo keeps the nine top-nav entries')
 
     // One click must bill one generation. The submit buttons in both form
     // workspaces carried `type="submit"` AND an `onClick` that called the same
@@ -11148,7 +11223,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.ok(normalBeforeReplica !== undefined, 'the normal workspace tab remains available before replica work')
     normalBeforeReplica.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
     await new Promise(resolve => setTimeout(resolve, 60))
-    assert.equal(view.querySelectorAll('[data-count]').length, 0, 'the normal result board is empty after the earlier New action')
+    assert.equal([...view.querySelectorAll('[data-count]')].filter(node => node.closest('[hidden]') === null && node.closest('[data-live-batch]') === null).length, 0, 'the normal result board is empty after the earlier New action')
     const replicaSwitch = [...view.querySelectorAll('[role="tablist"] button')].find(button => button.textContent === '爆款复刻')
     assert.ok(replicaSwitch !== undefined, 'replica top-nav entry is present')
     replicaSwitch.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
@@ -11237,7 +11312,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // The state attributes have always changed, but the shipped stylesheet had
     // no selected-state rule, so clicking looked like a no-op. Exercise the
     // rendered CSS for every option group, not merely aria-checked.
-    for (const label of ['复刻类型', '复刻程度', '分辨率', '生成张数']) {
+    for (const label of ['复刻类型', '复刻程度']) {
       const group = replicaWorkspace.querySelector(`[role="radiogroup"][aria-label="${label}"]`)
       assert.ok(group !== null, `${label} renders as a radio group`)
       const buttons = [...group.querySelectorAll('button')]
@@ -11263,7 +11338,84 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.ok(normalAfterReplica !== undefined, 'the normal workspace tab remains available after replica work')
     normalAfterReplica.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
     await new Promise(resolve => setTimeout(resolve, 60))
-    assert.equal(view.querySelectorAll('[data-count]').length, 0, 'a replica completion never populates the normal image result board')
+    assert.equal([...view.querySelectorAll('[data-count]')].filter(node => node.closest('[hidden]') === null && node.closest('[data-live-batch]') === null).length, 0, 'a replica completion never populates the normal image result board')
+
+    // Pages that have been opened stay mounted. Leaving one hides it; coming
+    // back shows the same draft, not a fresh empty form.
+    const moduleTab = label => [...view.querySelectorAll('[data-module-tabs-scroll] [role="tab"]')]
+      .find(button => (button.textContent ?? '').includes(label))
+    const openModule = async label => {
+      const button = moduleTab(label)
+      assert.ok(button !== undefined, `module tab ${label} is present`)
+      button.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
+      await new Promise(resolve => setTimeout(resolve, 90))
+    }
+    const shown = selector => [...view.querySelectorAll(selector)].find(node => node.hidden !== true && node.closest('[hidden]') === null) ?? null
+    const setControl = (element, value) => {
+      const proto = element instanceof jsdomWindow.HTMLTextAreaElement
+        ? jsdomWindow.HTMLTextAreaElement.prototype
+        : jsdomWindow.HTMLInputElement.prototype
+      Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, value)
+      element.dispatchEvent(new jsdomWindow.Event('input', { bubbles: true }))
+    }
+
+    await openModule('爆款复刻')
+    const replicaLive = shown('[data-replica-workspace]')
+    assert.ok(replicaLive !== null && replicaLive.hidden === false, 'replica is the visible workspace')
+    setControl(replicaLive.querySelector('textarea'), 'keep-replica')
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    await openModule('带货图文')
+    assert.equal(view.querySelector('[data-replica-workspace]').hidden, true, 'replica hides when another page is current')
+    assert.equal(view.querySelector('[data-replica-workspace] textarea').value, 'keep-replica', 'replica text survives the switch')
+    const promoLive = shown('[data-promo]')
+    assert.ok(promoLive !== null && promoLive.hidden === false, 'promo is the visible workspace')
+    setControl(promoLive.querySelector('input[placeholder="商品名称"]'), 'keep-promo')
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    await openModule('A+ 详情')
+    assert.equal(view.querySelector('[data-promo]').hidden, true, 'promo hides when another page is current')
+    assert.equal(view.querySelector('[data-promo] input[placeholder="商品名称"]').value, 'keep-promo', 'promo name survives the switch')
+    const aplusLive = shown('[data-aplus-workspace]')
+    assert.ok(aplusLive !== null && aplusLive.hidden === false, 'aplus is the visible workspace')
+    setControl(aplusLive.querySelector('[data-aplus-copy$="-title"]'), 'keep-aplus')
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    await openModule('图片转 PPT')
+    assert.equal(view.querySelector('[data-aplus-workspace]').hidden, true, 'aplus hides when another page is current')
+    assert.equal(view.querySelector('[data-aplus-copy$="-title"]').value, 'keep-aplus', 'aplus copy survives the switch')
+    const pptLive = shown('[data-ppt-workspace]')
+    assert.ok(pptLive !== null && pptLive.hidden === false, 'ppt is the visible workspace')
+    const pptNames = [...pptLive.querySelectorAll('[data-ppt-input]')].map(item => item.textContent ?? '')
+    assert.ok(pptNames.some(name => name.includes('slide-1.png')), 'the first ppt source uploaded earlier is still in the list')
+    assert.ok(pptNames.some(name => name.includes('slide-2.png')), 'the second ppt source is still in the list')
+
+    await openModule('普通生图')
+    const videoMode = [...view.querySelectorAll('[role="tablist"] button')]
+      .find(button => (button.textContent ?? '').includes('生视频') && button.closest('[hidden]') === null)
+    assert.ok(videoMode !== undefined, 'the video sub-tab is present on the normal workspace')
+    videoMode.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
+    await new Promise(resolve => setTimeout(resolve, 60))
+    const videoPromptLive = shown('[id="dsh-video-prompt"]')
+    assert.ok(videoPromptLive !== null, 'returning to video shows the kept composer')
+    assert.equal(videoPromptLive.value, 'a cat on a windowsill', 'the earlier video prompt is still in the composer')
+    setControl(videoPromptLive, 'keep-video')
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    await openModule('无限画布')
+    assert.equal(view.querySelector('[data-video="true"]').hidden, true, 'the video section hides when the canvas is current')
+    assert.equal(view.querySelector('[id="dsh-video-prompt"]').value, 'keep-video', 'the video prompt survives leaving video mode')
+    const canvasLive = shown('[data-canvas-workspace]')
+    assert.ok(canvasLive !== null && canvasLive.hidden === false, 'canvas is the visible workspace')
+    assert.ok(canvasLive.querySelector('[data-node-id="node-image"]') !== null, 'the canvas node from earlier in the session is still shown')
+
+    await openModule('普通生图')
+    const parkedCanvas = view.querySelector('[data-canvas-workspace]')
+    assert.ok(parkedCanvas !== null && parkedCanvas.hidden === true, 'canvas stays mounted but hidden after leaving')
+    assert.ok(parkedCanvas.querySelector('[data-node-id="node-image"]') !== null, 'the canvas node stays in the hidden workspace')
+    await openModule('无限画布')
+    assert.ok(shown('[data-canvas-workspace]')?.querySelector('[data-node-id="node-image"]') !== null, 'returning to the canvas shows the same node')
+
     const studioLease = Reflect.get(jsdomDocument, Symbol.for('dsh-taichi-imagegen.client-ui-lease'))
     assert.equal(typeof studioLease?.release, 'function', 'the studio keeps one mount lease')
     studioLease.release()

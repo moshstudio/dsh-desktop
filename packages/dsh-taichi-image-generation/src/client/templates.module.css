@@ -16,11 +16,15 @@
   inset: 0;
   z-index: var(--z-modal-backdrop);
   display: flex;
-  align-items: center;
-  /* The library docks to the right edge of the workspace instead of covering
-   * it: the form it feeds stays visible while browsing. */
-  justify-content: flex-end;
-  padding: 0;
+  /* Stretch on the cross axis so the shell fills the padded content box.
+   * `height: 100%` would resolve against the border box and spill past the
+   * inset that keeps the dialog centred. */
+  align-items: stretch;
+  /* A centred dialog, inset from the frame the same way the other modals are.
+   * The mask already covers the workspace, so pinning the shell to the right
+   * edge only made it look shifted. */
+  justify-content: center;
+  padding: max(24px, var(--dsh-frame-overlay-top, 24px)) 24px;
   background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent));
   backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
   -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px));
@@ -41,16 +45,22 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  /* `none` so the percentage width is the size that gets centred, not a flex
+   * basis the row is free to shrink against the padding. Stretch fills the
+   * padded height without a percentage that overflows the inset. */
+  flex: none;
+  align-self: stretch;
   /* The width is a percentage of the overlay, so the floor has to be a
    * percentage of it too -- a fixed 620px floor would overflow a narrow
    * workspace and push the resize handle off screen. */
   min-width: min(560px, 100%);
-  height: 100%;
+  max-width: 100%;
+  min-height: 0;
   max-height: 100%;
   /* Visible, not hidden: the resize handle hangs 5px past the left edge. */
   overflow: visible;
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: var(--dsw-radius-md) 0 0 var(--dsw-radius-md);
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-base);
   box-shadow: var(--dsw-shadow-lv3);
   transition: width 0.18s ease;
@@ -64,8 +74,16 @@
 }
 
 .shell[data-fullscreen] {
+  width: 100%;
+  height: 100%;
   border-radius: var(--templates-radius-flat);
   transition: none;
+}
+
+/* Fullscreen fills the frame; the inset that centres the dialog would leave a
+ * band around a shell that is already asking for the whole overlay. */
+.overlay:has(.shell[data-fullscreen]) {
+  padding: 0;
 }
 
 /* Grab strip just outside the shell's left edge. */
@@ -778,8 +796,12 @@
 /* --- phone --------------------------------------------------------------- */
 
 @media (max-width: 760px) {
-  /* A phone has no room for a partial drawer: it takes the whole workspace and
+  /* A phone has no room for a partial dialog: it takes the whole workspace and
    * the drag strip is meaningless, so it goes away entirely. */
+  .overlay {
+    padding: 0;
+  }
+
   .shell {
     width: 100% !important;
     min-width: 0;

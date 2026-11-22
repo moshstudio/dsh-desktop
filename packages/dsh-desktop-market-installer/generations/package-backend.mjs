@@ -27,6 +27,14 @@ function errorText(error) {
   return error instanceof Error ? error.message : String(error)
 }
 
+const HOST_BUILTIN_MARKET = 'taichi-dshmarket'
+
+function assertProfileMayInstall(name) {
+  if (name === HOST_BUILTIN_MARKET) {
+    throw new Error('taichi-dshmarket ships with 太极-dsh and cannot be installed into the Profile.')
+  }
+}
+
 function packageNameFromRegistrySpec(spec) {
   const match = /^(?<name>@[^/]+\/[^@]+|[^@/][^@]*)?(?:@[^@]+)?$/u.exec(spec)
   return match?.groups?.name || undefined
@@ -209,6 +217,7 @@ export function createGenerationPackageBackend(options) {
           sourceDirectory = path
           sourceSpec = request.spec
         }
+        assertProfileMayInstall(expectedPluginName)
 
         const result = await withRegistryLock(dshHome, async () => {
           request.signal?.throwIfAborted()
@@ -246,6 +255,7 @@ export function createGenerationPackageBackend(options) {
           }
           request.signal?.throwIfAborted()
           const generation = install.generation
+          assertProfileMayInstall(generation.pluginName)
           // Git/tarball identities are only known after staging. Check again using
           // the actual name before publication, even if the caller supplied one.
           await assertNoPendingGenerationUpdates(dshHome, profile, generation.pluginName)

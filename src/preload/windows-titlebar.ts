@@ -13,7 +13,20 @@ export function isDesktopCaptionDocument(location: Pick<Location, 'protocol' | '
 
 const LAYOUT_STYLE_ID = 'dsh-desktop-windows-titlebar-layout-style'
 const DRAG_REGION_ID = 'dsh-desktop-windows-drag-region'
-const MODAL_OPEN_ATTRIBUTE = 'data-dsh-modal-open'
+const CAPTION_PASS_ATTRIBUTE = 'data-dsh-caption-passthrough'
+const themeObservers = new WeakMap<Document, MutationObserver>()
+const modalObservers = new WeakMap<Document, { observer: MutationObserver, generation: number }>()
+
+/** Drop caption observers so a later document reuse does not keep rewriting dialog layers. */
+export function releaseWindowsTitlebarLayout(document: Document): void {
+  themeObservers.get(document)?.disconnect()
+  themeObservers.delete(document)
+  const modal = modalObservers.get(document)
+  if (!modal) return
+  modal.observer.disconnect()
+  modal.generation += 1
+  modalObservers.delete(document)
+}
 
 interface TitlebarLayoutMountOptions {
   document: Document
@@ -48,8 +61,9 @@ export function markWindowsTitlebar(document: Document): void {
  * Windows/Linux caption layout. Harness 0.1.7 owns the caption row on its pages
  * (AppFrame reserves it, paints it and makes it draggable) once the marker is
  * set; Desktop adds the caption menubar in the upstream seat, the window
- * buttons, a drag strip for its own local pages, and releases the drag area
- * while a dialog is open.
+ * buttons, and a drag strip for its own local pages. Dialog masks already
+ * start below the caption, so the row stays visible; layers that still cover
+ * it are opened up so the row stays clickable too.
  */
 export function mountWindowsTitlebarLayout(options: TitlebarLayoutMountOptions): void {
   const { document, ipcRenderer } = options
@@ -65,7 +79,9 @@ export function mountWindowsTitlebarLayout(options: TitlebarLayoutMountOptions):
   mountWindowControls({ document, ipcRenderer })
 
   syncTheme(document, ipcRenderer)
+  themeObservers.get(document)?.disconnect()
   const themeObserver = new MutationObserver(() => syncTheme(document, ipcRenderer))
+  themeObservers.set(document, themeObserver)
   themeObserver.observe(document.body, {
     attributes: true,
     attributeFilter: ['data-ds-dark-theme', 'class', 'style']
@@ -101,15 +117,22 @@ function installLayout(document: Document): void {
       height: 100% !important;
       min-height: 0 !important;
     }
-    /* A drag region wins over a dialog's buttons in the caption row, so both
-       Harness's caption strip and Desktop's own give way while one is open. */
-    html[${MODAL_OPEN_ATTRIBUTE}] :has(> [data-shell-overlay])::before {
-      -webkit-app-region: no-drag !important;
+    /* Account and settings paint their mask below the caption, but the
+       full-viewport layer still owns the band. pointer-events inherits, so
+       clearing the layer alone also clears the mask and the dialog. The layer
+       opts out and its children opt back in: the empty caption band falls
+       through, while the mask and dialog keep clicks and hover. A layer that
+       is its own mask is clipped instead, so the band is neither dimmed nor
+       a hit target. */
+    html[data-windows-titlebar]:not([data-fullscreen]) [${CAPTION_PASS_ATTRIBUTE}="hit"] {
+      pointer-events: none !important;
     }
-    html[${MODAL_OPEN_ATTRIBUTE}] #${DRAG_REGION_ID} { display: none !important; }
-    /* The caption menu is painted above dialogs. Drop it while one is open
-       so the dialog's top edge receives the click. */
-    html[${MODAL_OPEN_ATTRIBUTE}] [data-dsh-windows-menu] { z-index: 0 !important; }
+    html[data-windows-titlebar]:not([data-fullscreen]) [${CAPTION_PASS_ATTRIBUTE}="hit"] > * {
+      pointer-events: auto;
+    }
+    html[data-windows-titlebar]:not([data-fullscreen]) [${CAPTION_PASS_ATTRIBUTE}="clip"] {
+      clip-path: inset(var(--dsh-windows-titlebar-height, ${WINDOWS_TITLEBAR_HEIGHT}px) 0 0 0);
+    }
     body.dsh-desktop-windows-titlebar-layout button,
     body.dsh-desktop-windows-titlebar-layout a,
     body.dsh-desktop-windows-titlebar-layout input,
@@ -146,23 +169,104 @@ function installDragRegion(document: Document): void {
   document.body.appendChild(dragRegion)
 }
 
+function isAppFrame(element: HTMLElement): boolean {
+  if (element.id === 'root' || element.hasAttribute('data-shell-overlay')) return true
+  for (const child of element.children) {
+    if (child instanceof HTMLElement && child.hasAttribute('data-shell-overlay')) return true
+  }
+  return false
+}
+
+function coversCaption(element: HTMLElement, caption: number, viewportWidth: number): boolean {
+  const view = element.ownerDocument.defaultView
+  if (!view) return false
+  const style = view.getComputedStyle(element)
+  if (style.position !== 'fixed' && style.position !== 'absolute') return false
+  if (style.display === 'none' || style.visibility === 'hidden' || Number.parseFloat(style.opacity) === 0) return false
+  const rect = element.getBoundingClientRect()
+  if (rect.left > 1 || rect.width < viewportWidth - 20) return false
+  return rect.top < caption - 1 && rect.bottom > caption
+}
+
+// Account and settings keep a full-size mask under the caption. That child
+// still takes clicks. A layer that paints its own mask has to be clipped.
+function maskReleasesCaption(element: HTMLElement, caption: number, viewportWidth: number): boolean {
+  const view = element.ownerDocument.defaultView
+  if (!view) return false
+  for (const child of element.children) {
+    if (!(child instanceof HTMLElement)) continue
+    const role = child.getAttribute('role')
+    if (role === 'dialog' || role === 'alertdialog') continue
+    const style = view.getComputedStyle(child)
+    if (style.position !== 'absolute' && style.position !== 'fixed') continue
+    if (childDeclinesHits(child, style)) continue
+    const rect = child.getBoundingClientRect()
+    if (rect.top >= caption - 1 && rect.left <= 1 && rect.width >= viewportWidth - 20 && rect.height > caption) return true
+  }
+  return false
+}
+
+// The hit rule sets pointer-events:none on the layer, and the property
+// inherits. A mask that only inherits that value still takes clicks once its
+// own rule restores auto; treating the inherited none as an opt-out flips the
+// layer to clip on the next mutation and back on the one after.
+function childDeclinesHits(element: HTMLElement, style: CSSStyleDeclaration): boolean {
+  if (style.display === 'none' || style.visibility === 'hidden') return true
+  if (style.pointerEvents !== 'none') return false
+  const inheritedFromHit = element.parentElement?.getAttribute(CAPTION_PASS_ATTRIBUTE) === 'hit'
+    && element.style.pointerEvents !== 'none'
+  return !inheritedFromHit
+}
+
+type CaptionPass = 'hit' | 'clip'
+
+function syncCaptionPassthrough(document: Document): void {
+  const root = document.documentElement
+  const keep = new Map<HTMLElement, CaptionPass>()
+  const view = document.defaultView
+  if (view && root.hasAttribute('data-windows-titlebar') && !root.hasAttribute('data-fullscreen')) {
+    const caption = WINDOWS_TITLEBAR_HEIGHT
+    const viewportWidth = view.innerWidth
+    if (viewportWidth > 0) {
+      const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"], dialog[open]')
+      for (const dialog of dialogs) {
+        const style = view.getComputedStyle(dialog)
+        if (style.display === 'none' || style.visibility === 'hidden' || Number.parseFloat(style.opacity) === 0) continue
+        let node: HTMLElement | null = dialog
+        while (node && node !== document.body && node !== root) {
+          if (isAppFrame(node)) break
+          if (coversCaption(node, caption, viewportWidth)) {
+            keep.set(node, maskReleasesCaption(node, caption, viewportWidth) ? 'hit' : 'clip')
+            break
+          }
+          node = node.parentElement
+        }
+      }
+    }
+  }
+  for (const element of document.querySelectorAll<HTMLElement>(`[${CAPTION_PASS_ATTRIBUTE}]`)) {
+    if (!keep.has(element)) element.removeAttribute(CAPTION_PASS_ATTRIBUTE)
+  }
+  for (const [element, kind] of keep) {
+    if (element.getAttribute(CAPTION_PASS_ATTRIBUTE) !== kind) element.setAttribute(CAPTION_PASS_ATTRIBUTE, kind)
+  }
+}
+
 function trackModals(document: Document): void {
-  // Only semantic dialog markers count: class-name guesses match permanent
-  // elements and would release the drag area for good.
-  const modalSelector = 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]'
+  // Only semantic dialogs count. Class-name guesses match permanent elements
+  // and would open the caption for good.
+  const previous = modalObservers.get(document)
+  previous?.observer.disconnect()
+  const generation = (previous?.generation ?? 0) + 1
   const update = (): void => {
-    const hasModal = Array.from(document.querySelectorAll<HTMLElement>(modalSelector)).some((el) => {
-      if (el.offsetWidth === 0 || el.offsetHeight === 0) return false
-      const style = window.getComputedStyle(el)
-      return style.visibility !== 'hidden' && style.opacity !== '0'
-    })
-    document.documentElement.toggleAttribute(MODAL_OPEN_ATTRIBUTE, hasModal)
+    if (modalObservers.get(document)?.generation !== generation) return
+    syncCaptionPassthrough(document)
   }
 
   // Streaming output mutates the DOM continuously; check at most once a frame.
   let scheduled = false
   const scheduleUpdate = (): void => {
-    if (scheduled) return
+    if (scheduled || modalObservers.get(document)?.generation !== generation) return
     scheduled = true
     requestAnimationFrame(() => {
       scheduled = false
@@ -170,6 +274,7 @@ function trackModals(document: Document): void {
     })
   }
   const observer = new MutationObserver(scheduleUpdate)
+  modalObservers.set(document, { observer, generation })
   observer.observe(document.documentElement, {
     childList: true,
     subtree: true,

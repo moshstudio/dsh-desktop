@@ -26,7 +26,8 @@
  *    or drop a module.
  */
 import { useEffect, useRef, useState } from 'react'
-import type { ChannelConfig, GeneratedImage } from '../protocol.ts'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ChannelConfig, GeneratedImage, HistoryEntry, StoredEntryMode } from '../protocol.ts'
 import type { ImageGenApi } from './api.ts'
 import { ErrorDetail } from './ErrorDetail.tsx'
 import { errorMessage, tt } from './helpers.ts'
@@ -105,6 +106,29 @@ interface AplusReference {
   dataUrl: string
 }
 
+/**
+ * Provenance for one finished module, so the shared preview can save or attach
+ * that picture without borrowing the ordinary generation form's prompt.
+ */
+export interface AplusPreviewSource {
+  mode: StoredEntryMode
+  model: string
+  prompt: string
+  size: string
+  quality: string
+  detail: string
+  refName?: string
+}
+
+function AplusBusyLabel(): React.JSX.Element {
+  return (
+    <span className={css.buttonInner}>
+      <span className={css.spinner} aria-hidden="true" />
+      {tt('aplus.state.generating')}
+    </span>
+  )
+}
+
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -143,10 +167,19 @@ export interface AplusWorkspaceProps {
   channels: ChannelConfig[]
   /** False when no channel is configured; the form still renders, submit is blocked. */
   connected: boolean
+  /** Opens the panel lightbox. The row thumbnail only previews the result. */
+  onPreview: (images: GeneratedImage[], index: number, source: AplusPreviewSource) => void
+  /**
+   * The host appends each module to image history inside `generate`, but this
+   * workspace does not submit a panel task, so the sidebar poll never sees the
+   * write. The response already carries the store; hand it up so the list
+   * updates before the next reload.
+   */
+  onHistory?: (entries: HistoryEntry[]) => void
 }
 
 export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
-  const { api, active, modelGroups, defaultChannelId, channels, connected } = props
+  const { api, active, modelGroups, defaultChannelId, channels, connected, onPreview, onHistory } = props
   // Live language switching, same as every other workspace surface.
   useImageGenLanguageTick()
 
@@ -164,6 +197,7 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const [exported, setExported] = useState<string | null>(null)
+  const [confirmNoProduct, setConfirmNoProduct] = useState(false)
 
   const productInput = useRef<HTMLInputElement>(null)
   const mounted = useRef(true)
@@ -199,7 +233,11 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
     const caption = (captions[module.key] ?? '').trim()
     // The guide is guidance, not a promise: it asks for room for a title or a
     // comparison column, but the model may still fill it.
-    return caption === '' ? `${name}。${guide}` : `${name}。${guide}。${caption}`
+    const brief = caption === '' ? `${name}。${guide}` : `${name}。${guide}。${caption}`
+    // The data URL alone is not enough. A generations call treats an unnamed
+    // reference as optional, so a module brief like "品牌调性大图" gets a new
+    // product instead of the one the user picked.
+    return product === null ? brief : `${brief}。${tt('aplus.productPrompt', { name: product.name })}`
   }
 
   const generateOne = async (module: AplusModuleDefinition): Promise<void> => {
@@ -222,6 +260,9 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
         ...(resolved.channelId === '' ? {} : { channelId: resolved.channelId }),
         ...(product === null ? {} : { image: product.dataUrl, refName: product.name }),
       })
+      // Publish before the empty-image return: the host has already stored the
+      // entry, and a missing picture must not hide the rest of that snapshot.
+      if (sent.history !== undefined) onHistory?.(sent.history)
       const image = sent.images[0]
       if (image === undefined) {
         setModule(module.key, { state: 'failed', error: tt('aplus.error.noImage') })
@@ -233,17 +274,50 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
     }
   }
 
+  const pendingSelected = (): AplusModuleDefinition[] =>
+    chosenModules.filter(module => results[module.key]?.state !== 'generating')
+
+  const startSelected = (): void => {
+    setConfirmNoProduct(false)
+    setExportError(null)
+    setExported(null)
+    // Only blocks that are not already in flight are queued. Finished blocks
+    // are included: the button is an explicit re-run, not a resume.
+    void runPool(pendingSelected(), CONCURRENCY, module => generateOne(module))
+  }
+
   const generateAll = (): void => {
     if (!canGenerate) {
       setExportError(tt('aplus.error.noChannel'))
       return
     }
-    setExportError(null)
-    setExported(null)
-    // Only blocks that are not already in flight are queued; re-running a
-    // finished batch would burn credits for identical output.
-    const pending = chosenModules.filter(module => results[module.key]?.state !== 'generating')
-    void runPool(pending, CONCURRENCY, module => generateOne(module))
+    if (pendingSelected().length === 0) return
+    // The reference is optional, but a sheet without it drifts between modules.
+    // Ask once, then let the user continue.
+    if (product === null) {
+      setConfirmNoProduct(true)
+      return
+    }
+    startSelected()
+  }
+
+  const openModulePreview = (key: string): void => {
+    const ready = MODULES.flatMap(module => {
+      const image = results[module.key]?.state === 'done' ? results[module.key]?.image : undefined
+      return image === undefined ? [] : [{ module, image }]
+    })
+    const index = ready.findIndex(item => item.module.key === key)
+    const current = index < 0 ? undefined : ready[index]
+    if (current === undefined) return
+    onPreview(ready.map(item => item.image), index, {
+      mode: product === null ? 'text' : 'edit',
+      model: resolved.model,
+      prompt: buildPrompt(current.module),
+      size: current.module.size,
+      quality: 'auto',
+      detail: '',
+      ...(product === null ? {} : { refName: product.name }),
+    })
   }
 
   const exportLongImage = async (): Promise<void> => {
@@ -415,8 +489,15 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
               </label>
             </div>
             <div className={css.actions}>
-              <button type="button" className={css.secondary} data-testid="aplus-generate-all" disabled={!canGenerate || anyGenerating} onClick={generateAll}>
-                {tt('aplus.generateAll')}
+              <button
+                type="button"
+                className={css.secondary}
+                data-testid="aplus-generate-all"
+                disabled={!canGenerate || anyGenerating}
+                aria-busy={anyGenerating}
+                onClick={generateAll}
+              >
+                {anyGenerating ? <AplusBusyLabel /> : tt('aplus.generateAll')}
               </button>
               <button type="button" className={css.link} onClick={() => { setChosen(new Set(MODULES.map(module => module.key))) }}>
                 {tt('aplus.selectAll')}
@@ -486,17 +567,27 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
                 <button
                   type="button"
                   className={css.small}
-                  title={actionLabel}
+                  title={state === 'generating' ? stateLabel : actionLabel}
                   disabled={!canGenerate || state === 'generating'}
+                  aria-busy={state === 'generating'}
                   onClick={() => { void generateOne(module) }}
                 >
-                  {actionLabel}
+                  {state === 'generating' ? <AplusBusyLabel /> : actionLabel}
                 </button>
                 <span className={css.state} data-state={state} title={stateLabel}>
                   {stateLabel}
                 </span>
                 {image !== undefined ? (
-                  <img className={css.thumbImage} src={`data:${image.mime};base64,${image.b64}`} alt={moduleName} />
+                  <button
+                    type="button"
+                    className={css.thumbButton}
+                    data-aplus-preview={module.key}
+                    aria-label={tt('preview.open')}
+                    title={tt('preview.open')}
+                    onClick={() => { openModulePreview(module.key) }}
+                  >
+                    <img className={css.thumbImage} src={`data:${image.mime};base64,${image.b64}`} alt={moduleName} />
+                  </button>
                 ) : (
                   <span className={css.thumbEmpty} />
                 )}
@@ -536,6 +627,20 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
         </section>
       </div>
       <p className={css.footnote}>{tt('aplus.limit', { max: APLUS_MAX_HEIGHT })}</p>
+      {confirmNoProduct ? (
+        <Modal
+          open
+          onClose={() => { setConfirmNoProduct(false) }}
+          title={tt('aplus.noProduct.title')}
+          closeLabel={tt('preview.close')}
+          footer={<>
+            <Button type="button" variant="ghost" onClick={() => { setConfirmNoProduct(false) }}>{tt('aplus.noProduct.cancel')}</Button>
+            <Button type="button" variant="primary" onClick={startSelected}>{tt('aplus.noProduct.confirm')}</Button>
+          </>}
+        >
+          {tt('aplus.noProduct.body')}
+        </Modal>
+      ) : null}
     </div>
   )
 }

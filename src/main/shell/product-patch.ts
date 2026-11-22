@@ -18,7 +18,8 @@ function hasEnterprisePlugin(): boolean {
  * The official sidebar brand is replaced by the product client UI.
  * The activity rail is part of the base overlay, including Safe Mode.
  * The normal profile also mounts workbenches, the plugin market installer,
- * Office, PPT, and the vendored image/video studio. Safe Mode keeps the account and brand overlay only.
+ * the built-in taichi-dshmarket, Office, PPT, and the vendored image/video studio.
+ * Safe Mode keeps the account and brand overlay only.
  */
 const DESKTOP_PRODUCT_PATCH_BASE = `- id: desktop-product-telemetry
   disabled: true
@@ -52,6 +53,12 @@ const DESKTOP_WORKBENCH_ROW = `    - id: dsh-desktop-workbenches
 
 const DESKTOP_MARKET_ROW = `    - id: dsh-desktop-market-installer
       name: dsh-desktop-market-installer
+`
+
+// Distinct from the community package's loader id `dsh-market`. A market
+// switch closes every row whose id is in the disabled package's patch.
+const DESKTOP_TAICHI_MARKET_ROW = `    - id: taichi-dshmarket
+      name: taichi-dshmarket
 `
 
 const DESKTOP_OFFICE_ROW = `    - id: dsh-desktop-office
@@ -103,7 +110,7 @@ export const DESKTOP_SAFE_PRODUCT_PATCH = DESKTOP_PRODUCT_PATCH_BASE
 
 export function buildDesktopProductPatch(): string {
   const enterprise = hasEnterprisePlugin() ? DESKTOP_ENTERPRISE_ROW : ''
-  return `${DESKTOP_PRODUCT_PATCH_BASE}${enterprise}${DESKTOP_WORKBENCH_ROW}${DESKTOP_MARKET_ROW}${DESKTOP_OFFICE_ROW}${DESKTOP_PPT_ROW}${DESKTOP_IMAGE_ROW}`
+  return `${DESKTOP_PRODUCT_PATCH_BASE}${enterprise}${DESKTOP_WORKBENCH_ROW}${DESKTOP_MARKET_ROW}${DESKTOP_TAICHI_MARKET_ROW}${DESKTOP_OFFICE_ROW}${DESKTOP_PPT_ROW}${DESKTOP_IMAGE_ROW}`
 }
 
 export const DESKTOP_PRODUCT_PATCH = buildDesktopProductPatch()

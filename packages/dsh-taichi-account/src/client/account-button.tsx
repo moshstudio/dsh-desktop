@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Tooltip, IconUserOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconUserOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AccountSnapshot } from './bridge'
 import type { Translate } from './locale'
 import { AccountPanel } from './account-panel'
@@ -7,6 +7,27 @@ import { publishStatus, statusBus } from './status'
 import styles from './account.module.css'
 
 const OPEN_EVENT = 'dsh-taichi-account-open'
+// Defined by dsh-desktop-activity. The bubble has to be ours: Tooltip keeps
+// its skin on an internal node and does not apply this class.
+const DESKTOP_TOOLTIP = 'dsh-desktop-tooltip'
+
+type TipPlace = { top: number, left: number, transform: string }
+
+function placeAccountTip(anchor: HTMLElement, wide: boolean): TipPlace {
+  const box = anchor.getBoundingClientRect()
+  if (!wide) {
+    return {
+      top: Math.round(box.top + box.height / 2),
+      left: Math.round(box.right + 8),
+      transform: 'translateY(-50%)',
+    }
+  }
+  return {
+    top: Math.round(box.top - 8),
+    left: Math.round(box.left + box.width / 2),
+    transform: 'translate(-50%, -100%)',
+  }
+}
 
 type DialogListener = () => void
 
@@ -52,6 +73,7 @@ export function AccountButton({ t, wide, onStatus }: {
 }) {
   const [status, setStatus] = useState(() => statusBus.current)
   const [open, setOpen] = useState(() => accountDialogOpen())
+  const [tip, setTip] = useState<TipPlace | null>(null)
   useEffect(() => {
     let alive = true
     const seen = statusBus.revision
@@ -75,23 +97,36 @@ export function AccountButton({ t, wide, onStatus }: {
   const signedIn = status?.signedIn === true && status.email !== ''
   const label = signedIn ? t('signedInName', { email: status.email }) : t('open')
   const report = typeof onStatus === 'function' ? onStatus : publishStatus
+  const showTip = (anchor: HTMLElement) => { setTip(placeAccountTip(anchor, wide !== false)) }
+  const hideTip = () => { setTip(null) }
   return (
     <>
       <div data-dsh-taichi-account-entry="true" data-wide={wide === false ? 'false' : 'true'}>
-        <Tooltip label={label} side={wide === false ? 'right' : 'top'} align={wide === false ? 'center' : 'end'} portal maxWidth={280} delayMs={0} focusDelayMs={0}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            data-dsh-taichi-account="true"
-            data-signed-in={signedIn ? 'true' : 'false'}
-            data-selected={open ? 'true' : 'false'}
-            aria-pressed={open ? 'true' : 'false'}
-            aria-label={label}
-            icon={<IconUserOutlineRegular size={16} />}
-            onClick={() => { toggleAccountDialog() }}
-          />
-        </Tooltip>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-dsh-taichi-account="true"
+          data-signed-in={signedIn ? 'true' : 'false'}
+          data-selected={open ? 'true' : 'false'}
+          aria-pressed={open ? 'true' : 'false'}
+          aria-label={label}
+          icon={<IconUserOutlineRegular size={16} />}
+          onPointerEnter={event => { showTip(event.currentTarget) }}
+          onPointerLeave={hideTip}
+          onFocus={event => { showTip(event.currentTarget) }}
+          onBlur={hideTip}
+          onClick={() => { hideTip(); toggleAccountDialog() }}
+        />
+        {tip ? (
+          <span
+            className={DESKTOP_TOOLTIP}
+            role="tooltip"
+            style={{ position: 'fixed', zIndex: 1100, top: tip.top, left: tip.left, transform: tip.transform }}
+          >
+            {label}
+          </span>
+        ) : null}
         {signedIn ? <span className={styles.presence} aria-hidden="true" /> : null}
       </div>
       {open ? <AccountPanel t={t} onClose={closeAccountDialog} onStatus={report} /> : null}

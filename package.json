@@ -24,8 +24,8 @@
   ],
   "scripts": {
     "postinstall": "patch-package && node scripts/release/install-brand-assets.mjs && install-electron --no",
-    "dev": "npm run office:prepare && npm run ppt:build && npm run imagegen:build && npm run account:build && electron-vite dev",
-    "build": "npm run office:prepare && npm run ppt:build && npm run imagegen:build && npm run account:build && electron-vite build",
+    "dev": "npm run office:prepare && npm run ppt:build && npm run imagegen:build && npm run account:build && npm run market:build && electron-vite dev",
+    "build": "npm run office:prepare && npm run ppt:build && npm run imagegen:build && npm run account:build && npm run market:build && electron-vite build",
     "icons:generate": "node scripts/release/generate-app-icons.mjs",
     "loader:generate": "node scripts/release/generate-loader-gifs.mjs",
     "preview": "electron-vite preview",
@@ -46,8 +46,9 @@
     "ppt:build": "node scripts/ppt/prepare-ppt-runtime.mjs",
     "imagegen:build": "npm --prefix packages/dsh-taichi-image-generation run build",
     "account:build": "npm --prefix packages/dsh-taichi-account run build",
-    "pretest": "npm run office:prepare && npm run ppt:build && npm run account:build",
-    "pretest:watch": "npm run office:prepare && npm run ppt:build && npm run account:build",
+    "market:build": "npm --prefix packages/taichi-dshmarket run build",
+    "pretest": "npm run office:prepare && npm run ppt:build && npm run account:build && npm run market:build",
+    "pretest:watch": "npm run office:prepare && npm run ppt:build && npm run account:build && npm run market:build",
     "office:prepare": "node scripts/office-runtime/prepare.mjs && node scripts/office-runtime/prepare-templates.mjs"
   },
   "dependencies": {
@@ -287,6 +288,7 @@
     "dsh-desktop-hmr-fallback": "file:packages/dsh-desktop-hmr-fallback",
     "dsh-desktop-log-bridge": "file:packages/dsh-desktop-log-bridge",
     "dsh-desktop-market-installer": "file:packages/dsh-desktop-market-installer",
+    "taichi-dshmarket": "file:packages/taichi-dshmarket",
     "dsh-desktop-office": "file:packages/dsh-desktop-office",
     "dsh-desktop-onboarding": "file:packages/dsh-desktop-onboarding",
     "dsh-desktop-preset-transfer": "file:packages/dsh-desktop-preset-transfer",

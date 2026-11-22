@@ -38,14 +38,14 @@ const PLATFORMS: ReadonlyArray<{ value: PromoPlatform; label: string }> = [
   { value: 'dewu', label: '得物干净感' },
 ]
 
-export default function PromoWorkspace({ api = new ImageGenApi(), config }: { api?: ImageGenApi; config?: ImageGenConfig }): JSX.Element {
+export default function PromoWorkspace({ api = new ImageGenApi(), config, active = true }: { api?: ImageGenApi; config?: ImageGenConfig; active?: boolean }): JSX.Element {
   const [name, setName] = useState(''); const [points, setPoints] = useState(''); const [url, setUrl] = useState(''); const [platform, setPlatform] = useState<PromoPlatform>('xiaohongshu'); const [busy, setBusy] = useState(false); const [status, setStatus] = useState(''); const [copy, setCopy] = useState<{ title: string; body: string; tags: string[] } | null>(null); const [image, setImage] = useState<string>('')
   const model = config?.channels?.find(channel => channel.id === config.defaultChannelId)?.models?.[0]?.alias ?? config?.channels?.[0]?.models?.[0]?.alias ?? ''
   const fetchLink = async () => { if (!url.trim()) return; setBusy(true); setStatus(tt('promo.fetching')); try { const result = await api.fetchEcommerceLink(url.trim()); if (!result.ok) throw new Error(result.reason ?? 'fetch-failed'); setName(result.title ?? ''); setPoints((result.sellingPoints ?? []).join('\n')); setStatus(tt('promo.fetchSuccess')); } catch (error) { setStatus(`${tt('promo.fetchFailed')}: ${error instanceof Error ? error.message : String(error)}`) } finally { setBusy(false) } }
   const generate = async () => { if (!name.trim() || !model) return; setBusy(true); setStatus(''); try { const result = await api.generate({ mode: 'text', prompt: promoImagePrompt(platform, name, points), model, size: '3:4', quality: 'medium', detail: 'auto', n: 1 }); const first = result.images?.[0]; setImage((first?.b64 ? `data:${first.mime ?? 'image/png'};base64,${first.b64}` : '')); const generated = await api.enhancePrompt(`Return JSON only with title, body, tags (string array) for ${platform}. Product: ${name}. Selling points: ${points}`); setCopy(JSON.parse(generated)); } catch (error) { setStatus(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) } }
   const copyText = async () => { if (!copy) return; const value = `${copy.title}\n\n${copy.body}\n\n${copy.tags.map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(' ')}`; try { await navigator.clipboard.writeText(value); setStatus(tt('promo.copied')) } catch { const area = document.createElement('textarea'); area.value = value; document.body.append(area); area.select(); document.execCommand('copy'); area.remove(); setStatus(tt('promo.copied')) } }
   const ready = !busy && name.trim() !== ''
-  return <section className={css.root} data-promo="true">
+  return <section className={css.root} data-promo="true" hidden={!active}>
     <header className={css.intro}>
       <div>
         <h2>{tt('promo.title')}</h2>

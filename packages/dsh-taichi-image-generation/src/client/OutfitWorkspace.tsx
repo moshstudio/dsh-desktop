@@ -19,7 +19,13 @@ import { ErrorDetail } from './ErrorDetail.tsx'
 import { tt } from './helpers.ts'
 import css from './outfit-workspace.module.css'
 
-export interface OutfitWorkspaceProps { api?: ImageGenApi; config?: ImageGenConfig; scope?: ImageGenScope }
+export interface OutfitWorkspaceProps {
+  api?: ImageGenApi
+  config?: ImageGenConfig
+  scope?: ImageGenScope
+  /** False while another studio page is showing. The instance stays mounted. */
+  active?: boolean
+}
 const SCENES = ['纯色棚拍', '都市街头', '街角咖啡', '自然草坪', '度假海滩', '温馨居家', '艺术展馆', 'AI推荐']
 const RATIOS = ['3:4', '1:1', '9:16']
 const RESOLUTIONS = ['1K', '2K']
@@ -40,7 +46,7 @@ function readImage(file: File, maxBytes = MAX_REFERENCE_BYTES): Promise<string> 
   })
 }
 
-export default function OutfitWorkspace({ api = defaultApi, config }: OutfitWorkspaceProps): JSX.Element {
+export default function OutfitWorkspace({ api = defaultApi, config, active: pageActive = true }: OutfitWorkspaceProps): JSX.Element {
   const [recipe, setRecipe] = useState<OutfitRecipe>(defaultOutfitRecipe)
   const [picker, setPicker] = useState<OutfitReferenceKind | null>(null)
   const [draftLoaded, setDraftLoaded] = useState(false)
@@ -293,7 +299,7 @@ export default function OutfitWorkspace({ api = defaultApi, config }: OutfitWork
     }
     return <div className={css.taskCard}><p className={css.muted}>已取消 · {label}</p><button type="button" className={css.button} onClick={() => void retryTask(task.id)}>重新生成</button></div>
   }
-  return <section className={css.root} data-outfit="true">
+  return <section className={css.root} data-outfit="true" hidden={!pageActive}>
     <header className={css.intro}><div><h2>{tt('outfit.title')}</h2><p>{tt('outfit.hint')}</p></div><span className={css.badge}>{tt('outfit.uploadClothes', { count: recipe.costumes.length })}</span></header>
     <div className={css.body}>
       <form className={css.form} onSubmit={event => { event.preventDefault(); void (prepared ? submitOutfit() : preview()) }}>

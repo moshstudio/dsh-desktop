@@ -12,32 +12,20 @@ window.__ModuleLoader__.load({
     const MARKET_REPOSITORY = 'https://github.com/dsh-market/dsh-market'
 
     const en = {
-      nav: 'Plugin market',
       title: 'Plugin market',
-      intro: 'Install dsh-market to browse, search, install, and manage community plugins inside 太极-dsh.',
-      community: 'dsh-market is maintained by its community; installing and using community plugins requires network access, those plugins are not reviewed by 太极-dsh, and after installation dsh-market will notify you when its own updates are available.',
-      version: 'Recommended version',
-      install: 'Install plugin market',
       enable: 'Enable plugin market',
       update: 'Update/reinstall recommended version',
       updateFailed: 'Recommended plugin market update failed.',
       updateRestartHint: 'Recommended version saved. Restart Harness to apply the replacement; the enabled setting is preserved.',
       updateAppliedHint: 'Recommended version updated; the enabled setting is preserved.',
       updateBlocked: 'The installed version is outside the recommended major version or unknown. Replacement is unavailable to avoid a downgrade.',
-      appliedHint: 'Plugin market is enabled.',
       removedAppliedHint: 'dsh-market has been removed.',
       installing: 'Installing plugin market…',
       installingHint: 'This can take a few minutes. Keep 太极-dsh open while pnpm downloads and configures the plugin.',
-      installed: 'Plugin market installed',
-      installedHint: 'Restart Harness once to load the complete market interface.',
       restart: 'Restart Harness',
       restarting: 'Restarting…',
       retry: 'Try again',
-      incomplete: 'The previous installation is incomplete. Run the installer again to repair it.',
-      failed: 'Plugin market could not be installed.',
-      statusFailed: 'Could not read installation status.',
       repository: 'View dsh-market on GitHub',
-      repositoryButton: 'View on GitHub',
       futureUpdates: 'After installation, dsh-market will notify you when its own updates are available.',
       managementTab: 'Plugin market',
       managementIntro: 'Manage the optional dsh-market integration installed by 太极-dsh.',
@@ -55,32 +43,20 @@ window.__ModuleLoader__.load({
     }
 
     const zh = {
-      nav: '插件市场',
       title: '插件市场',
-      intro: '安装 dsh-market，在 太极-dsh 内浏览、搜索、安装并管理社区插件。',
-      community: 'dsh-market 由社区维护，安装和使用社区插件需要联网且不由 太极-dsh 审核，安装后有新版本时会提示并提供升级。',
-      version: '推荐版本',
-      install: '安装插件市场',
       enable: '启用插件市场',
       update: '更新/重新安装推荐版本',
       updateFailed: '推荐插件市场版本更新失败。',
       updateRestartHint: '推荐版本已保存，重启 Harness 后应用替换；当前启用设置保持不变。',
       updateAppliedHint: '推荐版本已更新，当前启用设置保持不变。',
       updateBlocked: '当前版本不属于推荐主版本或版本未知，为避免降级，不能替换为推荐版本。',
-      appliedHint: '插件市场已启用。',
       removedAppliedHint: 'dsh-market 已移除。',
       installing: '正在安装插件市场…',
       installingHint: '下载和配置可能需要几分钟，请保持 太极-dsh 处于打开状态。',
-      installed: '插件市场已安装',
-      installedHint: '重启一次 Harness，即可加载完整的插件市场界面。',
       restart: '重启 Harness',
       restarting: '正在重启…',
       retry: '重试',
-      incomplete: '上一次安装没有完成，请重新运行安装以修复。',
-      failed: '插件市场安装失败。',
-      statusFailed: '无法读取安装状态。',
       repository: '在 GitHub 查看 dsh-market',
-      repositoryButton: '在 GitHub 查看',
       futureUpdates: '安装后，dsh-market 会在有新版本时提示并提供升级。',
       managementTab: '插件市场',
       managementIntro: '管理由 太极-dsh 安装的可选 dsh-market 集成。',
@@ -120,15 +96,13 @@ window.__ModuleLoader__.load({
       .dshDesktopMarketSecondary{color:var(--dsw-alias-label-primary);background:transparent;border-color:var(--dsw-alias-border-l3)}
       .dshDesktopMarketSecondary:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2)}
       .dshDesktopMarketButton:disabled{cursor:default;opacity:.5}
-      .dshDesktopMarketIconButton{display:inline-flex;align-items:center;gap:8px;text-decoration:none;line-height:34px}
-      .dshDesktopMarketIconButton svg{width:16px;height:16px;flex:none;fill:currentColor}
       .dshDesktopMarketButton:focus-visible,.dshDesktopMarketLink:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
       .dshDesktopMarketLink{color:var(--dsw-alias-label-secondary);border-radius:6px;padding:5px 4px;font-size:13px;line-height:20px;text-decoration:none}
       .dshDesktopMarketLink:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}
       .dshDesktopMarketSpinner{box-sizing:border-box;width:16px;height:16px;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-label-primary);border-radius:50%;animation:dshDesktopMarketSpin .75s linear infinite}
       .dshDesktopMarketBusy{display:flex;align-items:center;gap:9px}
       .dshDesktopMarketError{color:var(--dsw-alias-state-error-primary)}
-      .dshDesktopMarketModalBackdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;background:var(--dsh-dialog-mask-fill,color-mix(in srgb,var(--dsw-alias-label-primary) 14%,transparent));backdrop-filter:var(--dsh-dialog-mask-blur,blur(12px));-webkit-backdrop-filter:var(--dsh-dialog-mask-blur,blur(12px))}
+      .dshDesktopMarketModalBackdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:max(24px,var(--dsh-frame-overlay-top,24px)) 24px;background:var(--dsh-dialog-mask-fill,color-mix(in srgb,var(--dsw-alias-label-primary) 14%,transparent));backdrop-filter:var(--dsh-dialog-mask-blur,blur(12px));-webkit-backdrop-filter:var(--dsh-dialog-mask-blur,blur(12px))}
       .dshDesktopMarketModal{box-sizing:border-box;width:min(440px,100%);padding:24px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);box-shadow:0 18px 48px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:12px}
       .dshDesktopMarketModalTitle{margin:0;font-size:18px;font-weight:600;line-height:26px}
       .dshDesktopMarketModalText{margin:0;color:var(--dsw-alias-label-secondary);font-size:14px;line-height:22px}
@@ -137,17 +111,6 @@ window.__ModuleLoader__.load({
       @keyframes dshDesktopMarketSpin{to{transform:rotate(360deg)}}
       @media (prefers-reduced-motion:reduce){.dshDesktopMarketSpinner{animation:none}}
     `
-
-    const GITHUB_ICON_PATH =
-      'M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z'
-
-    function GitHubIcon() {
-      return React.createElement(
-        'svg',
-        { viewBox: '0 0 16 16', 'aria-hidden': 'true', focusable: 'false' },
-        React.createElement('path', { d: GITHUB_ICON_PATH })
-      )
-    }
 
     function installStyles() {
       if (document.querySelector('style[data-plugin-css="dsh-desktop-market-installer"]')) return
@@ -545,178 +508,11 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function MarketInstallerSection({ t, controller }) {
-      const { status, error: managerError } = useMarket(controller)
-      const [restarting, setRestarting] = React.useState(false)
-      const [restartError, setError] = React.useState()
-      const error = managerError || restartError
-      const install = () => controller.install()
-
-      const restart = async () => {
-        const bridge = globalThis.dshDesktop
-        if (!bridge || typeof bridge.restartHarness !== 'function') {
-          setError('Harness > Restart Harness')
-          return
-        }
-        setRestarting(true)
-        setError(undefined)
-        try {
-          const result = await bridge.restartHarness()
-          if (!result?.ok) {
-            setRestarting(false)
-            setError(t('failed'))
-          }
-        } catch (failure) {
-          setRestarting(false)
-          setError(failure instanceof Error ? failure.message : String(failure))
-        }
-      }
-
-      const phase = status?.phase
-      const busy = phase === 'installing'
-      const installed = phase === 'installed' && status.enabled && !error
-      const failed = phase === 'error' || phase === 'incomplete' || Boolean(error)
-      const version = status?.recommendedVersion || 'latest'
-
-      return React.createElement(
-        'section',
-        { className: 'dshDesktopMarketSection' },
-        React.createElement('h2', { className: 'dshDesktopMarketTitle' }, t('title')),
-        React.createElement('p', { className: 'dshDesktopMarketIntro' }, t('intro')),
-        React.createElement(
-          'div',
-          { className: 'dshDesktopMarketCard' },
-          React.createElement(
-            'div',
-            { className: 'dshDesktopMarketHead' },
-            React.createElement(
-              'div',
-              { className: 'dshDesktopMarketMark', 'aria-hidden': 'true' },
-              React.createElement('span'),
-              React.createElement('span'),
-              React.createElement('span'),
-              React.createElement('span')
-            ),
-            React.createElement(
-              'div',
-              { className: 'dshDesktopMarketIdentity' },
-              React.createElement('span', { className: 'dshDesktopMarketName' }, 'dsh-market'),
-              React.createElement(
-                'span',
-                { className: 'dshDesktopMarketVersion' },
-                `${t('version')} · ${version}`
-              )
-            )
-          ),
-          busy
-            ? React.createElement(
-                'div',
-                { className: 'dshDesktopMarketStatus' },
-                React.createElement(
-                  'div',
-                  { className: 'dshDesktopMarketBusy' },
-                  React.createElement('span', {
-                    className: 'dshDesktopMarketSpinner',
-                    'aria-hidden': 'true'
-                  }),
-                  React.createElement(
-                    'span',
-                    { className: 'dshDesktopMarketStatusTitle' },
-                    t('installing')
-                  )
-                ),
-                React.createElement(
-                  'p',
-                  { className: 'dshDesktopMarketStatusDetail' },
-                  status?.detail || t('installingHint')
-                )
-              )
-            : installed
-              ? React.createElement(
-                  'div',
-                  { className: 'dshDesktopMarketStatus' },
-                  React.createElement(
-                    'span',
-                    { className: 'dshDesktopMarketStatusTitle' },
-                    t('installed')
-                  ),
-                  React.createElement(
-                    'p',
-                    { className: 'dshDesktopMarketStatusDetail' },
-                    t(status?.application === 'applied' ? 'appliedHint' : 'installedHint')
-                  )
-                )
-              : failed
-                ? React.createElement(
-                    'div',
-                    { className: 'dshDesktopMarketStatus' },
-                    React.createElement(
-                      'span',
-                      { className: 'dshDesktopMarketStatusTitle dshDesktopMarketError' },
-                      phase === 'incomplete' ? t('incomplete') : t(status?.operation === 'update' ? 'updateFailed' : 'failed')
-                    ),
-                    error || status?.detail
-                      ? React.createElement(
-                          'p',
-                          { className: 'dshDesktopMarketStatusDetail dshDesktopMarketError' },
-                          error || status?.detail
-                        )
-                      : null
-                  )
-                : null,
-          React.createElement(
-            'div',
-            { className: 'dshDesktopMarketActions' },
-            UpdateRecommendedButton({ t, status, controller, restarting }),
-            status?.operation === 'update' && phase === 'installed' && !error
-              ? React.createElement('p', { className: 'dshDesktopMarketStatusDetail', role: 'status' },
-                  t(status.application === 'restart-required' ? 'updateRestartHint' : 'updateAppliedHint'))
-              : null,
-            status?.operation === 'update' && phase === 'installed' && !status.enabled && status.application === 'restart-required' && !error
-              ? React.createElement('button', { type: 'button', className: 'dshDesktopMarketButton dshDesktopMarketPrimary',
-                  disabled: restarting, onClick: () => void restart() }, t(restarting ? 'restarting' : 'restart'))
-              : null,
-            installed
-              ? React.createElement(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'dshDesktopMarketButton dshDesktopMarketPrimary',
-                    disabled: restarting,
-                    onClick: () => void restart()
-                  },
-                  restarting ? t('restarting') : t('restart')
-                )
-              : React.createElement(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'dshDesktopMarketButton dshDesktopMarketPrimary',
-                    disabled: busy || (!status && !error),
-                    onClick: () => void install()
-                  },
-                  status?.installed && !status.enabled ? t('enable') : failed ? t('retry') : t('install')
-                ),
-            React.createElement(
-              'a',
-              {
-                className: 'dshDesktopMarketButton dshDesktopMarketSecondary dshDesktopMarketIconButton',
-                href: MARKET_REPOSITORY,
-                target: '_blank',
-                rel: 'noopener noreferrer',
-                'aria-label': t('repository')
-              },
-              GitHubIcon(),
-              t('repositoryButton')
-            )
-          ),
-          React.createElement('p', { className: 'dshDesktopMarketNotice' }, t('community'))
-        )
-      )
-    }
-
     const inject = ['slots', 'locale', 'remote', 'remote.pluginManager']
     function apply(ctx) {
+      // The built-in market is already composed. Do not add a settings section
+      // that installs the community dshmarket package.
+      if (!marketAlreadyComposed()) return
       ctx.effect(installStyles, 'dsh-desktop-market-installer: styles')
       const controller = createMarketController(ctx)
       ctx.effect(controller.start, 'dsh-desktop-market-installer: manager status')
@@ -725,31 +521,16 @@ window.__ModuleLoader__.load({
         'dsh-desktop-market-installer: copy dictionaries'
       )
       const t = ctx.locale.bind(NS)
-      if (marketAlreadyComposed()) {
-        ctx.slots.inject('settings.plugins.tab', () =>
-          ctx.slots.register(
-            {
-              name: 'settings.plugins.tab',
-              id: 'desktop-market-management',
-              order: 30,
-              label: () => t('managementTab'),
-              inject: () => ({ t, controller })
-            },
-            MarketManagementTab
-          )
-        )
-        return
-      }
-      ctx.slots.inject('settings.section', () =>
+      ctx.slots.inject('settings.plugins.tab', () =>
         ctx.slots.register(
           {
-            name: 'settings.section',
-            id: 'market',
-            order: 40,
-            label: () => t('nav'),
+            name: 'settings.plugins.tab',
+            id: 'desktop-market-management',
+            order: 30,
+            label: () => t('managementTab'),
             inject: () => ({ t, controller })
           },
-          MarketInstallerSection
+          MarketManagementTab
         )
       )
     }

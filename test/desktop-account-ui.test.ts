@@ -1122,7 +1122,20 @@ describe('desktop account page', () => {
 
   it('opens the account dialog from the rail without leaving the conversation', () => {
     loaded.window.dshDesktop.account = api()
-    const button = react.render(AccountButton, buttonProps)
+    const railProps = { ...buttonProps, wide: false }
+    const button = react.render(AccountButton, railProps)
+    expect(nodes(button.tree, node => node.props.className === 'dsh-desktop-tooltip')).toHaveLength(0)
+    const accountButton = nodes(button.tree, node => node.props['data-dsh-taichi-account'] === 'true')[0]
+    invoke(accountButton, 'onPointerEnter', {
+      currentTarget: {
+        getBoundingClientRect: () => ({ top: 80, right: 48, bottom: 116, left: 12, width: 36, height: 36 })
+      }
+    })
+    const tipped = react.render(AccountButton, railProps)
+    const tip = nodes(tipped.tree, node => node.props.className === 'dsh-desktop-tooltip')[0]
+    expect(tip?.props.role).toBe('tooltip')
+    expect(tip?.children).toEqual(['open'])
+    expect(tip?.props.style).toMatchObject({ position: 'fixed', top: 98, left: 56, transform: 'translateY(-50%)' })
     expect(nodes(button.tree, node => node.type === AccountPanel)).toHaveLength(0)
     for (const effect of button.effects) effect()
     const opener = () => nodes(react.render(AccountButton, buttonProps).tree, node => node.props['data-dsh-taichi-account'] === 'true')[0]

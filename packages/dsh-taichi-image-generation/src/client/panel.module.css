@@ -912,6 +912,13 @@ html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
   display: none !important;
 }
 
+/* A workspace that has been opened stays mounted so its draft survives a tab
+   switch. Each root sets `hidden` while it is not current, but those roots
+   also set display:flex/grid, which beats the user-agent [hidden] rule. */
+.generation > [hidden] {
+  display: none !important;
+}
+
 .config {
   display: flex;
   flex-direction: column;
@@ -1229,7 +1236,7 @@ html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
 .diagnosticsRow[data-verdict='unknown'] { opacity: .85; }
 
 
-.configGuide { position: fixed; inset: 0; z-index: var(--z-guide); display: grid; place-items: center; padding: 20px; background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent)); backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); }
+.configGuide { position: fixed; inset: 0; z-index: var(--z-guide); display: grid; place-items: center; padding: max(24px, var(--dsh-frame-overlay-top, 24px)) 20px 20px; background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent)); backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); }
 .configGuideBody { display: flex; width: min(360px, 100%); flex-direction: column; gap: 12px; padding: 18px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); box-shadow: var(--dsw-elevation-panel); }
 .configGuideBody span { color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.55; }
 .configGuideBody button { align-self: flex-end; min-height: 30px; padding: 0 12px; border: 0; border-radius: var(--dsw-radius-sm); color: var(--dsw-alias-bg-layer-1); background: var(--dsw-alias-brand-primary); cursor: pointer; font: inherit; font-size: 12px; }
@@ -1237,7 +1244,7 @@ html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
 /* Fallback for "add this image to a conversation" when the host cannot tell us
    which conversation is current. The user has to name the target: guessing from
    history is how an image lands in the wrong thread. */
-.conversationPicker { position: fixed; z-index: var(--z-session-picker); inset: 0; display: grid; place-items: center; padding: 20px; background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent)); backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); }
+.conversationPicker { position: fixed; z-index: var(--z-session-picker); inset: 0; display: grid; place-items: center; padding: max(24px, var(--dsh-frame-overlay-top, 24px)) 20px 20px; background: var(--dsh-dialog-mask-fill, color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent)); backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); -webkit-backdrop-filter: var(--dsh-dialog-mask-blur, blur(12px)); }
 .conversationPickerBody { display: flex; width: min(420px, 100%); flex-direction: column; gap: 12px; padding: 20px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); box-shadow: var(--dsw-elevation-panel); }
 .conversationPickerBody h2 { margin: 0; font-size: 16px; font-weight: 650; }
 .conversationPickerBody p { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.5; }
@@ -3285,14 +3292,14 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: max(24px, var(--dsh-frame-overlay-top, 24px)) 24px 24px;
   background: var(--dsw-alias-bg-mask-photo);
   backdrop-filter: blur(6px);
 }
 
 .lightboxClose {
   position: absolute;
-  top: 16px;
+  top: calc(var(--dsh-frame-chrome-top, 0px) + 16px);
   right: 16px;
   display: inline-flex;
   align-items: center;
@@ -3728,7 +3735,12 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 .comparisonFullscreen img { display: block; width: 100%; margin-bottom: 10px; background: var(--dsw-alias-bg-mask-3); }
 .historyItem[data-comparison] { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-border-l1)); }
 .galleryMasonry { display: flex; align-items: flex-start; flex: none; width: 100%; height: auto; max-width: 100%; min-width: 0; box-sizing: border-box; gap: 16px; overflow: visible; padding: 2px 8px 0 2px; }
-.galleryMasonry[data-view='grid'] { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-rows: max-content; align-content: start; gap: 16px; }
+/* Tracks follow the gallery pane, the same way the waterfall measures it.
+   A fixed 5-column track shrinks every card below its labels once the history
+   and filter sidebars take their share of a wide window, and a viewport media
+   query picks the wrong count for that same reason. `min(100%, 260px)` still
+   collapses to one column when the pane itself is narrower than a card. */
+.galleryMasonry[data-view='grid'] { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); grid-auto-rows: max-content; align-items: start; align-content: start; gap: 16px; }
 .galleryColumn { display: flex; flex: 0 1 220px; width: 220px; max-width: 220px; min-width: 0; flex-direction: column; gap: 16px; }
 .galleryCard { position: relative; display: block; width: 100%; min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-lg); background: var(--dsw-alias-bg-layer-1); box-shadow: var(--dsw-shadow-lv1); }
 .galleryCard[data-selected] { border-color: var(--dsw-alias-brand-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 26%, transparent), var(--dsw-shadow-lv1); }
@@ -3737,10 +3749,19 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 .galleryImageButton { position: relative; display: block; width: 100%; padding: 0; border: 0; background: var(--dsw-alias-bg-base); cursor: zoom-in; }
 .galleryImageButton[data-selecting] { cursor: pointer; }
 .galleryImage { display: block; width: 100%; height: auto; aspect-ratio: auto; object-fit: contain; }
+.galleryMasonry[data-view='grid'] .galleryImageButton { overflow: hidden; }
 .galleryMasonry[data-view='grid'] .galleryImage { aspect-ratio: 4 / 3; object-fit: cover; }
 .galleryBadge { position: absolute; top: 10px; left: 10px; padding: 4px 9px; border-radius: 999px; color: var(--dsw-alias-label-primary-inverted); background: var(--dsw-alias-bg-mask-2); font-size: 11px; backdrop-filter: blur(4px); }
 .galleryCardActions { display: flex; padding: 8px 12px 0; }
 .galleryCardAction { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; gap: 4px; min-height: 28px; padding: 0 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2); cursor: pointer; font: inherit; font-size: 10px; font-weight: 500; white-space: nowrap; }
+/* The tidy grid gives the labels their own cells. Two actions share the row;
+   a clip's third action takes the next row instead of a third squeezed column.
+   The label span is what actually ellipsizes: an anonymous flex item will not. */
+.galleryMasonry[data-view='grid'] .galleryCardActions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px 12px 0; }
+.galleryMasonry[data-view='grid'] .galleryCardActions > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+.galleryMasonry[data-view='grid'] .galleryCardAction { width: 100%; min-width: 0; min-height: 32px; padding: 0 10px; gap: 6px; font-size: 12px; }
+.galleryMasonry[data-view='grid'] .galleryCardAction > svg { flex: none; }
+.galleryMasonry[data-view='grid'] .galleryCardAction > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .galleryCardAction:hover, .galleryCardAction:focus-visible { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); outline: none; }
 .galleryCardAction:disabled { cursor: wait; opacity: .55; }
 .galleryCardFooter { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; min-width: 0; padding: 10px 12px; }
@@ -3751,6 +3772,13 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 .galleryCardInfo strong, .galleryCardInfo small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .galleryCardInfo strong { color: var(--dsw-alias-label-primary); font-size: 12px; }
 .galleryCardInfo small { color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+.galleryMasonry[data-view='grid'] .galleryCardFooter { align-items: flex-start; gap: 10px 12px; padding: 12px; }
+.galleryMasonry[data-view='grid'] .galleryCardInfo { gap: 4px; }
+.galleryMasonry[data-view='grid'] .galleryCardInfo strong { font-size: 13px; line-height: 18px; }
+/* Model, ratio and time share one nowrap line in the waterfall. In the grid
+   that line is what collapses to a few characters, so let it wrap instead. */
+.galleryMasonry[data-view='grid'] .galleryCardInfo small { overflow: visible; white-space: normal; text-overflow: unset; font-size: 11px; line-height: 16px; }
+.galleryMasonry[data-view='grid'] .galleryCardManage { margin-top: 2px; }
 .galleryTags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .galleryTags button { overflow: hidden; max-width: 96px; min-height: 19px; padding: 1px 6px; border: 0; border-radius: var(--dsw-radius-xs); color: var(--dsw-alias-brand-primary); background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent); cursor: pointer; font: inherit; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .galleryTags button:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 17%, transparent); }
@@ -3789,10 +3817,6 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   .ecommerceStructureGrid, .ecommerceAssets { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 900px) {
-  .galleryMasonry[data-view='grid'] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
 @media (max-width: 760px) {
   /* `.studio` is a flex container, so the grid properties this rule used to set
      never applied: the generation row kept its desktop `flex-direction: row`
@@ -3825,11 +3849,6 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   .generation[data-workspace='ppt'] { height: auto; min-height: 560px; }
   .galleryToolbar { align-items: flex-start; flex-direction: column; }
   .galleryToolbarActions { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
-  .galleryMasonry[data-view='grid'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-@media (max-width: 480px) {
-  .galleryMasonry[data-view='grid'] { grid-template-columns: 1fr; }
 }
 
 /* The video tab renders its own composer, so the image config sidebar (and the

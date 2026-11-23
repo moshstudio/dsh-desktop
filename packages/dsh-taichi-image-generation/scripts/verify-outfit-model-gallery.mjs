@@ -9,6 +9,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const read = file => readFileSync(join(root, file), 'utf8')
 const store = read('src/outfit-reference-store.ts')
 const picker = read('src/client/OutfitReferencePicker.tsx')
+const locales = read('src/client/locales.ts')
 const workspace = read('src/client/OutfitWorkspace.tsx')
 
 const failures = []
@@ -32,8 +33,10 @@ require_(
   /\{kind === 'portrait' && \(api\.saveModel \|\| generateModel\) \?/.test(picker),
   '人物图库的添加模特行没有按「人物类别 + 有可用能力」渲染',
 )
-require_(/添加模特照片/.test(picker), '人物图库里没有上传模特照片的按钮')
-require_(/AI 生成模特/.test(picker), '人物图库里没有 AI 生成模特的入口')
+require_(/tt\('outfit\.picker\.addPhoto'\)/.test(picker), '人物图库里没有上传模特照片的按钮')
+require_(/'outfit\.picker\.addPhoto': '添加模特照片'/.test(locales), '上传模特照片的中文文案丢了')
+require_(/tt\('outfit\.picker\.aiGenerate'\)/.test(picker), '人物图库里没有 AI 生成模特的入口')
+require_(/'outfit\.picker\.aiGenerate': 'AI 生成模特'/.test(locales), 'AI 生成模特的中文文案丢了')
 require_(
   /generateAiModel|generateModel\(/.test(picker),
   '图库没有接上工作台注入的生成回调',

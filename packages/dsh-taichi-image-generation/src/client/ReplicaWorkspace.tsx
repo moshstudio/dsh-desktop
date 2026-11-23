@@ -24,6 +24,7 @@
  *    the report states the limit rather than implying more.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Input, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChannelConfig, GeneratedImage, GenerationTask, GenerationTaskSummary } from '../protocol.ts'
 import type { ImageGenApi } from './api.ts'
 import { ErrorDetail } from './ErrorDetail.tsx'
@@ -48,6 +49,7 @@ import {
   type ReplicaKind,
 } from './replica-prompt.ts'
 import css from './replica-workspace.module.css'
+import segmented from './segmented.module.css'
 
 /** One picked reference image, held as a data URL for the request body. */
 interface ReplicaReference {
@@ -491,8 +493,8 @@ export function ReplicaWorkspace(props: ReplicaWorkspaceProps): React.JSX.Elemen
                 </li>
               </ul>
             )}
-            <input
-              className={css.input}
+            <Input
+              className={css.stretch}
               value={productText}
               placeholder={tt('replica.productPlaceholder')}
               onChange={event => { setProductText(event.target.value) }}
@@ -501,38 +503,32 @@ export function ReplicaWorkspace(props: ReplicaWorkspaceProps): React.JSX.Elemen
 
           {/* ------------------------------------------------------ replica kind */}
           <div className={css.field}>
-            <span className={css.fieldLabel}>{tt('replica.kind')}</span>
-            <div className={css.pills} role="radiogroup" aria-label={tt('replica.kind')}>
-              {REPLICA_KINDS.map(option => (
-                <button
-                  key={option}
-                  type="button"
-                  className={css.fact}
-                  role="radio"
-                  aria-checked={kind === option}
-                  data-selected={kind === option ? 'true' : 'false'}
-                  onClick={() => { setKind(option) }}
-                >{tt(`replica.kind.${option}`)}</button>
-              ))}
-            </div>
+            <SegmentedControl
+              id="replica-kind"
+              className={segmented.wrap}
+              value={kind}
+              label={tt('replica.kind')}
+              disabled={busy}
+              options={REPLICA_KINDS.map(option => ({ value: option, label: tt(`replica.kind.${option}`) }))}
+              onChange={next => {
+                if ((REPLICA_KINDS as readonly string[]).includes(next)) setKind(next as ReplicaKind)
+              }}
+            />
           </div>
 
           {/* ----------------------------------------------------- fidelity tier */}
           <div className={css.field}>
-            <span className={css.fieldLabel}>{tt('replica.fidelity')}</span>
-            <div className={css.pills} role="radiogroup" aria-label={tt('replica.fidelity')}>
-              {REPLICA_FIDELITIES.map(option => (
-                <button
-                  key={option}
-                  type="button"
-                  className={css.fact}
-                  role="radio"
-                  aria-checked={fidelity === option}
-                  data-selected={fidelity === option ? 'true' : 'false'}
-                  onClick={() => { setFidelity(option) }}
-                >{tt(`replica.fidelity.${option}`)}</button>
-              ))}
-            </div>
+            <SegmentedControl
+              id="replica-fidelity"
+              className={segmented.wrap}
+              value={fidelity}
+              label={tt('replica.fidelity')}
+              disabled={busy}
+              options={REPLICA_FIDELITIES.map(option => ({ value: option, label: tt(`replica.fidelity.${option}`) }))}
+              onChange={next => {
+                if ((REPLICA_FIDELITIES as readonly string[]).includes(next)) setFidelity(next as ReplicaFidelity)
+              }}
+            />
             <span className={css.fieldNote}>{tt(`replica.fidelityHint.${fidelity}`)}</span>
           </div>
 
@@ -585,14 +581,13 @@ export function ReplicaWorkspace(props: ReplicaWorkspaceProps): React.JSX.Elemen
 
           <div className={css.submitBar}>
             {references.length > 0 ? (
-              <button type="button" className={css.fact} onClick={clearReferences}>{tt('replica.clear')}</button>
+              <Button type="button" variant="ghost" onClick={clearReferences}>{tt('replica.clear')}</Button>
             ) : null}
-            <button
+            <Button
               type="submit"
-              className={css.fact}
-              data-primary="true"
+              variant="primary"
               disabled={submitDisabled}
-            >{busy ? tt('replica.generating') : tt('replica.generate')}</button>
+            >{busy ? tt('replica.generating') : tt('replica.generate')}</Button>
             <span className={css.fieldNote}>
               {picked === 0
                 ? tt('replica.submitHintEmpty', { limit: capacity.limit })

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { BookOpen, Maximize2, Minimize2 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Select } from './Select.tsx'
 import type { ImageGenApi } from './api.ts'
 import { errorMessage, tt } from './helpers.ts'
 import { onTablistKeyDown, tabIndexFor } from './tablist.ts'
@@ -678,15 +679,17 @@ export function TemplateLibrary(props: {
               onChange={(event) => { setQuery(event.target.value) }}
             />
             {specialView ? null : (
-              <select
+              <Select
+                variant="compact"
                 className={css.searchScope}
                 aria-label={tt('templates.sources')}
                 value={searchAll ? 'all' : 'current'}
-                onChange={(event) => { setSearchAll(event.target.value === 'all'); setCategory('') }}
-              >
-                <option value="current">{activeMeta.label}</option>
-                <option value="all">{tt('templates.all')}</option>
-              </select>
+                options={[
+                  { value: 'current', label: activeMeta.label },
+                  { value: 'all', label: tt('templates.all') },
+                ]}
+                onChange={(value) => { setSearchAll(value === 'all'); setCategory('') }}
+              />
             )}
           </div>
           <div className={css.categoryRow}>

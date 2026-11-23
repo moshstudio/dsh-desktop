@@ -2306,13 +2306,20 @@
 
 .pickerTabs button {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
   min-height: 30px;
+  padding: 4px 8px;
   border: 0;
   border-radius: var(--dsw-radius-sm);
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font: inherit;
   font-size: 12px;
+  line-height: 16px;
+  text-align: center;
   cursor: pointer;
 }
 

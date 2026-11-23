@@ -36,7 +36,7 @@ import {
   redLineNamesAddress,
   UNCOMMON_CAPABILITIES,
 } from './MarketCardParts.tsx'
-import { CardShot, OwnerAvatar, ThemeCover } from './MarketImages.tsx'
+import { OwnerAvatar, ThemeCover } from './MarketImages.tsx'
 import { GithubRepoMark } from './MarketLogo.tsx'
 import { CardDesc } from './MarketLayout.tsx'
 import type { MarketStateCtx } from './market-state.tsx'
@@ -234,6 +234,8 @@ export function useMarketRender(c: MarketRenderIn) {
         onSelect={(id) => {
           setPluginMenuUrl(null)
           if (id === 'favorite') toggleFavorite(plugin.url)
+          if (id === 'comments') setCommentsFor(plugin)
+          if (id === 'repo') window.open(plugin.url, '_blank', 'noopener,noreferrer')
           if (id === 'block') toggleBlock(blockToggleName(aliases))
         }}
         align="end"
@@ -249,6 +251,9 @@ export function useMarketRender(c: MarketRenderIn) {
         )}
         items={[
           { id: 'favorite', label: favoriteUrlSet.has(plugin.url) ? t('favoriteRemove') : t('favoriteAdd') },
+          { id: 'comments', label: t('comments') },
+          { id: 'repo', label: t('repoLink') },
+          { type: 'separator', id: 'sep' },
           { id: 'block', label: hidden ? t('blockRemove') : t('blockAdd') },
         ]}
       />
@@ -635,38 +640,28 @@ export function useMarketRender(c: MarketRenderIn) {
     return (
       <div key={p.url} className={blocked ? `${css.card} ${css.cardBlocked}` : css.card}>
         <div className={css.row1}>
-          {/* The avatar belongs to the AUTHOR, not to the title. Beside the
-              name it reads as one signature, which is what frees the title
-              to be just the plugin — and lets two authors ship a plugin of
-              the same name without either card needing a qualifier. */}
-          <div style={{ minWidth: 0 }}>
-            {/* The name opens the detail dialog, the same one Install opens;
-                the GitHub mark beside it is still the way to the source. */}
+          {/* Name, then one meta line. Screenshots, categories, comments and
+              the repository stay in the detail dialog and the ··· menu, so
+              the grid card is three bands instead of six. */}
+          <div className={css.cardIdentity}>
             <div className={`${css.nm} ${css.nmRow}`}>
               <button type="button" className={css.nmButton} title={p.name} onClick={() => setConfirming(p)}>
                 {pluginName(p.name, p.npm)}
               </button>
-              <a className={css.repoMarkLink} href={p.url} target="_blank" rel="noreferrer" aria-label={`${p.name} — ${t('repoLink')}`} title={t('repoLink')}>
-                <GithubRepoMark className={css.repoMark} />
-              </a>
               {p.deprecated === true && <span className={css.depBadge}>{t('deprecatedBadge')}</span>}
             </div>
             <div className={css.byline}>
               <OwnerAvatar name={p.name} owner={p.owner || ''} icon={p.icon ?? undefined} />
               <span className={css.owner} title={p.owner}>{p.owner}</span>
+              <CardStats plugin={p} t={t} versionTip={catalogVersionTip} lead={(p.owner ?? '') !== ''} />
             </div>
-            <CardStats plugin={p} t={t} versionTip={catalogVersionTip} />
           </div>
-          {/* Top right, at its natural size: in the footer it needed a row of
-              its own once the cards went two-up, which cost every card that
-              height whether or not it had anything else to say. */}
-          <span className={css.grow} />
           <div className={css.cardAction}>
+            {renderPluginMenu(p, menuKey)}
             {installAction(p)}
           </div>
         </div>
-        <CardDesc text={desc} t={t} onOpen={() => setConfirming(p)} />
-        <CardShot plugin={p} onOpen={openLightbox} />
+        {desc !== '' && <CardDesc text={desc} t={t} lines={2} onOpen={() => setConfirming(p)} />}
         {p.deprecated === true && (
           <div className={css.deprecate}>
             <div className={css.depLine}>
@@ -679,35 +674,17 @@ export function useMarketRender(c: MarketRenderIn) {
             </div>
           </div>
         )}
-        <div className={css.foot}>
-          <div className={css.footTags}>
+        {hostChip.bad && (
+          <div className={css.cardChip}>
             <CardTip label={hostChip.title} maxWidth={320}>
               <span
-                className={hostChip.bad
-                  ? `${css.hostRequirement} ${css.hostRequirementBad}`
-                  : css.hostRequirement}
+                className={`${css.hostRequirement} ${css.hostRequirementBad}`}
                 data-status={hostChip.status}
                 tabIndex={0}
               >{hostChip.label}</span>
             </CardTip>
-            {pluginCategories(p).map(category => (
-              <span key={category} className={css.tag}>
-                {(data!.categories[category] && (data!.categories[category]![lang] || data!.categories[category]!.en)) || category}
-              </span>
-            ))}
           </div>
-          {/* Published date and a source link used to live here too — both
-              redundant now that the title itself opens the repo, and the
-              date/tag pair alone was long enough in English to wrap onto its
-              own line, splitting one card's footer into two visual rows. */}
-          <span className={css.footActions}>
-            {renderFavoriteControl(p.url)}
-            <button type="button" className={css.commentsLink} onClick={() => setCommentsFor(p)}>
-              {t('comments')}
-            </button>
-            {renderPluginMenu(p, menuKey)}
-          </span>
-        </div>
+        )}
         {busy && (
           <div className={css.progress}>
             <span className={css.spin}><IconLoadingOutline16 size={14} /></span>

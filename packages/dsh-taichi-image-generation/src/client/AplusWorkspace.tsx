@@ -27,6 +27,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Select } from './Select.tsx'
 import type { ChannelConfig, GeneratedImage, HistoryEntry, StoredEntryMode } from '../protocol.ts'
 import type { ImageGenApi } from './api.ts'
 import { ErrorDetail } from './ErrorDetail.tsx'
@@ -469,23 +470,23 @@ export function AplusWorkspace(props: AplusWorkspaceProps): React.JSX.Element {
             <div className={css.metrics}>
               <label className={css.pair}>
                 <span className={css.fieldLabel}>{tt('aplus.width')}</span>
-                <select
-                  className={css.select}
+                <Select
+                  variant="compact"
+                  aria-label={tt('aplus.width')}
                   value={String(width)}
-                  onChange={event => { setWidth(Number(event.target.value)) }}
-                >
-                  {WIDTHS.map(option => <option key={option} value={option}>{option}</option>)}
-                </select>
+                  options={WIDTHS.map(option => ({ value: String(option), label: String(option) }))}
+                  onChange={value => { setWidth(Number(value)) }}
+                />
               </label>
               <label className={css.pair}>
                 <span className={css.fieldLabel}>{tt('aplus.gap')}</span>
-                <select
-                  className={css.select}
+                <Select
+                  variant="compact"
+                  aria-label={tt('aplus.gap')}
                   value={String(gap)}
-                  onChange={event => { setGap(Number(event.target.value)) }}
-                >
-                  {GAPS.map(option => <option key={option} value={option}>{option}</option>)}
-                </select>
+                  options={GAPS.map(option => ({ value: String(option), label: String(option) }))}
+                  onChange={value => { setGap(Number(value)) }}
+                />
               </label>
             </div>
             <div className={css.actions}>

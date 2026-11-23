@@ -1296,7 +1296,6 @@ html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
 }
 
 .historySearch,
-.historyFilters [data-dsh-select],
 .gallerySearch {
   min-width: 0;
   min-height: 29px;
@@ -1308,6 +1307,11 @@ html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
   background: var(--dsw-alias-bg-layer-2);
   font: inherit;
   font-size: 11px;
+}
+
+.historyFilters [data-dsh-select] {
+  width: 100%;
+  min-width: 0;
 }
 
 .historySearch { grid-column: 1 / -1; }
@@ -2492,10 +2496,6 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 
 /* --- generation sub-modes (inside the normal workspace) ------------------------ */
 
-.modeTabs {
-  width: 100%;
-}
-
 /* --- reference image upload (edit mode) ---------------------------------------- */
 
 .uploadBox {
@@ -3391,6 +3391,13 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   user-select: none;
 }
 
+/* Fit has no overflow, so the grab affordance would be describing a gesture
+   that the pointer handler refuses to start. */
+.lightboxStage[data-preview-pannable='false'],
+.lightboxStage[data-preview-pannable='false']:active {
+  cursor: default;
+}
+
 .lightboxScaleFrame {
   display: flex;
   align-items: center;
@@ -3401,28 +3408,35 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 
 .lightboxImage {
   display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--dsw-radius-md);
   box-shadow: var(--dsw-elevation-prominent);
+  user-select: none;
 }
 
 .lightboxTools {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 /* Says out loud what the wheel does. A modifier nobody is told about is a
    feature nobody has: the reporter asked for exactly this hint. */
 .lightboxZoomHint {
-  margin-left: 4px;
+  flex: 1 0 100%;
+  margin-left: 0;
   font-size: 11px;
   line-height: 1.4;
+  text-align: center;
   color: color-mix(in srgb, var(--dsw-static-neutral-00) 72%, transparent);
-  white-space: nowrap;
 }
 
 .lightboxTool,
@@ -3462,6 +3476,11 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   background: var(--lightbox-surface-hover);
 }
 
+.lightboxTool:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .lightboxCaptionRow {
   display: flex;
   align-items: flex-start;
@@ -3476,9 +3495,17 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   line-height: 1.6;
   color: var(--lightbox-ink);
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  cursor: pointer;
+}
+
+.lightboxCaption[data-expanded] {
+  display: block;
+  -webkit-line-clamp: unset;
+  max-height: 24vh;
+  overflow: auto;
 }
 
 .lightboxCopy {
@@ -3500,6 +3527,10 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 }
 
 .lightboxIndex {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   font-size: 12px;
   /* Same rule as the rest of the lightbox chrome: this text sits on the dark
      mask, so a theme-following dim colour drops to ~2.8:1 against it in a light
@@ -3507,6 +3538,13 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
      because that token flips to near-black in a dark theme. */
   color: color-mix(in srgb, var(--dsw-static-neutral-00) 72%, transparent);
   font-variant-numeric: tabular-nums;
+}
+
+.lightboxSource {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
 }
 
 .lightboxActions {
@@ -3517,9 +3555,18 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 
 .lightboxDownload,
 .lightboxEdit {
+  /* The download control is an anchor. Without the button box model it stays
+     an inline shrink-to-text pill: min-height is ignored, and it sits shorter
+     and narrower than the sibling buttons. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 32px;
   padding: 4px 14px;
   font: inherit;
   font-size: 12px;
+  line-height: 1.2;
   font-weight: 500;
   color: var(--lightbox-ink);
   background: var(--lightbox-surface);
@@ -3539,6 +3586,178 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   background: var(--lightbox-surface);
   border: 1px solid var(--lightbox-edge);
   border-radius: 999px;
+}
+
+.lightboxEdit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The photo fills the overlay. Zoom, caption and actions float on it instead
+   of reserving a column under the picture. Scoped to the image preview so the
+   video player, which reuses .lightboxFigure, keeps its own size. */
+.lightbox[data-preview-overlay] {
+  --preview-rail-width: 168px;
+  flex-direction: column;
+  align-items: stretch;
+  padding: var(--dsh-frame-overlay-top, 0px) 0 0;
+}
+
+/* Order inside the lightbox only. The overlay is already its own stacking
+   context (--z-lightbox), so these rungs do not compete with the rest of the
+   studio; they just keep the close button and arrows above the photo. */
+.lightbox[data-preview-overlay] .lightboxClose,
+.lightbox[data-preview-overlay] .lightboxNav {
+  z-index: var(--z-hover);
+}
+
+.lightbox[data-preview-overlay] .lightboxNav[data-dir='prev'] {
+  left: 20px;
+}
+
+/* The action panel sits in the bottom-right corner, not down the right edge,
+   so the next arrow can use the same inset as the previous one. */
+.lightbox[data-preview-overlay] .lightboxNav[data-dir='next'] {
+  right: 20px;
+}
+
+.lightbox[data-preview-overlay] .lightboxFigure {
+  position: relative;
+  flex: 1 1 auto;
+  gap: 0;
+  width: auto;
+  max-width: none;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.lightbox[data-preview-overlay] .lightboxStage {
+  background: transparent;
+}
+
+.lightboxChrome {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: var(--z-content);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  width: max-content;
+  max-width: var(--preview-rail-width);
+  max-height: min(560px, calc(100% - 48px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border-radius: var(--dsw-radius-md);
+  background: color-mix(in srgb, var(--dsw-static-neutral-bluish-1000) 42%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.lightboxChrome .lightboxIndex {
+  flex-wrap: wrap;
+}
+
+.lightboxChrome .lightboxSource {
+  max-width: 100%;
+}
+
+.lightboxChrome .lightboxActions {
+  flex-direction: column;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 6px;
+}
+
+.lightboxChrome .lightboxEdit,
+.lightboxChrome .lightboxDownload {
+  align-self: stretch;
+  width: auto;
+  min-width: 0;
+  min-height: 32px;
+  text-align: center;
+}
+
+.lightboxChrome .lightboxStrip {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  max-height: 240px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Zoom and the prompt sit on the photo, not in the rail. Direct children of
+   the figure only, so the contrast fixture — whose toolbar lives inside the
+   stage — keeps the pills it measures. */
+.lightboxFigure > .lightboxTools {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  z-index: var(--z-content);
+  transform: translateX(-50%);
+  width: max-content;
+  /* Centered in the band left of the bottom-right action panel, so a long
+     zoom hint cannot run underneath those buttons. */
+  max-width: calc(100% - (var(--preview-rail-width) + 24px) * 2);
+  padding: 8px 12px 6px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--dsw-static-neutral-bluish-1000) 42%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.lightboxFigure > .lightboxTools .lightboxZoomHint {
+  white-space: nowrap;
+}
+
+.lightboxFigure > .lightboxCaptionRow {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  z-index: var(--z-content);
+  flex-direction: row;
+  align-items: center;
+  max-width: min(360px, calc(50% - 140px));
+  margin: 0;
+  padding: 6px 8px 6px 12px;
+  border-radius: var(--dsw-radius-md);
+  background: color-mix(in srgb, var(--dsw-static-neutral-bluish-1000) 42%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.lightboxStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+}
+
+.lightboxThumb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--lightbox-edge);
+  border-radius: 6px;
+  background: var(--lightbox-surface);
+  cursor: pointer;
+}
+
+.lightboxThumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.lightboxThumb[data-current],
+.lightboxThumb:hover {
+  border-color: var(--dsw-static-neutral-00);
 }
 
 @media (max-width: 720px) {
@@ -3568,6 +3787,28 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   .lightboxCopy,
   .lightboxActions {
     align-self: flex-end;
+  }
+
+  .lightbox[data-preview-overlay] {
+    --preview-rail-width: min(148px, 42vw);
+  }
+
+  .lightboxFigure > .lightboxCaptionRow {
+    right: calc(var(--preview-rail-width) + 24px);
+    bottom: 76px;
+    max-width: none;
+  }
+
+  .lightboxFigure > .lightboxTools {
+    left: 12px;
+    bottom: 12px;
+    transform: none;
+    width: max-content;
+    max-width: calc(100% - var(--preview-rail-width) - 28px);
+  }
+
+  .lightboxFigure > .lightboxTools .lightboxZoomHint {
+    white-space: normal;
   }
 
   /* No modifier key on a touch screen, and no room for the hint beside the zoom
@@ -3701,9 +3942,8 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 .galleryTagInput { flex: 1 1 190px; }
 .galleryTagInput:focus, .gallerySearch:focus { border-color: var(--dsw-alias-brand-primary); }
 .galleryViewToggle { display: flex; padding: 2px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-module-platform); }
-.galleryViewToggle button, .gallerySort, .galleryClear { min-height: 28px; padding: 0 10px; border: 0; border-radius: var(--dsw-radius-sm); color: var(--dsw-alias-label-secondary); background: transparent; cursor: pointer; font: inherit; font-size: 12px; }
-.galleryViewToggle button[data-active], .galleryViewToggle button:hover, .gallerySort:hover, .galleryClear:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
-.gallerySort { border: 0.5px solid var(--dsw-alias-border-l3); background: transparent; }
+.galleryViewToggle button, .galleryClear { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 0 10px; border: 0; border-radius: var(--dsw-radius-sm); color: var(--dsw-alias-label-secondary); background: transparent; cursor: pointer; font: inherit; font-size: 12px; line-height: 18px; }
+.galleryViewToggle button[data-active], .galleryViewToggle button:hover, .galleryClear:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .galleryClear { border: 0.5px solid var(--dsw-alias-border-l3); }
 .compareControl { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; }
 .compareToggle, .compareModelChoices label { display: flex; align-items: center; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; cursor: pointer; }
@@ -3934,7 +4174,10 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 
 .videoModes {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   padding: 3px;
   background: var(--dsw-alias-bg-layer-2);
   border: 1px solid var(--dsw-alias-border-l1);
@@ -3942,8 +4185,12 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 }
 
 .videoModeButton {
-  height: 28px;
-  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
+  min-height: 28px;
+  padding: 4px 12px;
   border: none;
   border-radius: var(--dsw-radius-sm);
   background: transparent;
@@ -3951,6 +4198,9 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  white-space: nowrap;
   cursor: pointer;
 }
 

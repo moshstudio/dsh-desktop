@@ -1,0 +1,57 @@
+/*
+ * The host SegmentedControl draws one sliding pill from equal column math
+ * (`--dsh-segment-count` / `--dsh-segment-index`) and keeps every label on one
+ * line. In a 320px form column that math and the text diverge: an inline-grid
+ * sizes to the labels, the last ones are clipped (小红书种草 / 得物干净感),
+ * and the pill no longer sits under the selected words.
+ *
+ * `.wrap` refolds long sets into equal cells that stay inside the parent and
+ * paints the selection on the button, so the highlight and the label are the
+ * same box. `.row` keeps a short set (文生图 / 继承) on one equal row and only
+ * centers the label inside the host pill.
+ */
+
+.wrap.wrap {
+  display: grid;
+  grid-auto-flow: row;
+  grid-auto-columns: auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8em), 1fr));
+  width: 100%;
+  max-width: 100%;
+}
+
+.wrap > span {
+  display: none;
+}
+
+.wrap > button,
+.row > button {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  width: auto;
+  height: auto;
+  min-height: 28px;
+  padding: 4px 8px;
+  white-space: normal;
+  text-align: center;
+  line-height: 18px;
+}
+
+.wrap > button[aria-selected='true'] {
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-elevation-soft);
+  color: var(--dsw-alias-label-primary);
+}
+
+.row.row {
+  display: grid;
+  grid-auto-flow: row;
+  grid-auto-columns: auto;
+  grid-template-columns: repeat(var(--dsh-segment-count), minmax(0, 1fr));
+  width: 100%;
+  max-width: 100%;
+}

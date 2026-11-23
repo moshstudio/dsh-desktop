@@ -1,6 +1,11 @@
 /** Theme-aware select shared by filters, forms and canvas controls.
  *  The trigger, filter field and rows are host primitives. The list is a Menu
- *  so placement, outside-click and Escape stay with the host. */
+ *  so placement, outside-click and Escape stay with the host.
+ *
+ *  `variant` is the only visual switch: `field` fills a form row, `compact`
+ *  sits beside a search box, `composer` is a parameter pill, `toolbar` is the
+ *  dense canvas chrome. Call sites pass `className` for layout (width in a
+ *  grid), not for a second coat of paint. */
 import { Children, Fragment, isValidElement, useId, useLayoutEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { Button, IconChevronDownOutlineRegular, Input, Menu, MenuItemButton, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './select.module.css'
@@ -124,7 +129,7 @@ export function Select({ value, options: suppliedOptions, children, variant = 'f
       id={triggerId}
       type="button"
       size={variant === 'field' ? 'md' : 'sm'}
-      variant={variant === 'composer' ? 'toolbar' : 'outline'}
+      variant="outline"
       className={`${css.trigger}${className ? ` ${className}` : ''}`}
       data-dsh-select=""
       data-variant={variant}

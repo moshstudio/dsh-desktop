@@ -62,7 +62,7 @@
    bottom-right corner, sat under the button once the list hit the end and
    could not be scrolled out from under it (#765). scroll-padding-bottom
    keeps keyboard focus from parking a control there too. */
-.body{flex:1;overflow-y:auto;padding:8px 4px 64px;scroll-padding-bottom:64px;overflow-x:hidden;overflow-anchor:none}
+.body{flex:1;overflow-y:auto;padding:12px 16px 64px;scroll-padding-bottom:64px;overflow-x:hidden;overflow-anchor:none}
 /* Sticky, so the search box and the category row both stay reachable while
    the grid scrolls — they used to stick separately (only .cats did), which
    left the search row to scroll away under .head's fixed title/tabs strip,
@@ -177,12 +177,8 @@
 .confirmTags{display:flex;flex-wrap:wrap;gap:6px}
 .confirmDesc{margin:0;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary,#1f2328);white-space:pre-wrap}
 .confirmFold{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--dsw-alias-border-l2,#e5e7eb);padding-top:12px}
-/* Gray block, like the design's fold rows. layer-1 is white on this dialog,
-   which is why a bordered panel read as an empty frame (#739). */
-.confirmPanel{--fold-bg:#f7f8fa;--fold-border:#e7e8ea;--fold-ink:#1c1d1f;--fold-on-ink:#fff;background:var(--fold-bg);border:1px solid var(--fold-border);border-radius:8px}
-/* The hex above is the light-theme design spec; dark takes the host tokens so
-   the block does not become a light island on a dark dialog. */
-:global(body[data-ds-dark-theme]) .confirmPanel{--fold-bg:var(--dsw-alias-bg-layer-3,#353638);--fold-border:var(--dsw-alias-border-l2,#ffffff1f);--fold-ink:var(--dsw-alias-label-primary,#f9fafb);--fold-on-ink:var(--dsw-alias-bg-layer-2,#2c2c2e)}
+/* Raised surface in both themes. layer-2 follows the host palette. */
+.confirmPanel{--fold-bg:var(--dsw-alias-bg-layer-2);--fold-border:var(--dsw-alias-border-l2);--fold-ink:var(--dsw-alias-label-primary);--fold-on-ink:var(--dsw-alias-bg-layer-1);background:var(--fold-bg);border:1px solid var(--fold-border);border-radius:8px}
 .confirmPanelRow{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;min-height:40px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .confirmPanelRow:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:-2px}
 .confirmPanelIcon{display:inline-flex;flex:none;color:var(--fold-ink)}
@@ -198,20 +194,20 @@
 .confirmCmd{display:flex;align-items:center;gap:8px}
 .confirmPanel .cmd{flex:1;min-width:0;margin:0;padding:0;background:transparent;border-radius:0;line-height:24px}
 .confirmCopied{flex:none;font-size:12px;line-height:24px;color:var(--dsw-alias-state-success-primary,#22c55e);white-space:nowrap}
-.confirmCopy{display:inline-flex;flex:none;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--fold-ink,#1c1d1f);cursor:pointer}
-.confirmCopy:hover{background:color-mix(in srgb, var(--fold-ink, #1c1d1f) 8%, transparent)}
+.confirmCopy{display:inline-flex;flex:none;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--fold-ink);cursor:pointer}
+.confirmCopy:hover{background:color-mix(in srgb, var(--fold-ink) 8%, transparent)}
 .confirmCopy:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px}
 .confirmPanel .caps{gap:6px;padding:0}
-.confirmPanel .caps .capChip{background:var(--fold-on-ink,#fff);border:1px solid var(--fold-border,#e7e8ea);border-radius:999px;padding:2px 8px;color:var(--fold-ink,#1c1d1f);font-size:12px;line-height:18px}
-.confirmPanel .caps .capChip.capChipUncommon{background:var(--fold-ink,#1c1d1f);border-color:var(--fold-ink,#1c1d1f);color:var(--fold-on-ink,#fff);font-weight:600}
+.confirmPanel .caps .capChip{background:var(--fold-on-ink);border:1px solid var(--fold-border);border-radius:999px;padding:2px 8px;color:var(--fold-ink);font-size:12px;line-height:18px}
+.confirmPanel .caps .capChip.capChipUncommon{background:var(--fold-ink);border-color:var(--fold-ink);color:var(--fold-on-ink);font-weight:600}
 .capGroups{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 12px;align-items:baseline}
 .capGroupLabel{font-size:12px;line-height:22px;color:var(--dsw-alias-label-secondary,#6b7280);white-space:nowrap}
-.confirmPanel .caps .capMuted{border-color:var(--fold-border,#e7e8ea);color:var(--dsw-alias-label-secondary,#6b7280);font-size:12px;line-height:18px;padding:2px 8px}
+.confirmPanel .caps .capMuted{border-color:var(--fold-border);color:var(--dsw-alias-label-secondary,#6b7280);font-size:12px;line-height:18px;padding:2px 8px}
 .capAhead{display:flex;flex-direction:column;gap:6px}
 .capAheadLabel{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#6b7280)}
 .capAheadRow{display:flex;align-items:flex-start;gap:8px;margin:0;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary,#1f2328)}
 .capAheadIcon{flex:none;margin-top:2px;color:var(--dsw-alias-label-primary,#1f2328)}
-.confirmPanel .caps .capAddress{flex-basis:100%;margin:0 0 2px;font-size:13px;line-height:20px;color:var(--fold-ink,#1c1d1f)}
+.confirmPanel .caps .capAddress{flex-basis:100%;margin:0 0 2px;font-size:13px;line-height:20px;color:var(--fold-ink)}
 .capNote{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#6b7280)}
 .confirmPanel .capCaveat{margin:0;color:var(--dsw-alias-label-secondary,#6b7280);font-size:12px;line-height:18px}
 .installCaution{background:color-mix(in srgb, var(--dsw-alias-state-warn-primary, #b45309) 12%, transparent);border-radius:8px;padding:12px 13px}
@@ -270,11 +266,11 @@
    destroys the ranking the sort just produced. Dealing the cards
    alternately into two flex columns keeps rank reading left-to-right,
    top-to-bottom, and lets each column close its own gaps. */
-.masonry{display:flex;align-items:flex-start;gap:10px}
-.masonryCol{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.masonry{display:flex;align-items:flex-start;gap:16px}
+.masonryCol{flex:1;min-width:0;display:flex;flex-direction:column;gap:16px}
 /* Installed density: looser than Discover cards. */
-.masonryInstalled{gap:14px}
-.masonryInstalled .masonryCol{gap:14px}
+.masonryInstalled{gap:16px}
+.masonryInstalled .masonryCol{gap:16px}
 /* `.card` carries `align-self:start`, which under CSS grid means "do not
    stretch VERTICALLY to match a taller row-mate". In a flex COLUMN the same
    declaration addresses the other axis: it stops the card stretching
@@ -481,7 +477,7 @@
    market covers the window itself. */
 [data-taichi-dshmarket-plugins-tab="true"][data-taichi-dshmarket-fullscreen="true"]{position:fixed;inset:0;z-index:60;height:100vh!important;background:var(--dsw-alias-bg-layer-1,#fff)}
 @media (prefers-reduced-motion:reduce){
-  .themeCard,.themeCover img{transition:none}
+  .themeCard,.themeCover img,.card,.recentTile{transition:none}
   .themeCard:hover{transform:none}
 }
 /* align-self:start so a short card doesn't stretch to match a tall
@@ -491,7 +487,7 @@
    footer, reading as a layout bug rather than "this one's row-mate had a
    longer description". Un-stretched, any leftover row height sits outside
    the card as ordinary grid gutter instead. */
-.card{background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l4,#00000029));border-radius:var(--dsw-radius-xl,20px);padding:12px 14px;display:flex;flex-direction:column;gap:10px;align-self:start;min-width:0;transition:background-image 160ms cubic-bezier(.16,1,.3,1)}
+.card{background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l4,#00000029));border-radius:var(--dsw-radius-xl,20px);padding:16px 18px;display:flex;flex-direction:column;gap:10px;align-self:start;min-width:0;transition:background-image 160ms cubic-bezier(.16,1,.3,1)}
 /* Card / recent-tile hover: wash only. Install stays outline until the
    pointer is on the button — black fill means "this is what you press".
    Fenced to `@media (hover: hover)` so a tap cannot latch the wash. */
@@ -500,7 +496,11 @@
   .installBtn:hover:not(:disabled){border-color:transparent;background:var(--dsw-alias-button-primary-fill,#0f1115);color:var(--dsw-alias-label-primary-foreground,#fff)}
 }
 .row1{display:flex;align-items:flex-start;gap:10px;min-width:0}
-.cardAction{flex-shrink:0;display:inline-flex;align-items:center}
+.cardIdentity{min-width:0;flex:1}
+.cardChip{align-self:flex-start;max-width:100%}
+.card .nm{font-size:16px;line-height:24px}
+.card .desc{font-size:13px;line-height:20px}
+.cardAction{flex-shrink:0;display:inline-flex;align-items:center;gap:8px}
 .installBtn.installBtn{min-width:64px}
 /* The avatar letter sits on `bg-layer-2`, which is white in the light theme:
    a hardcoded white was invisible there. Ink on a surface is `label-primary`. */
@@ -556,6 +556,7 @@
    for a one-line description now just wastes the space it was buying. */
 .descClamp{display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 .descClamp3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.descClamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .descToggle{display:flex;align-items:center;justify-content:center;width:20px;height:16px;margin-top:2px;
             color:var(--dsw-alias-label-tertiary,#8b93a1);background:none;border:none;padding:0;cursor:pointer}
 .descToggle:hover{color:var(--dsw-alias-brand-primary,#4f6ef7)}
@@ -666,7 +667,7 @@
    say "working". There the block keeps its drawn position (the rect's own
    transform attribute, which a running animation outranks) and breathes. */
 @media (prefers-reduced-motion: reduce){
-  .logoCell,.logoPlugAmbient{animation:none}
+  .logoCell,.logoPlugAmbient,.barWave{animation:none}
   .logoPlug{animation:dshmPlugFade 1.5s ease-in-out infinite}
   .spin{animation:dshmPlugFade 1.5s ease-in-out infinite}
 }
@@ -986,6 +987,11 @@
 .irow>.src,.irow>.owner{white-space:nowrap;flex-shrink:0}
 .irow button{white-space:nowrap;flex-shrink:0}
 .tabSearchRow{display:flex;align-items:center;gap:8px;padding:0 4px 10px}
+/* Discover stacks search, then categories, then the list. The extra space
+   belongs to that stack only — Installed uses the same search row without
+   a category line under it. */
+.stickyHead .tabSearchRow{padding-bottom:16px}
+.stickyHead .cats{margin-bottom:16px}
 .tabSearch{flex:1;min-width:0}
 .groupBulkActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 4px 10px}
 /* Capability disclosure (#401). Quiet by design: these are facts beside the
@@ -1403,12 +1409,6 @@
 .updateChecksInterval { display: inline-flex; align-items: center; gap: 8px; }
 .updateChecksInterval select { color: inherit; background: var(--dsw-alias-bg-layer-1, #fff); border: 1px solid var(--dsw-alias-border-l2, #e5e7eb); border-radius: 6px; padding: 4px 8px; font: inherit; }
 
-.sponsorMark{flex:none;flex-wrap:wrap;justify-content:flex-end;max-width:100%;display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary,#8b93a1)}
-.sponsorItem{display:inline-flex;align-items:center;gap:4px;color:inherit;text-decoration:none}
-.sponsorItem:hover{color:var(--dsw-alias-brand-primary,#4f6ef7)}
-.sponsorLogo{display:block;height:14px;width:auto;max-width:56px;border-radius:3px;background:#fff;object-fit:contain}
-.sponsorSlot{display:flex;justify-content:flex-end;align-items:center;align-self:center;flex:1 0 auto;max-width:100%;padding-right:4px}
-
 /* Compact header: ··· after the tabs, update actions on Installed. */
 .headMore{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;height:28px;min-width:28px;padding:0 6px;
           border:none;border-radius:8px;background:none;font:inherit;font-size:14px;letter-spacing:1px;cursor:pointer;
@@ -1428,12 +1428,10 @@
    panel hangs from its own button instead of the row's right edge. */
 .tabs .opWrap{position:relative}
 .tabs .opPanel{left:0;right:auto;max-width:min(460px,calc(100cqw - 24px))}
-/* The right side of the row is the sponsors' alone, so the logos can be read. */
-[data-taichi-dshmarket-plugins-tab="true"] .sponsorMark{gap:10px}
-[data-taichi-dshmarket-plugins-tab="true"] .sponsorLogo{height:24px;max-width:80px;border-radius:4px}
 .hostFilterNoteRow{display:flex;align-items:center;gap:4px}
 .hostFilterNoteRow .bannerClose{width:20px;height:20px;margin:0}
 .cardStats{display:flex;align-items:center;gap:4px;min-width:0;margin-top:2px;flex-wrap:wrap}
+.byline .cardStats{display:contents}
 .nmRow{display:flex;align-items:center;min-width:0}
 .nmButton{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;border:none;background:none;
           font:inherit;color:inherit;text-align:left;cursor:pointer}
@@ -1484,11 +1482,7 @@
 .aiLabel{font-weight:500}
 .searchField[data-ai] .searchInput.searchInput{padding-right:150px}
 .searchField[data-ai] .searchClear{right:128px}
-.fpOverlay{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.32);pointer-events:auto}
-.fpDialog{width:min(760px,100%);max-height:calc(100vh - 48px);overflow:auto;display:flex;flex-direction:column;gap:10px;padding:16px 18px 18px;border-radius:14px;background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 12px 40px rgba(0,0,0,.2);color:var(--dsw-alias-label-primary,#1f2328);font-size:13px}
-.fpDialogHead{display:flex;align-items:center;justify-content:space-between;color:var(--dsw-alias-label-tertiary,#8b93a1);font-size:12px}
-.fpClose{border:0;background:none;font:inherit;font-size:20px;line-height:1;cursor:pointer;color:var(--dsw-alias-label-tertiary,#8b93a1);padding:2px 6px;border-radius:6px}
-.fpClose:hover{background:var(--dsw-alias-interactive-bg-hover,#2631480f);color:var(--dsw-alias-label-primary,#1f2328)}
+.fpModal{width:min(760px,92vw);max-width:min(760px,92vw)}
 .fpConsent{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#8b93a1)}
 .fpConsent [data-tone="error"]{color:var(--dsw-alias-state-error-primary,#d92d20)}
 .fpLink{margin:0;padding:0;border:0;background:none;font:inherit;color:var(--dsw-alias-state-business-primary,#4f6ef7);cursor:pointer}

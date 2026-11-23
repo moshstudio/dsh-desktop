@@ -1,5 +1,5 @@
 /**
- * Small card building blocks: hover tips, favorite/bookmark controls, download and star counts, install-confirm folds, sponsor mark and capability grouping.
+ * Small card building blocks: hover tips, favorite/bookmark controls, download and star counts, install-confirm folds and capability grouping.
  */
 
 import { type ReactElement, type ReactNode, type Ref, useEffect, useRef, useState } from 'react'
@@ -14,8 +14,6 @@ import {
   IconCodeOutline16,
   IconCopyOutline16,
 } from './icons.ts'
-import { SPONSORS } from './sponsors.generated.ts'
-
 /**
  * Sweeping cards or the recent strip must not flash tips. Same dwell as
  * the recent-tile name/blurb tips.
@@ -446,47 +444,26 @@ export function CatalogVersionMark({ version, tip, dot = true }: { version: stri
 }
 
 /**
- * Sponsors sit in the tab row, logos only (the name is in the tooltip). Every
- * active sponsor is shown, in sponsors.json order: that order is the ranking.
- */
-export function SponsorMark({ lang, t }: { lang: 'zh' | 'en'; t: Translate }) {
-  const today = new Date().toISOString().slice(0, 10)
-  const list = SPONSORS.filter(sponsor => sponsor.until === null || sponsor.until >= today)
-  if (list.length === 0) return null
-  return (
-    <span className={css.sponsorMark}>
-      <span className={css.sponsorLabel}>{t('sponsorsLabel')}</span>
-      {list.map(sponsor => (
-        <a
-          key={sponsor.id}
-          className={css.sponsorItem}
-          href={sponsor.url}
-          target="_blank"
-          rel="noreferrer sponsored"
-          title={`${sponsor.name[lang]} · ${sponsor.scope[lang]}`}
-        >
-          <img className={css.sponsorLogo} src={sponsor.logo} alt={sponsor.name[lang]} height={14} />
-        </a>
-      ))}
-    </span>
-  )
-}
-
-/**
  * A card's numbers on their own line, under the author: version, downloads,
  * stars. The dots sit only BETWEEN items that are present, so the line never
  * starts with one — which is what a single wrapping line used to do.
  */
-export function CardStats({ plugin, t, versionTip }: { plugin: RegistryPlugin; t: Translate; versionTip: string }) {
+export function CardStats({ plugin, t, versionTip, lead = false }: {
+  plugin: RegistryPlugin
+  t: Translate
+  versionTip: string
+  /** Leading dot on the first figure, for a line that already starts with the author. */
+  lead?: boolean
+}) {
   const hasVersion = typeof plugin.version === 'string' && plugin.version.length > 0
   const hasDownloads = downloadStatsText(plugin, t) !== null && downloadStatistic(plugin) !== null
   const hasStars = starStatsText(plugin, t) !== null
   if (!hasVersion && !hasDownloads && !hasStars) return null
   return (
     <div className={css.cardStats}>
-      <CatalogVersionMark version={plugin.version} tip={versionTip} dot={false} />
-      <DownloadCount plugin={plugin} t={t} dot={hasVersion} />
-      <StarCount plugin={plugin} t={t} dot={hasVersion || hasDownloads} />
+      <CatalogVersionMark version={plugin.version} tip={versionTip} dot={lead} />
+      <DownloadCount plugin={plugin} t={t} dot={lead || hasVersion} />
+      <StarCount plugin={plugin} t={t} dot={lead || hasVersion || hasDownloads} />
     </div>
   )
 }

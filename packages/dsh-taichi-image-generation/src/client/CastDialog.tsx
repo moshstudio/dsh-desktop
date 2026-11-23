@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react'
+import { Select } from './Select.tsx'
 import css from './cast-dialog.module.css'
 import { castPromptKey, ROLE_LABELS, ROLE_ORDER, type CastMember } from './cast.ts'
 import { tt } from './helpers.ts'
@@ -48,13 +49,12 @@ export function CastDialog(props: CastDialogProps): React.JSX.Element {
     <div className={css.body}>
       <label className={css.field}>
         <span>{tt('canvas.cast.role')}</span>
-        <select
+        <Select
           aria-label={tt('canvas.cast.role')}
           value={role}
-          onChange={event => { setRole(event.target.value as CanvasCastRole) }}
-        >
-          {ROLE_ORDER.map(item => <option key={item} value={item}>{tt(ROLE_LABELS[item])}</option>)}
-        </select>
+          options={ROLE_ORDER.map(item => ({ value: item, label: tt(ROLE_LABELS[item]) }))}
+          onChange={value => { setRole(value as CanvasCastRole) }}
+        />
       </label>
       <label className={css.field}>
         <span>{tt('canvas.cast.name')}</span>

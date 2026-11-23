@@ -54,6 +54,7 @@ import { ConversationSessionPicker } from './ConversationSessionPicker.tsx'
 import { ListingCopyCard } from './ListingCopyCard.tsx'
 import { ErrorDetail } from './ErrorDetail.tsx'
 import css from './panel.module.css'
+import segmented from './segmented.module.css'
 
 /** Size options, presented as aspect ratios (auto = let the model decide).
  *  The host maps each ratio onto the model's own vocabulary: aspect_ratio for
@@ -197,9 +198,12 @@ const REF_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 // copy before it enters the native composer and durable edit staging route.
 const CONVERSATION_IMAGE_MAX_DIMENSION = 2000
 const CONVERSATION_IMAGE_JPEG_QUALITY = 0.9
-const PREVIEW_SCALE_MIN = 0.5
-const PREVIEW_SCALE_MAX = 3
-const PREVIEW_SCALE_STEP = 0.25
+const PREVIEW_SCALE_MIN = 1
+const PREVIEW_SCALE_MAX = 8
+/** Button and keyboard zoom. Multiplied so the step stays useful up at 8×. */
+const PREVIEW_ZOOM_FACTOR = 1.25
+/** Double-click toggles between fit and this scale. */
+const PREVIEW_ZOOM_DOUBLE = 2
 /** Pointer travel below this stays a click. Issue #31 wanted drag-to-pan; a
  *  hand that moves one pixel while clicking must not pan instead. */
 const PREVIEW_DRAG_THRESHOLD = 3
@@ -268,6 +272,25 @@ function normalizeQuality(value: string): string {
 
 function clampPreviewScale(scale: number): number {
   return Math.min(PREVIEW_SCALE_MAX, Math.max(PREVIEW_SCALE_MIN, scale))
+}
+
+/** Wheel deltas are pixels, lines, or pages depending on the device. */
+function previewWheelPixels(delta: number, deltaMode: number): number {
+  if (deltaMode === 1) return delta * 16
+  if (deltaMode === 2) return delta * 100
+  return delta
+}
+
+/**
+ * Scale that keeps the point under the cursor fixed.
+ *
+ * The frame grows from its top-left, so a content point at `scroll + cursor`
+ * moves by `to / from`. Fit (scale 1) has nothing to scroll.
+ */
+function previewZoomScroll(scroll: number, cursor: number, from: number, to: number): number {
+  if (from <= 0 || to === from) return Math.max(0, scroll)
+  if (to <= 1) return 0
+  return Math.max(0, (scroll + cursor) * (to / from) - cursor)
 }
 
 /** Keep the image canvas preference across panel remounts without making it
@@ -1445,6 +1468,7 @@ export function ImageGenPanel(props: {
   const [galleryClip, setGalleryClip] = useState<HistoryEntry | null>(null)
   const [previewScale, setPreviewScale] = useState(1)
   const [promptCopied, setPromptCopied] = useState(false)
+  const [captionExpanded, setCaptionExpanded] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [tasks, setTasks] = useState<GenerationTask[]>([])
   // Video queue summaries, polled here so both the video tab and the canvas see
@@ -1620,6 +1644,14 @@ export function ImageGenPanel(props: {
   const previewStage = useRef<HTMLDivElement>(null)
   // Set by the pan gesture, consumed by the click that immediately follows it.
   const previewDraggedRef = useRef(false)
+  /**
+   * Scroll position that belongs to `scale`. Wheel events update this before
+   * React paints, so a burst of notches zooms toward the cursor instead of
+   * each one reading a scroll position the browser has not caught up to.
+   * `committedScale` is the scale last written to the DOM.
+   */
+  const previewViewRef = useRef({ scale: 1, scrollLeft: 0, scrollTop: 0 })
+  const previewCommittedScaleRef = useRef(1)
   // The three overlays that claim `role="dialog"`; see useDialogFocus.
   const previewDialogRef = useRef<HTMLDivElement>(null)
   const comparisonFullscreenRef = useRef<HTMLDivElement>(null)
@@ -2544,10 +2576,17 @@ export function ImageGenPanel(props: {
     URL.revokeObjectURL(url)
   }
 
+  const resetPreviewViewport = (): void => {
+    previewViewRef.current = { scale: 1, scrollLeft: 0, scrollTop: 0 }
+    previewCommittedScaleRef.current = 1
+  }
+
   const openPreview = (previewImages: GeneratedImage[], index: number, source?: GalleryImageSource): void => {
+    resetPreviewViewport()
     setPreview({ images: previewImages, index, ...(source === undefined ? {} : { source }) })
     setPreviewScale(1)
     setPromptCopied(false)
+    setCaptionExpanded(false)
   }
 
   /**
@@ -2562,15 +2601,19 @@ export function ImageGenPanel(props: {
   }, [])
 
   const closePreview = (): void => {
+    resetPreviewViewport()
     setPreview(null)
     setPreviewScale(1)
     setPromptCopied(false)
+    setCaptionExpanded(false)
   }
 
-  /** Step the preview by ±1, wrapping around. */
+  /** Step the preview by ±1, wrapping around. Each slide opens at fit. */
   const stepPreview = (delta: number): void => {
+    resetPreviewViewport()
     setPreviewScale(1)
     setPromptCopied(false)
+    setCaptionExpanded(false)
     setPreview(current => {
       if (current === null) return null
       const total = current.images.length
@@ -2578,19 +2621,74 @@ export function ImageGenPanel(props: {
     })
   }
 
-  // Keyboard navigation for the preview overlay.
+  const showPreviewAt = (index: number): void => {
+    resetPreviewViewport()
+    setPreviewScale(1)
+    setPromptCopied(false)
+    setCaptionExpanded(false)
+    setPreview(current => (current === null ? null : { ...current, index }))
+  }
+
+  /**
+   * Zoom toward `point` (stage-local). `null` uses the centre of the stage.
+   * Fit is the floor: shrinking past it only added empty margin around a
+   * picture that was already fully on screen.
+   */
+  const zoomPreview = (nextScale: number, point: { x: number; y: number } | null): void => {
+    const stage = previewStage.current
+    const view = previewViewRef.current
+    if (stage !== null && view.scale === previewCommittedScaleRef.current) {
+      view.scrollLeft = stage.scrollLeft
+      view.scrollTop = stage.scrollTop
+    }
+    const from = view.scale
+    const next = clampPreviewScale(nextScale)
+    const cursorX = point?.x ?? (stage?.clientWidth ?? 0) / 2
+    const cursorY = point?.y ?? (stage?.clientHeight ?? 0) / 2
+    view.scrollLeft = previewZoomScroll(view.scrollLeft, cursorX, from, next)
+    view.scrollTop = previewZoomScroll(view.scrollTop, cursorY, from, next)
+    view.scale = next
+    setPreviewScale(next)
+  }
+  const closePreviewRef = useRef(closePreview)
+  const stepPreviewRef = useRef(stepPreview)
+  const zoomPreviewRef = useRef(zoomPreview)
+  closePreviewRef.current = closePreview
+  stepPreviewRef.current = stepPreview
+  zoomPreviewRef.current = zoomPreview
+
+  // Keyboard navigation for the preview overlay. Capture phase, same as the
+  // comparison board and the clip player: the canvas underneath also listens
+  // for Escape and would clear its selection while this dialog is still open.
   useEffect(() => {
     if (preview === null) return
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') closePreview()
-      else if (event.key === 'ArrowLeft') stepPreview(-1)
-      else if (event.key === 'ArrowRight') stepPreview(1)
-      else if (event.key === '+' || event.key === '=') setPreviewScale(current => clampPreviewScale(current + PREVIEW_SCALE_STEP))
-      else if (event.key === '-') setPreviewScale(current => clampPreviewScale(current - PREVIEW_SCALE_STEP))
-      else if (event.key === '0') setPreviewScale(1)
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        closePreviewRef.current()
+        return
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        stepPreviewRef.current(-1)
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        stepPreviewRef.current(1)
+      } else if (event.key === '+' || event.key === '=') {
+        event.preventDefault()
+        zoomPreviewRef.current(previewViewRef.current.scale * PREVIEW_ZOOM_FACTOR, null)
+      } else if (event.key === '-') {
+        event.preventDefault()
+        zoomPreviewRef.current(previewViewRef.current.scale / PREVIEW_ZOOM_FACTOR, null)
+      } else if (event.key === '0') {
+        event.preventDefault()
+        zoomPreviewRef.current(1, null)
+      }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [preview])
 
   // Esc dismisses the full-screen comparison board. Registered in the capture
@@ -2621,21 +2719,37 @@ export function ImageGenPanel(props: {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [galleryClip])
 
-  // A scaled image owns real scrollable space, rather than being visually
-  // transformed and clipped. Recenter the viewport after every zoom or slide.
-  useEffect(() => {
+  // Apply the scroll that zoomPreview computed. Doing it here, after the frame
+  // has the new size, is what keeps the point under the cursor still. Recentering
+  // on every scale change is what made a zoom into a corner jump back to the middle.
+  useLayoutEffect(() => {
     if (preview === null) return
-    const frame = window.requestAnimationFrame(() => {
-      const stage = previewStage.current
-      if (stage === null) return
-      stage.scrollLeft = Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2)
-      stage.scrollTop = Math.max(0, (stage.scrollHeight - stage.clientHeight) / 2)
-    })
-    return () => window.cancelAnimationFrame(frame)
+    const stage = previewStage.current
+    if (stage === null) return
+    const view = previewViewRef.current
+    stage.scrollLeft = view.scrollLeft
+    stage.scrollTop = view.scrollTop
+    previewCommittedScaleRef.current = previewScale
   }, [preview, previewScale])
 
-  // Wheel over the preview. A plain notch scrolls the stage and nothing else; a
-  // Ctrl/⌘ notch zooms.
+  // The grab cursor is a lie at fit: nothing overflows, so a press cannot pan.
+  useEffect(() => {
+    if (preview === null) return
+    const stage = previewStage.current
+    if (stage === null) return
+    const mark = (): void => {
+      const canPan = stage.scrollWidth > stage.clientWidth + 1 || stage.scrollHeight > stage.clientHeight + 1
+      if (canPan) delete stage.dataset.previewPannable
+      else stage.dataset.previewPannable = 'false'
+    }
+    mark()
+    if (typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(mark)
+    observer.observe(stage)
+    return () => { observer.disconnect() }
+  }, [preview, previewScale])
+
+  // Wheel over the preview. A plain notch zooms toward the cursor; Ctrl/⌘ pans.
   //
   // It has to be a NATIVE listener: React 18 attaches `wheel` at the root as a
   // PASSIVE listener, so the old `onWheel={e => { e.preventDefault(); … }}`
@@ -2648,17 +2762,36 @@ export function ImageGenPanel(props: {
   // it, and closing the preview unmounts the node this listener is bound to.
   // Both modifiers are checked — the reporter is on Windows (Ctrl), the plugin
   // ships to macOS (⌘) — so neither platform keeps the double behaviour.
+  //
+  // Plain wheel cannot be left to the browser. The dialog listener below cancels
+  // the default so the workbench behind the overlay stays put, and that cancel
+  // also cancels the stage's own scroll. Panning is therefore written by hand.
   useEffect(() => {
     if (preview === null) return
     const stage = previewStage.current
     if (stage === null) return
     const onWheel = (event: WheelEvent): void => {
-      // Plain wheel: let the browser scroll. Touching the scale here would also
-      // fire the recentering effect above and snap the user back to the middle
-      // of a tall image on every notch.
-      if (!event.ctrlKey && !event.metaKey) return
       event.preventDefault()
-      setPreviewScale(current => clampPreviewScale(current + (event.deltaY < 0 ? PREVIEW_SCALE_STEP : -PREVIEW_SCALE_STEP)))
+      if (event.ctrlKey || event.metaKey) {
+        if (stage.scrollWidth <= stage.clientWidth && stage.scrollHeight <= stage.clientHeight) return
+        const pixelsX = previewWheelPixels(event.deltaX, event.deltaMode)
+        const pixelsY = previewWheelPixels(event.deltaY, event.deltaMode)
+        if (event.shiftKey && pixelsX === 0) stage.scrollLeft += pixelsY
+        else {
+          stage.scrollLeft += pixelsX
+          stage.scrollTop += pixelsY
+        }
+        previewViewRef.current.scrollLeft = stage.scrollLeft
+        previewViewRef.current.scrollTop = stage.scrollTop
+        return
+      }
+      const rect = stage.getBoundingClientRect()
+      const pixels = previewWheelPixels(event.deltaY, event.deltaMode)
+      const factor = Math.pow(2, -pixels / 280)
+      zoomPreviewRef.current(previewViewRef.current.scale * factor, {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      })
     }
     stage.addEventListener('wheel', onWheel, { passive: false })
     // The stage contains its own scroll chain, but the overlay around it —
@@ -2670,7 +2803,27 @@ export function ImageGenPanel(props: {
     // would also swallow wheel events everywhere else while the preview is open
     // if the host ever renders something above it.
     const dialog = previewDialogRef.current
-    const containWheel = (event: WheelEvent): void => { event.preventDefault() }
+    const containWheel = (event: WheelEvent): void => {
+      event.preventDefault()
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (stage.contains(target)) return
+      const boundary = target.closest('[data-preview-chrome]')
+      if (boundary === null) return
+      let node: Element | null = target
+      while (node !== null) {
+        const style = getComputedStyle(node)
+        const scrollsY = (style.overflowY === 'auto' || style.overflowY === 'scroll') && node.scrollHeight > node.clientHeight + 1
+        const scrollsX = (style.overflowX === 'auto' || style.overflowX === 'scroll') && node.scrollWidth > node.clientWidth + 1
+        if (scrollsY || scrollsX) {
+          if (scrollsY) node.scrollTop += previewWheelPixels(event.deltaY, event.deltaMode)
+          if (scrollsX) node.scrollLeft += previewWheelPixels(event.deltaX, event.deltaMode)
+          return
+        }
+        if (node === boundary) return
+        node = node.parentElement
+      }
+    }
     dialog?.addEventListener('wheel', containWheel, { passive: false })
     return () => {
       stage.removeEventListener('wheel', onWheel)
@@ -2736,6 +2889,8 @@ export function ImageGenPanel(props: {
       pointerId = null
       delete stage.dataset.dragging
       if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId)
+      previewViewRef.current.scrollLeft = stage.scrollLeft
+      previewViewRef.current.scrollTop = stage.scrollTop
       previewDraggedRef.current = moved
     }
     // Capture phase on the DIALOG, not on the stage: pointer capture retargets
@@ -3408,8 +3563,15 @@ export function ImageGenPanel(props: {
     : `replica-preview:${preview.index}`
   const comparisonTasks = comparison === null ? [] : comparison.taskIds.map(id => tasks.find(task => task.id === id)).filter((task): task is GenerationTask => task !== undefined)
   const comparisonResults = comparisonTasks.filter(task => task.status === 'completed' && task.result !== undefined)
-  const previewFrameScale = Math.max(1, previewScale)
-  const previewImageScale = previewScale / previewFrameScale
+  const previewCaption = previewImage === null
+    ? null
+    : previewImage.revisedPrompt !== undefined
+      ? { text: previewImage.revisedPrompt, label: tt('revisedPrompt', { prompt: previewImage.revisedPrompt }) }
+      : preview?.source?.prompt !== undefined && preview.source.prompt.trim() !== ''
+        ? { text: preview.source.prompt, label: preview.source.prompt }
+        : null
+  const previewSourceMeta = [preview?.source?.model, preview?.source?.size]
+    .filter((part): part is string => part !== undefined && part.trim() !== '')
 
   useDialogFocus(preview !== null && previewImage !== null, previewDialogRef)
   useDialogFocus(comparisonFullscreen && comparison !== null, comparisonFullscreenRef)
@@ -4017,7 +4179,7 @@ export function ImageGenPanel(props: {
                   id="dsh-taichi-imagegen-mode"
                   value={tab as (typeof MODE_TABS)[number]}
                   label={tt('panel.title')}
-                  className={css.modeTabs}
+                  className={segmented.row}
                   options={MODE_TABS.map(item => ({
                     value: item,
                     label: tt(item === 'text' ? 'mode.text' : item === 'edit' ? 'mode.edit' : 'mode.video'),
@@ -5298,38 +5460,57 @@ export function ImageGenPanel(props: {
               >
                 <div
                   className={css.lightboxScaleFrame}
-                  style={{ width: `${previewFrameScale * 100}%`, height: `${previewFrameScale * 100}%` }}
+                  style={{ width: `${previewScale * 100}%`, height: `${previewScale * 100}%` }}
                 >
                   <img
                     className={css.lightboxImage}
-                    style={{ width: `${previewImageScale * 100}%`, height: `${previewImageScale * 100}%` }}
                     src={srcOf(previewImage)}
-                    alt={previewImage.revisedPrompt ?? tt('preview.title')}
+                    alt={previewCaption?.text ?? tt('preview.title')}
                     /* Drag-to-pan is a pointer gesture; the browser's own
                        image drag would start on the same press and cancel it. */
                     draggable={false}
                     onDragStart={event => event.preventDefault()}
+                    onDoubleClick={(event) => {
+                      const stage = previewStage.current
+                      if (stage === null) return
+                      const rect = stage.getBoundingClientRect()
+                      const next = previewViewRef.current.scale > 1 ? 1 : PREVIEW_ZOOM_DOUBLE
+                      zoomPreview(next, { x: event.clientX - rect.left, y: event.clientY - rect.top })
+                    }}
                   />
                 </div>
               </div>
               <div className={css.lightboxTools} role="group" aria-label={tt('preview.zoomControls')}>
-                <button type="button" className={css.lightboxTool} aria-label={tt('preview.zoomOut')} title={tt('preview.zoomOut')} onClick={() => { setPreviewScale(current => clampPreviewScale(current - PREVIEW_SCALE_STEP)) }}>
+                <button type="button" className={css.lightboxTool} aria-label={tt('preview.zoomOut')} title={tt('preview.zoomOut')} disabled={previewScale <= PREVIEW_SCALE_MIN} onClick={() => { zoomPreview(previewViewRef.current.scale / PREVIEW_ZOOM_FACTOR, null) }}>
                   <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="M4.8 7h4.4M13 13l-2.8-2.8"/></svg>
                 </button>
-                <button type="button" className={css.lightboxZoomLevel} aria-label={tt('preview.zoomReset')} title={tt('preview.zoomReset')} onClick={() => { setPreviewScale(1) }}>
+                <button type="button" className={css.lightboxZoomLevel} aria-label={tt('preview.zoomReset')} title={tt('preview.zoomReset')} onClick={() => { zoomPreview(1, null) }}>
                   {tt('preview.zoomLevel', { percent: Math.round(previewScale * 100) })}
                 </button>
-                <button type="button" className={css.lightboxTool} aria-label={tt('preview.zoomIn')} title={tt('preview.zoomIn')} onClick={() => { setPreviewScale(current => clampPreviewScale(current + PREVIEW_SCALE_STEP)) }}>
+                <button type="button" className={css.lightboxTool} aria-label={tt('preview.zoomIn')} title={tt('preview.zoomIn')} disabled={previewScale >= PREVIEW_SCALE_MAX} onClick={() => { zoomPreview(previewViewRef.current.scale * PREVIEW_ZOOM_FACTOR, null) }}>
                   <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="M7 4.8v4.4M4.8 7h4.4M13 13l-2.8-2.8"/></svg>
                 </button>
                 <span className={css.lightboxZoomHint} data-preview-zoom-hint="">{tt('preview.wheelHint')}</span>
               </div>
-              {previewImage.revisedPrompt !== undefined ? (
+              {previewCaption !== null ? (
                 <div className={css.lightboxCaptionRow}>
-                  <figcaption className={css.lightboxCaption} title={previewImage.revisedPrompt}>
-                    {tt('revisedPrompt', { prompt: previewImage.revisedPrompt })}
+                  <figcaption
+                    className={css.lightboxCaption}
+                    title={previewCaption.text}
+                    data-expanded={captionExpanded ? '' : undefined}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={captionExpanded}
+                    onClick={() => { setCaptionExpanded(current => !current) }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return
+                      event.preventDefault()
+                      setCaptionExpanded(current => !current)
+                    }}
+                  >
+                    {previewCaption.label}
                   </figcaption>
-                  <button type="button" className={css.lightboxCopy} aria-label={tt(promptCopied ? 'preview.copied' : 'preview.copyPrompt')} title={tt(promptCopied ? 'preview.copied' : 'preview.copyPrompt')} onClick={() => { void copyPreviewPrompt(previewImage.revisedPrompt!) }}>
+                  <button type="button" className={css.lightboxCopy} aria-label={tt(promptCopied ? 'preview.copied' : 'preview.copyPrompt')} title={tt(promptCopied ? 'preview.copied' : 'preview.copyPrompt')} onClick={() => { void copyPreviewPrompt(previewCaption.text) }}>
                     {promptCopied ? (
                       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8l3 3 7-7"/></svg>
                     ) : (
@@ -5339,13 +5520,47 @@ export function ImageGenPanel(props: {
                   </button>
                 </div>
               ) : null}
-              <div className={css.lightboxMeta}>
-                <span className={css.lightboxIndex}>{tt('preview.index', { index: preview.index + 1, total: preview.images.length })}</span>
+              <div className={css.lightboxChrome} data-preview-chrome="">
+                {preview.images.length > 1 || previewSourceMeta.length > 0 ? (
+                  <span className={css.lightboxIndex}>
+                    {preview.images.length > 1 ? <span>{tt('preview.index', { index: preview.index + 1, total: preview.images.length })}</span> : null}
+                    {previewSourceMeta.length > 0 ? <span className={css.lightboxSource}>{previewSourceMeta.join(' · ')}</span> : null}
+                  </span>
+                ) : null}
+                {preview.images.length > 1 ? (
+                  <div className={css.lightboxStrip}>
+                    {preview.images.map((image, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        className={css.lightboxThumb}
+                        data-preview-thumb=""
+                        data-current={index === preview.index ? '' : undefined}
+                        aria-current={index === preview.index}
+                        aria-label={tt('preview.index', { index: index + 1, total: preview.images.length })}
+                        onClick={() => { showPreviewAt(index) }}
+                      >
+                        <img src={srcOf(image)} alt="" />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 <span className={css.lightboxActions}>
-                  <button type="button" className={css.lightboxEdit} disabled={conversationBusy} title={tt('conversation.addHint')} onClick={() => { addImageToConversation(previewImage, preview.index, previewConversationKey, preview.source?.prompt) }}>
+                  <button
+                    type="button"
+                    className={css.lightboxEdit}
+                    disabled={conversationBusy}
+                    title={tt('conversation.addHint')}
+                    onClick={() => { addImageToConversation(previewImage, preview.index, previewConversationKey, preview.source?.prompt) }}
+                  >
                     {conversationAttachment.busyKey === previewConversationKey ? tt('conversation.adding') : tt('conversation.add')}
                   </button>
-                  <button type="button" className={css.lightboxEdit} disabled={galleryAdding} onClick={() => { void addToGallery(previewImage, preview.source) }}>
+                  <button
+                    type="button"
+                    className={css.lightboxEdit}
+                    disabled={galleryAdding}
+                    onClick={() => { void addToGallery(previewImage, preview.source) }}
+                  >
                     {tt('gallery.add')}
                   </button>
                   <button type="button" className={css.lightboxEdit} onClick={addPreviewToEdit}>

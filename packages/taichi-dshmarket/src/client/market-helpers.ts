@@ -279,6 +279,17 @@ export function withoutHostProjection(
 export function readRecentFlag(key: string): boolean {
   try { return localStorage.getItem(key) === '1' } catch { return false }
 }
+
+/** The recent strip repeats plugins already in the catalog. No saved choice
+ * stays folded to one line; an explicit `0` means the reader opened it. */
+export function readRecentCollapsed(key: string): boolean {
+  try {
+    const value = localStorage.getItem(key)
+    return value === null ? true : value === '1'
+  } catch {
+    return true
+  }
+}
 export function writeRecentFlag(key: string, next: boolean): void {
   try { localStorage.setItem(key, next ? '1' : '0') } catch { /* storage unavailable — the choice just won't survive a reload */ }
 }

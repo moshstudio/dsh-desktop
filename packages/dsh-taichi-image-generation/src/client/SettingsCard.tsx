@@ -31,6 +31,7 @@ import { Button, Checkbox, Input, Modal, SegmentedControl } from '@deepseek-ai/d
 import { Select } from './Select.tsx'
 import { onTablistKeyDown, tabIndexFor } from './tablist.ts'
 import css from './settings-card.module.css'
+import segmented from './segmented.module.css'
 
 /** The global (non-channel) fields this card's staged form edits. */
 export interface ImageGenSettings {
@@ -1790,7 +1791,6 @@ function ChannelEditor(props: {
             <label className={css.editorField}>
               <span className={css.label}>{t('channels.authMode')}</span>
               <Select
-                className={css.select}
                 value="subscription"
                 disabled={!props.writable}
                 onChange={value => {
@@ -1804,7 +1804,6 @@ function ChannelEditor(props: {
             <label className={css.editorField}>
               <span className={css.label}>{t('channels.subscriptionProvider')}</span>
               <Select
-                className={css.select}
                 value={subscription}
                 disabled={!props.writable || props.subscriptionStatus?.state === 'logged-in'}
                 onChange={value => {
@@ -1903,7 +1902,6 @@ function ChannelEditor(props: {
               <label className={css.label} htmlFor="dsh-taichi-imagegen-channel-auth">{t('channels.authMode')}</label>
               <Select
                 id="dsh-taichi-imagegen-channel-auth"
-                className={css.select}
                 value={channel.auth ?? 'api-key'}
                 disabled={!props.writable}
                 onChange={value => {
@@ -1926,7 +1924,6 @@ function ChannelEditor(props: {
               <label className={css.label} htmlFor="dsh-taichi-imagegen-channel-protocol">{t('channels.protocol')}</label>
               <Select
                 id="dsh-taichi-imagegen-channel-protocol"
-                className={css.input}
                 value={channel.protocol ?? 'auto'}
                 disabled={!props.writable}
                 onChange={value => { props.onPatch({ protocol: value as ChannelDraft['protocol'] }) }}
@@ -2314,7 +2311,7 @@ function BooleanField(props: FieldProps & {
       <SegmentedControl
         id={props.id}
         label={props.label}
-        className={css.control}
+        className={segmented.row}
         value={props.text}
         disabled={props.disabled}
         options={[

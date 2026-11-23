@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react'
+import { Select } from './Select.tsx'
 import css from './timeline.module.css'
 import {
   DEFAULT_TRANSITION,
@@ -205,15 +206,17 @@ export function TimelinePanel(props: TimelinePanelProps): React.JSX.Element {
             <button type="button" aria-label={tt('timeline.remove')} disabled={timeline.segments.length <= 2} onClick={() => { remove(index) }}>×</button>
           </div>
           {transition !== undefined ? <div className={css.seam} data-timeline-seam={index}>
-            <select
+            <Select
+              variant="toolbar"
               aria-label={tt('timeline.transition')}
               value={transition.kind}
-              onChange={event => { setTransition(index, event.target.value as TimelineTransitionKind) }}
-            >
-              <option value="cut">{tt('timeline.kindCut')}</option>
-              <option value="dissolve">{tt('timeline.kindDissolve')}</option>
-              <option value="fade">{tt('timeline.kindFade')}</option>
-            </select>
+              options={[
+                { value: 'cut', label: tt('timeline.kindCut') },
+                { value: 'dissolve', label: tt('timeline.kindDissolve') },
+                { value: 'fade', label: tt('timeline.kindFade') },
+              ]}
+              onChange={value => { setTransition(index, value as TimelineTransitionKind) }}
+            />
             {transition.kind === 'cut' ? null : <input
               type="number"
               aria-label={tt('timeline.transitionSeconds')}

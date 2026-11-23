@@ -18,6 +18,7 @@ import { findingsByShot, shotsWithFindings, storyboardFindings, worstLevel } fro
 import { castMembers } from '../cast.ts'
 import { describeVideoModel, VIDEO_RESOLUTIONS } from '../../video-model-catalog.ts'
 import { ModelPicker, resolveModelChoice } from '../ModelPicker.tsx'
+import { Select } from '../Select.tsx'
 import type { ImageModelGroup } from '../settings-scope.ts'
 import type { ShotState } from '../storyboard.ts'
 import css from '../canvas-workspace.module.css'
@@ -182,37 +183,42 @@ export function StoryboardBody(props: {
       </div>
       <label className={css.storyboardField}>
         <span>{tt('canvas.storyboard.continuity')}</span>
-        <select
+        <Select
+          variant="toolbar"
           className={css.storyboardSelect}
           value={board.continuity}
           aria-label={tt('canvas.storyboard.continuity')}
-          onChange={event => props.onChange({ ...board, continuity: event.target.value === 'carry' ? 'carry' : 'cut' })}
-        >
-          <option value="cut">{tt('canvas.storyboard.continuityCut')}</option>
-          <option value="carry">{tt('canvas.storyboard.continuityCarry')}</option>
-        </select>
+          options={[
+            { value: 'cut', label: tt('canvas.storyboard.continuityCut') },
+            { value: 'carry', label: tt('canvas.storyboard.continuityCarry') },
+          ]}
+          onPointerDown={event => { event.stopPropagation() }}
+          onChange={value => props.onChange({ ...board, continuity: value === 'carry' ? 'carry' : 'cut' })}
+        />
       </label>
       <label className={css.storyboardField}>
         <span>{tt('canvas.videoAspect')}</span>
-        <select
+        <Select
+          variant="toolbar"
           className={css.storyboardSelect}
           value={board.aspectRatio}
           aria-label={tt('canvas.videoAspect')}
-          onChange={event => props.onChange({ ...board, aspectRatio: event.target.value })}
-        >
-          {aspectOptions.map(value => <option key={value} value={value}>{value}</option>)}
-        </select>
+          options={aspectOptions.map(value => ({ value, label: value }))}
+          onPointerDown={event => { event.stopPropagation() }}
+          onChange={value => props.onChange({ ...board, aspectRatio: value })}
+        />
       </label>
       <label className={css.storyboardField}>
         <span>{tt('canvas.videoResolution')}</span>
-        <select
+        <Select
+          variant="toolbar"
           className={css.storyboardSelect}
           value={board.resolution}
           aria-label={tt('canvas.videoResolution')}
-          onChange={event => props.onChange({ ...board, resolution: event.target.value })}
-        >
-          {resolutionChoices.map(value => <option key={value} value={value}>{value}</option>)}
-        </select>
+          options={resolutionChoices.map(value => ({ value, label: value }))}
+          onPointerDown={event => { event.stopPropagation() }}
+          onChange={value => props.onChange({ ...board, resolution: value as VideoResolution })}
+        />
       </label>
     </div>
 
@@ -334,14 +340,15 @@ export function StoryboardBody(props: {
                 onChange={event => props.onChange(withShot(board, index, { prompt: event.target.value }))}
               />
               <div className={css.storyboardShotFoot}>
-                <select
+                <Select
+                  variant="toolbar"
                   className={css.storyboardSelect}
                   value={String(shot.seconds)}
                   aria-label={tt('canvas.storyboard.seconds', { seconds: shot.seconds })}
-                  onChange={event => props.onChange(withShot(board, index, { seconds: Number(event.target.value) }))}
-                >
-                  {secondsChoices.map(value => <option key={value} value={String(value)}>{tt('canvas.videoDuration', { seconds: value })}</option>)}
-                </select>
+                  options={secondsChoices.map(value => ({ value: String(value), label: tt('canvas.videoDuration', { seconds: value }) }))}
+                  onPointerDown={event => { event.stopPropagation() }}
+                  onChange={value => props.onChange(withShot(board, index, { seconds: Number(value) }))}
+                />
                 {state === 'failed' || state === 'empty'
                   ? <button
                       type="button"

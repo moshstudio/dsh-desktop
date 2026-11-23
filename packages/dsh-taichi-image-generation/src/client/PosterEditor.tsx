@@ -1,5 +1,6 @@
 /** Local, reversible poster overlays. Never rewrites the source image or calls a model. */
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { Select } from './Select.tsx'
 import { createPortal } from 'react-dom'
 import { MAX_POSTER_LAYERS, MAX_POSTER_SIDE, isPosterDocument, type PosterDocument, type PosterLayer, type PosterTextLayer } from '../poster.ts'
 import type { CanvasAssetRef } from '../protocol.ts'
@@ -206,11 +207,11 @@ export function PosterEditor({ api, asset, recipe, onSave, onClose }: Props): Re
         {selected ? <fieldset className={css.controls} disabled={busy}>
           {selected.type === 'text' ? <>
             <label>{tt('poster.text')}<textarea aria-label={tt('poster.text')} maxLength={4000} value={selected.text} onChange={event => patch({ ...selected, text: event.target.value })} /></label>
-            <label>{tt('poster.font')}<select aria-label={tt('poster.font')} value={selected.fontFamily} onChange={event => patch({ ...selected, fontFamily: event.target.value as PosterTextLayer['fontFamily'] })}><option value="sans-serif">{tt('poster.sans')}</option><option value="serif">{tt('poster.serif')}</option><option value="monospace">{tt('poster.mono')}</option></select></label>
+            <label>{tt('poster.font')}<Select aria-label={tt('poster.font')} value={selected.fontFamily} options={[{ value: 'sans-serif', label: tt('poster.sans') }, { value: 'serif', label: tt('poster.serif') }, { value: 'monospace', label: tt('poster.mono') }]} onChange={value => patch({ ...selected, fontFamily: value as PosterTextLayer['fontFamily'] })} /></label>
             {numberField(tt('poster.fontSize'), selected.fontSize, 8, 512, value => patch({ ...selected, fontSize: value }))}
             <label>{tt('poster.color')}<input aria-label={tt('poster.color')} type="color" value={selected.color} onChange={event => patch({ ...selected, color: event.target.value })} /></label>
             <label className={css.check}><input aria-label={tt('poster.bold')} type="checkbox" checked={selected.bold} onChange={event => patch({ ...selected, bold: event.target.checked })} />{tt('poster.bold')}</label>
-            <label>{tt('poster.align')}<select aria-label={tt('poster.align')} value={selected.align} onChange={event => patch({ ...selected, align: event.target.value as PosterTextLayer['align'] })}><option value="left">{tt('poster.left')}</option><option value="center">{tt('poster.center')}</option><option value="right">{tt('poster.right')}</option></select></label>
+            <label>{tt('poster.align')}<Select aria-label={tt('poster.align')} value={selected.align} options={[{ value: 'left', label: tt('poster.left') }, { value: 'center', label: tt('poster.center') }, { value: 'right', label: tt('poster.right') }]} onChange={value => patch({ ...selected, align: value as PosterTextLayer['align'] })} /></label>
           </> : null}
           <div className={css.row}>
             {numberField('X', selected.x, 0, poster.width - 1, value => patch({ ...selected, x: value }))}

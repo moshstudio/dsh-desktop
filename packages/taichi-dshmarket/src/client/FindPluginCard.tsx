@@ -8,7 +8,7 @@
  * dialog first (it explains what installing does before anything happens).
  */
 import { Component, useCallback, useEffect, useState, useSyncExternalStore, type ReactElement, type ReactNode } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './Market.module.css'
 import { api, formatCount } from './market-data.ts'
 import { OwnerAvatar } from './MarketImages.tsx'
@@ -263,29 +263,25 @@ export function FindPluginOverlay({ t, navigation }: { t: Translate; navigation?
       .catch(() => { if (live) setFailed(true) })
     return () => { live = false }
   }, [request])
-  useEffect(() => {
-    if (request === null) return undefined
-    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') { event.stopPropagation(); closeOverlay() } }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [request])
   if (request === null) return null
   const go = (name: string): void => {
     closeOverlay()
     void goToMarket(name, navigation)
   }
   return (
-    <div className={css.fpOverlay} onClick={closeOverlay} data-taichi-dshm-find-overlay>
-      <div className={css.fpDialog} role="dialog" aria-modal="true" aria-label="/taichi-find-plugin" onClick={event => event.stopPropagation()}>
-        <div className={css.fpDialogHead}>
-          <span className={css.fpCmd}>/taichi-find-plugin</span>
-          <button type="button" className={css.fpClose} aria-label={t('dismissNotice')} onClick={closeOverlay}>×</button>
-        </div>
+    <Modal
+      open
+      onClose={closeOverlay}
+      title="/taichi-find-plugin"
+      closeLabel={t('dismissNotice')}
+      className={css.fpModal}
+    >
+      <div data-taichi-dshm-find-overlay>
         {request.error !== null && <div className={css.fpNote} data-tone="error">{request.error || t('fpFailed')}</div>}
         {request.error === null && result === null && !failed && <div className={css.fpNote}>{t('fpRunning')}</div>}
         {failed && <div className={css.fpNote} data-tone="error">{t('fpFailed')}</div>}
         {result !== null && <FindResultView result={result} t={t} navigation={navigation} onOpen={go} />}
       </div>
-    </div>
+    </Modal>
   )
 }

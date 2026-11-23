@@ -1,5 +1,6 @@
 /** Configuration is owned by the installed skill's declaration/recipe. */
 import { useEffect, useState, type ReactNode } from 'react'
+import { Select } from './Select.tsx'
 import { ImageGenApi } from './api.ts'
 import type { CanvasSkillConfigView, PptRuntimeStatus } from '../protocol.ts'
 import { errorMessage, tt } from './helpers.ts'
@@ -92,9 +93,7 @@ export function PptSetup() {
       const stored = config.values.find(value => value.id === field.id)
       return <label key={field.id} className={css.field}>
         <span>{field.label}{stored?.set && field.type === 'secret' ? ` · ${tt('ppt.configured')}` : ''}</span>
-        {field.type === 'select' ? <select disabled={busy} value={draft[field.id] ?? stored?.value ?? field.default ?? ''} onChange={event => setDraft(previous => ({ ...previous, [field.id]: event.target.value }))}>
-          {field.options?.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select> : <input disabled={busy} type={field.type === 'secret' ? 'password' : 'text'} autoComplete="off" value={draft[field.id] ?? (field.type === 'secret' ? '' : stored?.value ?? field.default ?? '')}
+        {field.type === 'select' ? <Select disabled={busy} aria-label={field.label} value={draft[field.id] ?? stored?.value ?? field.default ?? ''} options={(field.options ?? []).map(option => ({ value: option.value, label: option.label }))} onChange={value => setDraft(previous => ({ ...previous, [field.id]: value }))} /> : <input disabled={busy} type={field.type === 'secret' ? 'password' : 'text'} autoComplete="off" value={draft[field.id] ?? (field.type === 'secret' ? '' : stored?.value ?? field.default ?? '')}
           placeholder={field.type === 'secret' && stored?.set ? tt('ppt.secretUnchanged') : field.default}
           onChange={event => setDraft(previous => ({ ...previous, [field.id]: event.target.value }))} />}
         {field.description ? <small>{field.description}</small> : null}

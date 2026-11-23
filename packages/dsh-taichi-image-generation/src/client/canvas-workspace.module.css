@@ -125,13 +125,6 @@
 
 .projectSelect {
   max-width: 180px;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: var(--dsw-radius-sm);
-  border: 1px solid var(--dsw-alias-border-l1);
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font-size: 12px;
 }
 
 .titleButton {
@@ -1673,14 +1666,20 @@
 }
 
 .promptSetToggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
   border: 0;
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
-  line-height: 1;
+  line-height: 16px;
   padding: 6px 10px;
   cursor: pointer;
   min-height: 28px;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .promptSetToggle button + button { border-left: 1px solid var(--dsw-alias-border-l1); }
@@ -2641,12 +2640,19 @@
 }
 
 .pickerTabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
   border: none;
   border-radius: var(--dsw-radius-sm) var(--dsw-radius-sm) 0 0;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
+  line-height: 16px;
   padding: 7px 12px;
+  text-align: center;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -4064,8 +4070,12 @@
 }
 
 .composerKind button {
-  height: 24px;
-  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
+  min-height: 24px;
+  padding: 2px 10px;
   border: none;
   border-radius: var(--dsw-radius-sm);
   background: transparent;
@@ -4073,6 +4083,9 @@
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -4930,22 +4943,11 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* 下拉：与 `.composerControls [data-dsh-select]` / `.generateForm [data-dsh-select]`
-   同一套描边、圆角与字号；保留原生 select，键盘与读屏都直通。 */
+/* 分镜下拉走 toolbar 变体。这里只负责在设置行里收缩，不另画一套边框。 */
 .storyboardSelect {
-  /* 同上：basis 从 0 改成内容宽，同时保留 `min-width: 0` 让它在极端窄的卡片
-     里仍能被压缩，而不是把整条设置撑破。 */
   flex: 0 1 auto;
   min-width: 0;
-  height: 26px;
-  border-radius: var(--dsw-radius-sm);
-  border: 1px solid var(--dsw-alias-border-l1);
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font-family: inherit;
-  font-size: 11px;
-  padding: 0 6px;
-  outline: none;
+  max-width: 100%;
 }
 
 /* 镜头列表：`min-height: 0` 是 flex 子项真正能滚起来的前提，少了它列表会把节点撑开 */
@@ -5147,10 +5149,7 @@
 /* 时长下拉比较窄，不参与拉伸，剩下的空间交给右侧按钮 */
 .storyboardShotFoot .storyboardSelect {
   flex: none;
-  width: 62px;
-  height: 22px;
-  border-radius: var(--dsw-radius-sm);
-  font-size: 11px;
+  max-width: 88px;
 }
 
 /* 台词超时的提醒：一行警示色小字，独占一行。它必须是「提醒」而不是「错误」——

@@ -3,6 +3,7 @@
  * 配方先预览、再提交相同的 prepared 图像与提示词；任何编辑都会使预览失效。
  */
 import React, { useEffect, useRef, useState } from 'react'
+import { Button, Input, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ImageGenApi } from './api.ts'
 import type { GenerateRequest, GenerationTaskSummary } from '../protocol.ts'
 import { describeModel } from '../model-catalog.ts'
@@ -17,7 +18,10 @@ import { outfitReferenceApi } from './outfit-reference-api.ts'
 import { defaultOutfitRecipe, prepareOutfitGeneration } from './outfit-generation.ts'
 import { ErrorDetail } from './ErrorDetail.tsx'
 import { tt } from './helpers.ts'
+import type { ImageGenKey } from './locales.ts'
+import { useImageGenLanguageTick } from './use-language.ts'
 import css from './outfit-workspace.module.css'
+import segmented from './segmented.module.css'
 
 export interface OutfitWorkspaceProps {
   api?: ImageGenApi
@@ -26,7 +30,19 @@ export interface OutfitWorkspaceProps {
   /** False while another studio page is showing. The instance stays mounted. */
   active?: boolean
 }
-const SCENES = ['纯色棚拍', '都市街头', '街角咖啡', '自然草坪', '度假海滩', '温馨居家', '艺术展馆', 'AI推荐']
+/** Stored values stay the Chinese prompt fragments `buildOutfitPrompt` sends.
+ *  Labels are locale keys so the control can follow the interface language. */
+const SCENE_PRESETS: ReadonlyArray<{ value: string; label: ImageGenKey }> = [
+  { value: '纯色棚拍', label: 'outfit.scene.studio' },
+  { value: '都市街头', label: 'outfit.scene.street' },
+  { value: '街角咖啡', label: 'outfit.scene.cafe' },
+  { value: '自然草坪', label: 'outfit.scene.lawn' },
+  { value: '度假海滩', label: 'outfit.scene.beach' },
+  { value: '温馨居家', label: 'outfit.scene.home' },
+  { value: '艺术展馆', label: 'outfit.scene.gallery' },
+  { value: 'AI推荐', label: 'outfit.scene.ai' },
+]
+const CUSTOM_SCENE = 'custom'
 const RATIOS = ['3:4', '1:1', '9:16']
 const RESOLUTIONS = ['1K', '2K']
 const MAX_REFERENCE_BYTES = 10 * 1024 * 1024
@@ -46,7 +62,12 @@ function readImage(file: File, maxBytes = MAX_REFERENCE_BYTES): Promise<string> 
   })
 }
 
+function causeText(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause)
+}
+
 export default function OutfitWorkspace({ api = defaultApi, config, active: pageActive = true }: OutfitWorkspaceProps): JSX.Element {
+  useImageGenLanguageTick()
   const [recipe, setRecipe] = useState<OutfitRecipe>(defaultOutfitRecipe)
   const [picker, setPicker] = useState<OutfitReferenceKind | null>(null)
   const [draftLoaded, setDraftLoaded] = useState(false)
@@ -67,6 +88,12 @@ export default function OutfitWorkspace({ api = defaultApi, config, active: page
   const working = useRef(false)
   const latestTasks = useRef<GenerationTaskSummary[]>([])
   const hydratedIds = useRef(new Set<string>())
+  /** 跟拍计时器。提交发生在挂载那一轮之后，计时器必须放在 ref 里，
+   *  卸载时才能清掉「后来才排上」的那一拍。 */
+  const pollTimer = useRef<number | undefined>(undefined)
+  /** 挂载代际。卸载或 api 更换后，进行中的那次拉取不能再改状态，也不能再排下一拍。 */
+  const pollEpoch = useRef(0)
+  const refreshTasksRef = useRef<() => Promise<void>>(async () => {})
   /** 草稿读失败期间用户仍可编辑（否则读不到旧草稿就等于整个面板点不动）。
    *  这时重试成功必须保留用户眼前的编辑，而不是拿旧草稿覆盖掉它。 */
   const editedWhileUnloaded = useRef(false)
@@ -82,7 +109,7 @@ export default function OutfitWorkspace({ api = defaultApi, config, active: page
   const modelMissing = choice.model.trim() === ''
   const fullRecipe: OutfitRecipe = { ...recipe, channelId: choice.channelId, model: choice.model }
   latestDraft.current = draftLoaded ? fullRecipe : null
-  const scenePreset = SCENES.includes(recipe.scene) ? recipe.scene : '自定义'
+  const scenePreset = SCENE_PRESETS.some(item => item.value === recipe.scene) ? recipe.scene : CUSTOM_SCENE
   const hasReference = recipe.portrait !== null || recipe.costumes.length > 0 || recipe.pose !== null
   const hasRequired = recipe.mode === 'try-on' ? recipe.portrait !== null && recipe.costumes.length > 0 : hasReference
   /** 只有「正在读草稿」这一小段窗口需要锁表单：那时到达的草稿会覆盖编辑。
@@ -102,7 +129,7 @@ export default function OutfitWorkspace({ api = defaultApi, config, active: page
     }).catch(cause => {
       if (cancelled) return
       // Save remains blocked until the old draft is successfully read: no blind overwrite.
-      setDraftError(`无法读取搭配草稿：${cause instanceof Error ? cause.message : String(cause)}。请重试加载。`)
+      setDraftError(tt('outfit.draftReadFailed', { error: causeText(cause) }))
     })
     return () => { cancelled = true; active.current = false; generationEpoch.current++ }
   }, [api])
@@ -123,7 +150,7 @@ export default function OutfitWorkspace({ api = defaultApi, config, active: page
       setSaving(true)
       savingQueue.current = savingQueue.current.catch(() => undefined).then(() => outfitReferenceApi.saveDraft(snapshot))
       void savingQueue.current.then(() => { if (active.current) { setSaving(false); setDraftError('') } }).catch(cause => {
-        if (active.current) { setSaving(false); setDraftError(`保存草稿失败：${cause instanceof Error ? cause.message : String(cause)}`) }
+        if (active.current) { setSaving(false); setDraftError(tt('outfit.draftSaveFailed', { error: causeText(cause) })) }
       })
     }, 350)
     return () => window.clearTimeout(timer)
@@ -132,40 +159,62 @@ export default function OutfitWorkspace({ api = defaultApi, config, active: page
   /** 配方、渠道或模型有变化必须重新预览；过期的准备结果也不能覆盖新画面。 */
   useEffect(() => { generationEpoch.current++; setPrepared(null) }, [recipe, choice.channelId, choice.model])
 
+  const clearPollTimer = (): void => {
+    if (pollTimer.current === undefined) return
+    window.clearTimeout(pollTimer.current)
+    pollTimer.current = undefined
+  }
+
   /** 一次拉取服饰穿戴的任务；进行中/完成的任务都展示在任务卡里。
-   *  生成过什么由宿主的左侧历史列表负责，面板里不再重复一份。 */
+   *  生成过什么由宿主的左侧历史列表负责，面板里不再重复一份。
+   *
+   *  下一拍必须在这次拉取里排上，不能只靠挂载时的那一轮：挂载时列表往往是空的，
+   *  那一轮看到没有进行中任务就会停。提交发生在这之后，若只再拉一次，任务卡会
+   *  停在「正在生成」，而左侧历史已经由宿主自己的轮询写上了结果。 */
   const refreshTasks = async (): Promise<void> => {
+    const epoch = pollEpoch.current
+    const arm = (rows: GenerationTaskSummary[]): void => {
+      if (pollEpoch.current !== epoch) return
+      clearPollTimer()
+      const stillActive = rows.some(task => task.status === 'queued' || task.status === 'running')
+      if (!stillActive) return
+      pollTimer.current = window.setTimeout(() => { void refreshTasksRef.current() }, 2000)
+    }
     try {
       const allTasks = await api.taskList()
+      if (pollEpoch.current !== epoch) return
       const outfitTasks = allTasks.filter(task => task.request.refName?.startsWith('outfit-'))
       latestTasks.current = outfitTasks
       setTasks(outfitTasks)
-      // 完成任务结果量小、含图，只在第一次拿到时取一次；轮询列表永远只拿摘要。
+      // 先排下一拍再取图：完成任务的整包结果很大，取图卡住不能把状态轮询冻住。
+      arm(outfitTasks)
       const pendingHydrate = outfitTasks.filter(task => task.status === 'completed' && task.resultAvailable && !hydratedIds.current.has(task.id))
-      if (pendingHydrate.length > 0) {
+      if (pendingHydrate.length === 0) return
+      for (const task of pendingHydrate) hydratedIds.current.add(task.id)
+      try {
         const filled = await Promise.all(pendingHydrate.map(async task => {
-          hydratedIds.current.add(task.id)
           const full = await api.taskGet(task.id)
           return [task.id, full.result?.images ?? []] as const
         }))
-        setHydrated(previous => Object.assign({}, previous, Object.fromEntries(filled)))
+        if (pollEpoch.current === epoch) setHydrated(previous => Object.assign({}, previous, Object.fromEntries(filled)))
+      } catch {
+        for (const task of pendingHydrate) hydratedIds.current.delete(task.id)
       }
-    } catch { /* 宿主暂时不可达时保留已有列表，不打断编辑 */ }
-  }
-
-  /** 面板挂载与重挂载时立即恢复进行中任务与历史；只有存在活跃任务才继续轮询。 */
-  useEffect(() => {
-    let cancelled = false
-    let timer: number | undefined
-    const tick = async (): Promise<void> => {
-      if (cancelled) return
-      await refreshTasks()
-      if (cancelled) return
-      const active = latestTasks.current.some(task => task.status === 'queued' || task.status === 'running')
-      if (active) timer = window.setTimeout(() => void tick(), 2000)
+    } catch {
+      // 宿主暂时不可达时保留已有列表；上一份里若还有进行中任务，下一拍再试。
+      arm(latestTasks.current)
     }
-    void tick()
-    return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer) }
+  }
+  refreshTasksRef.current = refreshTasks
+
+  /** 面板挂载时立刻拉一次。之后只要还有排队或进行中的任务，refreshTasks 自己会续上。 */
+  useEffect(() => {
+    pollEpoch.current += 1
+    void refreshTasksRef.current()
+    return () => {
+      pollEpoch.current += 1
+      clearPollTimer()
+    }
   }, [api])
 
   const update = (patch: Partial<OutfitRecipe>): void => {
@@ -212,14 +261,14 @@ export default function OutfitWorkspace({ api = defaultApi, config, active: page
       if (!editedWhileUnloaded.current && draft?.version === 1) setRecipe({ ...draft, costumes: draft.costumes.slice(0, MAX_CLOTHES) })
       editedWhileUnloaded.current = false
       setDraftLoaded(true)
-    } catch (cause) { if (active.current) setDraftError(`无法读取搭配草稿：${cause instanceof Error ? cause.message : String(cause)}`) }
+    } catch (cause) { if (active.current) setDraftError(tt('outfit.draftReadFailed', { error: causeText(cause) })) }
   }
   /** 人物图库的“AI 生成模特”走这里：图库负责界面，渠道与模型只有工作台知道。
    *  生成走阻塞式请求而不是任务队列，因为模特必须先落盘才能在图库里被选中。 */
   const generateModel = async (prompt: string): Promise<{ id: string; name: string; file: string }> => {
     const result = await api.generate({ mode: 'text', prompt, model: choice.model, channelId: choice.channelId, size: recipe.size, quality: recipe.quality.toLowerCase(), detail: '', n: 1 })
     const image = result.images?.[0]
-    if (!image?.b64) throw new Error('生成人像没有返回图片')
+    if (!image?.b64) throw new Error(tt('outfit.noImage'))
     return api.modelSave({ name: prompt.slice(0, 24), data: `data:${image.mime};base64,${image.b64}`, mime: image.mime })
   }
   const preview = async (): Promise<void> => {
@@ -270,15 +319,15 @@ export default function OutfitWorkspace({ api = defaultApi, config, active: page
     return `${pad(date.getHours())}:${pad(date.getMinutes())}`
   }
   const renderTask = (task: GenerationTaskSummary): JSX.Element => {
-    const label = task.request.refName === 'outfit-try-on' ? '商品试穿' : '角色搭配'
+    const label = tt(task.request.refName === 'outfit-try-on' ? 'outfit.taskTryOn' : 'outfit.taskCharacter')
     if (task.status === 'queued' || task.status === 'running') {
       return <div className={css.taskCard} role="status">
         <span className={css.spinner} aria-hidden="true" />
         <div className={css.taskMain}>
-          <strong>{task.status === 'queued' ? '排队中…' : '正在生成…'}</strong>
-          <p className={css.muted}>{label} · {task.request.model} · {timeOf(task.createdAt)} 提交</p>
+          <strong>{tt(task.status === 'queued' ? 'outfit.taskQueued' : 'outfit.taskRunning')}</strong>
+          <p className={css.muted}>{tt('outfit.taskSubmitted', { label, model: task.request.model, time: timeOf(task.createdAt) })}</p>
         </div>
-        {task.status === 'running' ? <button type="button" className={css.button} onClick={() => void cancelTask(task.id)}>取消</button> : null}
+        {task.status === 'running' ? <Button type="button" variant="outline" size="sm" onClick={() => void cancelTask(task.id)}>{tt('outfit.taskCancel')}</Button> : null}
       </div>
     }
     if (task.status === 'completed') {
@@ -286,51 +335,83 @@ export default function OutfitWorkspace({ api = defaultApi, config, active: page
       return <div className={css.taskCard}>
         {images.length > 0
           ? <div className={css.outputs}>{images.map((image, index) => { const src = image.url ?? (image.b64 ? `data:${image.mime ?? 'image/png'};base64,${image.b64}` : ''); return src ? <img key={`${src.slice(-30)}-${index}`} className={css.output} src={src} alt="" /> : null })}</div>
-          : <p className={css.muted}>生成完成。</p>}
-        <p className={css.muted}>生成完成 · {label} · {timeOf(task.finishedAt ?? task.createdAt)}</p>
+          : <p className={css.muted}>{tt('outfit.taskDone')}</p>}
+        <p className={css.muted}>{tt('outfit.taskDoneMeta', { label, time: timeOf(task.finishedAt ?? task.createdAt) })}</p>
       </div>
     }
     if (task.status === 'failed') {
       return <div className={css.taskCard}>
         <ErrorDetail message={task.error ?? tt('canvas.generateFailed')} />
-        <p className={css.muted}>{label} · {timeOf(task.createdAt)} 提交</p>
-        <button type="button" className={css.button} onClick={() => void retryTask(task.id)}>重试</button>
+        <p className={css.muted}>{tt('outfit.taskFailedMeta', { label, time: timeOf(task.createdAt) })}</p>
+        <Button type="button" variant="outline" size="sm" onClick={() => void retryTask(task.id)}>{tt('outfit.taskRetry')}</Button>
       </div>
     }
-    return <div className={css.taskCard}><p className={css.muted}>已取消 · {label}</p><button type="button" className={css.button} onClick={() => void retryTask(task.id)}>重新生成</button></div>
+    return <div className={css.taskCard}><p className={css.muted}>{tt('outfit.taskCancelled', { label })}</p><Button type="button" variant="outline" size="sm" onClick={() => void retryTask(task.id)}>{tt('outfit.taskRegenerate')}</Button></div>
   }
   return <section className={css.root} data-outfit="true" hidden={!pageActive}>
     <header className={css.intro}><div><h2>{tt('outfit.title')}</h2><p>{tt('outfit.hint')}</p></div><span className={css.badge}>{tt('outfit.uploadClothes', { count: recipe.costumes.length })}</span></header>
     <div className={css.body}>
       <form className={css.form} onSubmit={event => { event.preventDefault(); void (prepared ? submitOutfit() : preview()) }}>
         <fieldset className={css.formFields} disabled={formLocked}>
-        <div className={css.pills} role="radiogroup" aria-label="搭配模式">
-          <button type="button" className={css.pill} role="radio" aria-checked={recipe.mode === 'try-on'} onClick={() => update({ mode: 'try-on' })}>商品试穿</button>
-          <button type="button" className={css.pill} role="radio" aria-checked={recipe.mode === 'character'} onClick={() => update({ mode: 'character' })}>角色搭配</button>
-        </div>
-        <p className={css.muted}>{recipe.mode === 'try-on' ? '保留真实商品图的款式、图案与配色，人物和服装为必选。' : '从图库挑人物、服装与姿势，也可混合自己的图片。'}</p>
+        <SegmentedControl
+          id="outfit-mode"
+          className={segmented.wrap}
+          value={recipe.mode}
+          label={tt('outfit.mode')}
+          options={[
+            { value: 'try-on', label: tt('outfit.mode.tryOn') },
+            { value: 'character', label: tt('outfit.mode.character') },
+          ]}
+          onChange={value => { if (value === 'try-on' || value === 'character') update({ mode: value }) }}
+        />
+        <p className={css.muted}>{tt(recipe.mode === 'try-on' ? 'outfit.mode.tryOnNote' : 'outfit.mode.characterNote')}</p>
         <div className={css.field}>
-          <div className={css.fieldHead}><span className={css.fieldLabel}>人物参考</span><span className={css.fieldNote}>{tt('outfit.section.modelNote')}</span></div>
-          {recipe.portrait ? <div className={css.selection}><img src={recipe.portrait.thumbnailUrl} alt={recipe.portrait.title} /><span>{recipe.portrait.title}</span><button type="button" className={css.button} onClick={() => update({ portrait: null })}>移除</button></div> : <p className={css.muted}>{tt('outfit.section.modelNote')}</p>}
-          <button type="button" className={css.button} disabled={busy} onClick={() => setPicker('portrait')}>浏览人物图库</button>
+          <div className={css.fieldHead}><span className={css.fieldLabel}>{tt('outfit.portrait')}</span><span className={css.fieldNote}>{tt('outfit.section.modelNote')}</span></div>
+          {recipe.portrait ? <div className={css.selection}><img src={recipe.portrait.thumbnailUrl} alt={recipe.portrait.title} /><span>{recipe.portrait.title}</span><Button type="button" variant="ghost" size="sm" onClick={() => update({ portrait: null })}>{tt('outfit.dismiss')}</Button></div> : <p className={css.muted}>{tt('outfit.section.modelNote')}</p>}
+          <Button type="button" variant="outline" disabled={busy} onClick={() => setPicker('portrait')}>{tt('outfit.portraitBrowse')}</Button>
         </div>
         <div className={css.field}>
           <div className={css.fieldHead}><span className={css.fieldLabel}>{tt('outfit.section.clothes')}</span><span className={css.fieldNote}>{tt('outfit.uploadClothes', { count: recipe.costumes.length })}</span></div>
-          {recipe.costumes.length > 0 ? <ul className={css.thumbs}>{recipe.costumes.map((item, index) => <li className={css.thumb} key={`${item.key}-${index}`}><img src={item.thumbnailUrl} alt={item.title} /><span className={css.thumbIndex}>{index + 1}</span><button type="button" className={css.thumbRemove} aria-label={`${tt('outfit.remove')} ${item.title}`} onClick={() => update({ costumes: recipe.costumes.filter((_, n) => n !== index) })}>×</button></li>)}</ul> : <p className={css.muted}>尚未添加服装。商品试穿请上传真实商品图。</p>}
-          <div className={css.inline}><button type="button" className={css.drop} disabled={busy || recipe.costumes.length >= MAX_CLOTHES} onClick={() => clothesInput.current?.click()}>{recipe.costumes.length >= MAX_CLOTHES ? tt('outfit.clothesFull') : '上传服装 / 商品图'}</button><button type="button" className={css.button} disabled={busy || recipe.costumes.length >= MAX_CLOTHES} onClick={() => setPicker('costume')}>浏览服装图库</button></div>
+          {recipe.costumes.length > 0 ? <ul className={css.thumbs}>{recipe.costumes.map((item, index) => <li className={css.thumb} key={`${item.key}-${index}`}><img src={item.thumbnailUrl} alt={item.title} /><span className={css.thumbIndex}>{index + 1}</span><button type="button" className={css.thumbRemove} aria-label={`${tt('outfit.remove')} ${item.title}`} onClick={() => update({ costumes: recipe.costumes.filter((_, n) => n !== index) })}>×</button></li>)}</ul> : <p className={css.muted}>{tt('outfit.clothesEmpty')}</p>}
+          <div className={css.inline}>
+            <Button type="button" variant="outline" disabled={busy || recipe.costumes.length >= MAX_CLOTHES} onClick={() => clothesInput.current?.click()}>{recipe.costumes.length >= MAX_CLOTHES ? tt('outfit.clothesFull') : tt('outfit.uploadGarment')}</Button>
+            <Button type="button" variant="outline" disabled={busy || recipe.costumes.length >= MAX_CLOTHES} onClick={() => setPicker('costume')}>{tt('outfit.costumeBrowse')}</Button>
+          </div>
           <input ref={clothesInput} hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={event => { void uploadReference('costume', event.target.files); event.target.value = '' }} />
         </div>
         <div className={css.field}>
-          <span className={css.fieldLabel}>姿势参考（可选）</span>
-          {recipe.pose ? <div className={css.selection}><img src={recipe.pose.thumbnailUrl} alt={recipe.pose.title} /><span>{recipe.pose.title}{recipe.pose.angle ? ` · ${recipe.pose.angle}` : ''}{recipe.pose.useDepth ? ' · Depth' : ''}</span><button type="button" className={css.button} onClick={() => update({ pose: null })}>移除</button></div> : <p className={css.muted}>不选则沿用人物原图的姿势。</p>}
-          <div className={css.inline}><button type="button" className={css.button} disabled={busy} onClick={() => poseInput.current?.click()}>上传姿势</button><button type="button" className={css.button} disabled={busy} onClick={() => setPicker('pose')}>浏览姿势图库</button></div>
+          <span className={css.fieldLabel}>{tt('outfit.pose')}</span>
+          {recipe.pose ? <div className={css.selection}><img src={recipe.pose.thumbnailUrl} alt={recipe.pose.title} /><span>{recipe.pose.title}{recipe.pose.angle ? ` · ${recipe.pose.angle}` : ''}{recipe.pose.useDepth ? ' · Depth' : ''}</span><Button type="button" variant="ghost" size="sm" onClick={() => update({ pose: null })}>{tt('outfit.dismiss')}</Button></div> : <p className={css.muted}>{tt('outfit.poseEmpty')}</p>}
+          <div className={css.inline}>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => poseInput.current?.click()}>{tt('outfit.poseUpload')}</Button>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => setPicker('pose')}>{tt('outfit.poseBrowse')}</Button>
+          </div>
           <input ref={poseInput} hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => { void uploadReference('pose', event.target.files); event.target.value = '' }} />
         </div>
-        <div className={css.field}><label className={css.fieldLabel} htmlFor="outfit-scene">{tt('outfit.scene')}</label><select id="outfit-scene" className={css.select} value={scenePreset} onChange={event => update({ scene: event.target.value === '自定义' ? '' : event.target.value })}>{SCENES.map(item => <option key={item}>{item}</option>)}<option>自定义</option></select>{scenePreset === '自定义' ? <input className={css.input} aria-label="自定义场景" placeholder="描述场景" value={recipe.scene} onChange={event => update({ scene: event.target.value })} /> : null}</div>
-        <div className={css.field}><label className={css.fieldLabel} htmlFor="outfit-extra">补充要求</label><textarea id="outfit-extra" className={css.textarea} value={recipe.extraPrompt} placeholder="如光线、背景、画风与要保留的细节" onChange={event => update({ extraPrompt: event.target.value })} /></div>
         <div className={css.field}>
-          <span className={css.fieldLabel}>生成渠道和模型</span>
-          <ModelPicker groups={options.groups} value={choice} onChange={value => update({ channelId: value.channelId, model: value.model })} channelLabel="渠道" modelLabel="模型" emptyLabel="请先配置图像模型" channelPlaceholder="默认渠道" ariaLabel="穿戴生成模型" />
+          <span className={css.fieldLabel} id="outfit-scene-label">{tt('outfit.scene')}</span>
+          <Select
+            id="outfit-scene"
+            aria-labelledby="outfit-scene-label"
+            value={scenePreset}
+            options={[
+              ...SCENE_PRESETS.map(item => ({ value: item.value, label: tt(item.label) })),
+              { value: CUSTOM_SCENE, label: tt('outfit.scene.custom') },
+            ]}
+            onChange={value => {
+              if (value === CUSTOM_SCENE) {
+                if (scenePreset !== CUSTOM_SCENE) update({ scene: '' })
+                return
+              }
+              update({ scene: value })
+            }}
+          />
+          {scenePreset === CUSTOM_SCENE ? <Input className={css.stretch} aria-label={tt('outfit.scene.customLabel')} placeholder={tt('outfit.scene.customPlaceholder')} value={recipe.scene} onChange={event => update({ scene: event.target.value })} /> : null}
+        </div>
+        <div className={css.field}><label className={css.fieldLabel} htmlFor="outfit-extra">{tt('outfit.extra')}</label><textarea id="outfit-extra" className={css.textarea} value={recipe.extraPrompt} placeholder={tt('outfit.extraPlaceholder')} onChange={event => update({ extraPrompt: event.target.value })} /></div>
+        <div className={css.field}>
+          <span className={css.fieldLabel}>{tt('outfit.channel')}</span>
+          <ModelPicker groups={options.groups} value={choice} onChange={value => update({ channelId: value.channelId, model: value.model })} channelLabel={tt('outfit.channelName')} modelLabel={tt('outfit.modelName')} emptyLabel={tt('outfit.channelEmpty')} channelPlaceholder={tt('outfit.channelDefault')} ariaLabel={tt('outfit.modelAria')} />
           <div className={css.paramStrip}>
             <Select variant="composer" aria-label={tt('outfit.ratio')} value={recipe.size} options={RATIOS.map(value => ({ value, label: value }))} onChange={value => update({ size: value })} />
             <Select variant="composer" aria-label={tt('outfit.resolution')} value={recipe.quality} options={RESOLUTIONS.map(value => ({ value, label: value }))} onChange={value => update({ quality: value })} />
@@ -339,17 +420,17 @@ export default function OutfitWorkspace({ api = defaultApi, config, active: page
         </fieldset>
         {/* 读失败时表单是解锁的，所以提示里必须说清「现在能改、但还存不下来」，
             否则用户改完以为保存了，切回来发现全没了。 */}
-        {!draftLoaded ? <div className={css.field}><p role={draftError ? 'alert' : 'status'} className={draftError ? css.error : css.muted}>{draftError ? `${draftError} 现在仍可继续编辑，但草稿要等重新加载成功才会保存。` : '正在加载搭配草稿…'}</p>{draftError ? <button type="button" className={css.button} onClick={() => void reloadDraft()}>重试加载</button> : null}</div> : null}
-        {draftLoaded && (saving || draftError) ? <p role={draftError ? 'alert' : 'status'} className={draftError ? css.error : css.muted}>{draftError || '正在保存搭配草稿…'}</p> : null}
+        {!draftLoaded ? <div className={css.field}><p role={draftError ? 'alert' : 'status'} className={draftError ? css.error : css.muted}>{draftError ? tt('outfit.draftUnsaved', { error: draftError }) : tt('outfit.draftLoading')}</p>{draftError ? <Button type="button" variant="outline" size="sm" onClick={() => void reloadDraft()}>{tt('outfit.draftRetry')}</Button> : null}</div> : null}
+        {draftLoaded && (saving || draftError) ? <p role={draftError ? 'alert' : 'status'} className={draftError ? css.error : css.muted}>{draftError || tt('outfit.draftSaving')}</p> : null}
         {modelMissing ? <p role="status" className={css.error}>{tt('outfit.modelMissing')}</p> : null}
-        {!modelMissing && !supportsEdit ? <p role="status" className={css.error}>当前模型不支持参考图编辑，请切换生图模型。</p> : null}
-        {recipe.mode === 'try-on' && !hasRequired ? <p className={css.muted}>请先选择人物和至少一张服装图。</p> : null}
-        <div className={css.submitBar}><div className={css.submitRow}><button type="submit" className={css.primary} disabled={formLocked || !hasRequired || !supportsEdit || modelMissing || busy}>{busy ? tt('outfit.generating') : prepared ? '确认生成（使用以上预览）' : '准备参考图预览'}</button>{prepared ? <button type="button" className={css.button} disabled={busy} onClick={() => setPrepared(null)}>重新预览</button> : null}</div><small className={css.muted}>{tt('outfit.consistency')}</small>{error ? <p role="alert" className={css.error}>{error}</p> : null}</div>
+        {!modelMissing && !supportsEdit ? <p role="status" className={css.error}>{tt('outfit.editUnsupported')}</p> : null}
+        {recipe.mode === 'try-on' && !hasRequired ? <p className={css.muted}>{tt('outfit.tryOnRequired')}</p> : null}
+        <div className={css.submitBar}><div className={css.submitRow}><Button type="submit" variant="primary" disabled={formLocked || !hasRequired || !supportsEdit || modelMissing || busy}>{busy ? tt('outfit.generating') : prepared ? tt('outfit.confirmGenerate') : tt('outfit.preparePreview')}</Button>{prepared ? <Button type="button" variant="outline" disabled={busy} onClick={() => setPrepared(null)}>{tt('outfit.repreview')}</Button> : null}</div><small className={css.muted}>{tt('outfit.consistency')}</small>{error ? <p role="alert" className={css.error}>{error}</p> : null}</div>
       </form>
-      <section className={css.results} aria-label="生成预览与结果">
-        {prepared ? <div className={css.preview}><h3>提交前预览</h3><p className={css.muted}>本次共 {prepared.referenceCount} 张素材，实际发送 {prepared.sheet ? '一张编号参考拼图' : `${1 + prepared.images.length} 张参考图`}。点击“确认生成”才会调用模型。</p><div className={css.previewImages}>{[prepared.image, ...prepared.images].map((url, index) => <figure key={index}><img src={url} alt={prepared.sheet ? '实际发送的编号参考拼图' : `实际发送的参考图 ${index + 1}`} /><figcaption>{prepared.sheet ? '编号拼图' : `参考图 ${index + 1}`}</figcaption></figure>)}</div><details><summary>查看实际发送的提示词</summary><pre className={css.promptPreview}>{prepared.prompt}</pre></details></div> : null}
+      <section className={css.results} aria-label={tt('outfit.results')}>
+        {prepared ? <div className={css.preview}><h3>{tt('outfit.previewTitle')}</h3><p className={css.muted}>{tt('outfit.previewSummary', { count: prepared.referenceCount, sent: prepared.sheet ? tt('outfit.previewSentSheet') : tt('outfit.previewSentImages', { count: 1 + prepared.images.length }) })}</p><div className={css.previewImages}>{[prepared.image, ...prepared.images].map((url, index) => <figure key={index}><img src={url} alt={prepared.sheet ? tt('outfit.previewSheetAlt') : tt('outfit.previewImageAlt', { index: index + 1 })} /><figcaption>{prepared.sheet ? tt('outfit.previewSheetCaption') : tt('outfit.previewImageCaption', { index: index + 1 })}</figcaption></figure>)}</div><details><summary>{tt('outfit.previewPrompt')}</summary><pre className={css.promptPreview}>{prepared.prompt}</pre></details></div> : null}
         {tasks.length > 0 ? <div className={css.taskList}>
-          <h3>生成任务</h3>
+          <h3>{tt('outfit.tasks')}</h3>
           {tasks.slice(0, 20).map(task => <div key={task.id}>{renderTask(task)}</div>)}
         </div> : null}
         {tasks.length === 0 && !prepared ? <div className={css.empty}><span>{tt('outfit.emptyResults')}</span></div> : null}

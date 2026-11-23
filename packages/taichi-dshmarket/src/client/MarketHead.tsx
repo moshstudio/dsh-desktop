@@ -27,7 +27,7 @@ import {
 } from './update-notifications.ts'
 import { MarketLogo } from './MarketLogo.tsx'
 import { marketWaitTip, writeSidebarTipDismissed } from './market-helpers.ts'
-import { HOVER_TIP_DELAY_MS, SponsorMark } from './MarketCardParts.tsx'
+import { HOVER_TIP_DELAY_MS } from './MarketCardParts.tsx'
 import { activationMeta, HostDependencyDiagnostics } from './MarketStatusParts.tsx'
 import type { MarketStateCtx } from './market-state.tsx'
 import type { MarketRenderCtx } from './market-render.tsx'
@@ -270,12 +270,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
               })
             }}
           />
-          {/* Sponsors live in the spacer. It never shrinks below the mark, so
-              when the row has no room the spacer (and the buttons after it)
-              moves to the next line instead of hiding a sponsor. */}
-          <span className={surface === 'plugins' ? `${css.grow} ${css.sponsorSlot}` : css.grow}>
-            {surface === 'plugins' && <SponsorMark lang={lang} t={t} />}
-          </span>
+          <span className={css.grow} />
         </div>
         {!marketGone && updateCheckFailed && (
           <div className={css.updateCheckNotice}>

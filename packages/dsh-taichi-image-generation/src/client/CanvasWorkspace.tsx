@@ -7587,6 +7587,7 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
     />
     <header ref={topBarRef} className={css.topBar} data-canvas-no-zoom="">
       <Select
+        variant="toolbar"
         className={css.projectSelect}
         value={document?.id ?? ''}
         searchable

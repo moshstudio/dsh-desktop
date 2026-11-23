@@ -108,7 +108,7 @@ function useMediaWide(): boolean {
 export function CardDesc({ text, t, lines = 5, className, textClassName, onOpen }: {
   text: string
   t: Translate
-  lines?: 3 | 5
+  lines?: 2 | 3 | 5
   /** When set, the text opens the detail view instead of expanding in place. */
   onOpen?: () => void
   className?: string
@@ -118,7 +118,7 @@ export function CardDesc({ text, t, lines = 5, className, textClassName, onOpen 
   const [expanded, setExpanded] = useState(false)
   const [canExpand, setCanExpand] = useState(false)
   const base = textClassName === undefined ? css.desc : `${css.desc} ${textClassName}`
-  const clamp = lines === 3 ? css.descClamp3 : css.descClamp
+  const clamp = lines === 2 ? css.descClamp2 : lines === 3 ? css.descClamp3 : css.descClamp
   useLayoutEffect(() => {
     const el = ref.current
     if (el === null) return

@@ -189,6 +189,12 @@
   min-width: 0;
 }
 
+/* Width only. Chrome stays on the host Input; this class must not repaint it. */
+.stretch {
+  width: 100%;
+  min-width: 0;
+}
+
 /* ------------------------------------------------------------------ controls */
 
 .input {
@@ -655,6 +661,10 @@
 
 @keyframes outfit-spin {
   to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
 }
 
 /* --------------------------------------------------------------- submit bar */

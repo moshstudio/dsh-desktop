@@ -61,16 +61,25 @@
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
   padding: 12px 16px 0;
 }
 
 .tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
   border: 0;
   background: transparent;
   padding: 6px 10px;
   border-radius: var(--dsw-radius-sm);
   font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+  white-space: nowrap;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
 }

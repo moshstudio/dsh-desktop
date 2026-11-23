@@ -11060,7 +11060,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // Kept-alive pages stay in the DOM with `hidden`, so a raw tablist count
     // would also see the video composer's mode buttons. Only the visible ones
     // belong to the current page.
-    const visibleModuleTabs = () => [...view.querySelectorAll('[role="tablist"] button')]
+    const visibleModuleTabs = () => [...view.querySelectorAll('[data-module-tabs-scroll] [role="tab"]')]
       .filter(button => button.closest('[hidden]') === null)
 
     // The A+ workspace is a real surface, not just an eighth label: selecting
@@ -11109,9 +11109,9 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // Two modes share one form: 商品试穿 pins the real product shot, 角色搭配
     // builds a look from gallery material. 商品试穿 is the default, so a user
     // who never touches the pills still lands on the safe reading.
-    const modeGroup = outfitWorkspace.querySelector('[role="radiogroup"][aria-label="搭配模式"]')
+    const modeGroup = outfitWorkspace.querySelector('[role="tablist"][aria-label="搭配模式"]')
     assert.ok(modeGroup !== null, 'the outfit form offers a mode switch')
-    const modeOf = label => [...modeGroup.querySelectorAll('button[role="radio"]')]
+    const modeOf = label => [...modeGroup.querySelectorAll('button[role="tab"]')]
       .find(button => (button.textContent ?? '').trim() === label)
     const tryOnMode = modeOf('商品试穿')
     const characterMode = modeOf('角色搭配')
@@ -11129,8 +11129,8 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // `button.disabled` stays false under a disabled <fieldset>; the ancestor is
     // what actually swallows the click, so that is what gets pinned.
     assert.equal(characterMode.closest('fieldset')?.disabled ?? true, false, 'the mode pills sit in an enabled fieldset before they are clicked')
-    assert.equal(tryOnMode.getAttribute('aria-checked'), 'true', '商品试穿 is the default mode')
-    assert.equal(characterMode.getAttribute('aria-checked'), 'false', '角色搭配 is not preselected')
+    assert.equal(tryOnMode.getAttribute('aria-selected'), 'true', '商品试穿 is the default mode')
+    assert.equal(characterMode.getAttribute('aria-selected'), 'false', '角色搭配 is not preselected')
     characterMode.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
     // React batches this update: the DOM reflects it one tick later, not inside
     // the dispatchEvent call. Reading straight after the dispatch asserts on the
@@ -11139,8 +11139,8 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // depending on how the surrounding sandbox was set up. Same wait the tab
     // clicks above already use.
     await new Promise(resolve => setTimeout(resolve, 60))
-    assert.equal(characterMode.getAttribute('aria-checked'), 'true', 'clicking 角色搭配 switches the mode')
-    assert.equal(tryOnMode.getAttribute('aria-checked'), 'false', 'the previously selected mode is released')
+    assert.equal(characterMode.getAttribute('aria-selected'), 'true', 'clicking 角色搭配 switches the mode')
+    assert.equal(tryOnMode.getAttribute('aria-selected'), 'false', 'the previously selected mode is released')
 
     // Every reference slot has to be reachable from the workspace itself; the
     // gallery picker is optional material, the upload path must never be behind
@@ -11165,13 +11165,13 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     const promoWorkspace = view.querySelector('[data-promo]')
     assert.ok(promoWorkspace !== null, 'promo workspace is rendered')
     assert.ok(promoWorkspace.querySelector('input[placeholder="粘贴商品链接"]') !== null, 'promo workspace offers a product-link field')
-    // task-29: the platform picker became four pills (a <select> hid its current
-    // value until it was opened). The assertion is deliberately NOT "there are
-    // four <option>s" any more — that would pass for a stray select that nobody
-    // renders. It checks the pill group carries the same four values the
-    // <option>s did, because `promoImagePrompt` switches on them.
-    const promoPills = [...promoWorkspace.querySelectorAll('[data-promo-platform]')]
-    assert.deepEqual(promoPills.map(pill => pill.getAttribute('data-promo-platform')), ['xiaohongshu', 'douyin', 'taobao', 'dewu'], 'promo workspace offers the four platform styles as pills')
+    // task-29: the platform picker is the host segmented control. The assertion
+    // checks the four values `promoImagePrompt` switches on, via the control's
+    // button ids (`promo-platform-<value>`).
+    const promoGroup = promoWorkspace.querySelector('[role="tablist"][aria-label="投放平台"]')
+    assert.ok(promoGroup !== null, 'promo workspace offers a platform control')
+    const promoPills = [...promoGroup.querySelectorAll('button[role="tab"]')]
+    assert.deepEqual(promoPills.map(pill => pill.id.replace(/^promo-platform-/, '')), ['xiaohongshu', 'douyin', 'taobao', 'dewu'], 'promo workspace offers the four platform styles')
     assert.equal(promoWorkspace.querySelectorAll('select option').length, 0, 'the platform picker is no longer a hidden select')
     assert.equal(visibleModuleTabs().length, 9, 'promo keeps the nine top-nav entries')
 
@@ -11309,29 +11309,20 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     assert.ok(await waitFor(() => document.querySelector('[data-preview-overlay]') !== null), 'clicking a replica image opens the standard preview')
     document.querySelector('[data-preview-overlay]').dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
     assert.ok(await waitFor(() => document.querySelector('[data-preview-overlay]') === null), 'the replica preview closes normally')
-    // The state attributes have always changed, but the shipped stylesheet had
-    // no selected-state rule, so clicking looked like a no-op. Exercise the
-    // rendered CSS for every option group, not merely aria-checked.
+    // Kind and fidelity are the host segmented control. Selected chrome belongs
+    // to that control; this sandbox only stubs the tab contract, so the check
+    // is the selected tab, not a plugin stylesheet rule.
     for (const label of ['复刻类型', '复刻程度']) {
-      const group = replicaWorkspace.querySelector(`[role="radiogroup"][aria-label="${label}"]`)
-      assert.ok(group !== null, `${label} renders as a radio group`)
-      const buttons = [...group.querySelectorAll('button')]
+      const group = replicaWorkspace.querySelector(`[role="tablist"][aria-label="${label}"]`)
+      assert.ok(group !== null, `${label} renders as a segmented control`)
+      const buttons = [...group.querySelectorAll('button[role="tab"]')]
       assert.ok(buttons.length > 1, `${label} offers more than one choice`)
       const target = buttons.at(-1)
       target.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
       await new Promise(resolve => setTimeout(resolve, 0))
-      assert.equal(target.getAttribute('aria-checked'), 'true', `${label} updates the selected value`)
-      const unselected = buttons.find(button => button !== target && button.getAttribute('aria-checked') === 'false')
+      assert.equal(target.getAttribute('aria-selected'), 'true', `${label} updates the selected value`)
+      const unselected = buttons.find(button => button !== target && button.getAttribute('aria-selected') === 'false')
       assert.ok(unselected !== undefined, `${label} keeps the other choices unselected`)
-      const visualSignature = button => {
-        const style = jsdomWindow.getComputedStyle(button)
-        return [style.backgroundColor, style.borderColor, style.color, style.boxShadow].join('|')
-      }
-      assert.notEqual(
-        visualSignature(target),
-        visualSignature(unselected),
-        `${label} gives the selected choice a visible style`,
-      )
     }
     const normalAfterReplica = [...view.querySelectorAll('[role="tablist"] button')]
       .find(button => button.textContent === '普通生图')

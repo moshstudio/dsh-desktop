@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, IconCloseOutlineRegular, useModalLayer } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Select } from './Select.tsx'
 import type { CanvasAssetRef, CanvasSkillCatalog, CanvasSkillTask } from '../protocol.ts'
 import type { ImageGenApi } from './api.ts'
 import { errorMessage, tt } from './helpers.ts'
@@ -161,7 +162,7 @@ export function PptWorkspace({ api, active, importRequest, onImported }: { api: 
     <main className={css.results}>
       <header className={css.resultHeader}><h3>{tt('ppt.results')}</h3><span>{tt('ppt.resultCount', { count: tasks.length })}</span></header>
       {tasks.length === 0 ? <div className={css.empty}><span className={css.fileIcon}>PPTX</span><h3>{tt('ppt.empty')}</h3><p>{tt('ppt.emptyHint')}</p></div> : <>
-        <label className={css.taskPicker}><span>{tt('ppt.history')}</span><select aria-label={tt('ppt.history')} value={focused?.id ?? ''} onChange={event => setSelected(event.target.value)}>{tasks.map(task => <option key={task.id} value={task.id}>{new Date(task.startedAt).toLocaleString()} · {tt(`tasks.${task.status}` as never)}</option>)}</select></label>
+        <label className={css.taskPicker}><span>{tt('ppt.history')}</span><Select aria-label={tt('ppt.history')} value={focused?.id ?? ''} options={tasks.map(task => ({ value: task.id, label: `${new Date(task.startedAt).toLocaleString()} · ${tt(`tasks.${task.status}` as never)}` }))} onChange={setSelected} /></label>
         {focused ? <section className={css.result} data-ppt-task={focused.id} data-task-status={focused.status}>
           <div className={css.resultHeader} hidden={focused.status === 'completed'}><h3>{tt(`tasks.${focused.status}` as never)}</h3>
             {running(focused) ? <button type="button" onClick={() => { void api.canvasSkillCancel(focused.id).then(async () => setTasks(await api.pptTasks())).catch(error => setError(errorMessage(error))) }}>{tt('ppt.cancel')}</button> : null}

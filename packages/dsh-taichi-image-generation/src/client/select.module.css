@@ -1,12 +1,107 @@
-.host { display: inline-flex; max-width: 100%; min-width: 0; }
+/*
+ * One dropdown, four densities. Call sites pick a variant; they do not restyle
+ * the trigger.
+ *
+ *   field     form rows (settings, ecommerce, poster, cast, ppt). Full width.
+ *   compact   filters beside a search box or a short label.
+ *   composer  parameter chips (ratio, quality) — a pill, so it reads as a
+ *             control in a toolbar rather than a second form field.
+ *   toolbar   dense canvas chrome (project, storyboard, gallery sort).
+ *
+ * The attribute selector outranks the one-off `[data-dsh-select]` rules in
+ * panel and canvas stylesheets, which used to give every screen its own
+ * height, padding and font.
+ */
+.host { display: inline-flex; max-width: 100%; min-width: 0; vertical-align: middle; }
 .field { display: flex; width: 100%; }
 
-/* Layout only. Color, border and radius come from the host Button. */
-.trigger { width: 100%; min-width: 0; justify-content: space-between; }
-.trigger[data-variant='toolbar'],
-.trigger[data-variant='composer'],
-.trigger[data-variant='compact'] { width: auto; max-width: 138px; }
+button.trigger[data-dsh-select] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-weight: 500;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.trigger[data-dsh-select][data-variant='field'] {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+button.trigger[data-dsh-select][data-variant='compact'] {
+  width: auto;
+  max-width: min(100%, 220px);
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+button.trigger[data-dsh-select][data-variant='composer'] {
+  width: auto;
+  max-width: min(100%, 148px);
+  height: 28px;
+  padding: 0 10px;
+  border-color: var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12px;
+}
+
+button.trigger[data-dsh-select][data-variant='toolbar'] {
+  width: auto;
+  max-width: min(100%, 200px);
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+button.trigger[data-dsh-select] > :last-child {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform 160ms ease;
+}
+
+button.trigger[data-dsh-select][data-open] {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+button.trigger[data-dsh-select][data-open] > :last-child {
+  transform: rotate(180deg);
+}
+
+button.trigger[data-dsh-select]:hover:not(:disabled) {
+  border-color: var(--dsw-alias-label-dimmed);
+}
+
+button.trigger[data-dsh-select]:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+button.trigger[data-dsh-select]:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  button.trigger[data-dsh-select] > :last-child { transition: none; }
+}
 
 .menuMark { border-radius: var(--dsw-radius-md); }
 

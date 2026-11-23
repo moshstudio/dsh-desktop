@@ -218,19 +218,6 @@
   margin-left: auto;
 }
 
-.select {
-  width: 96px;
-  height: 36px;
-  padding: 0 10px;
-  border: 0.5px solid var(--dsw-alias-border-l4);
-  border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-font-family);
-  font-size: 14px;
-  line-height: 22px;
-}
-
 .primary {
   flex: none;
   height: 36px;

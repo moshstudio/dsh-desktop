@@ -2491,6 +2491,18 @@ const CASES = [
     expect: /MISSING api\.taskSubmit/,
   },
   {
+    // 挂载时没有任务，那一轮轮询看到空列表就停。提交后若不再排下一拍，
+    // 任务卡停在「正在生成」，左侧历史却已经有结果。把 setTimeout 从
+    // refreshTasks 里拿掉，门禁必须变红。
+    name: 'outfit task poll stops before submit and the card stays on generating',
+    runner: 'outfit',
+    script: 'scripts/verify-outfit-task-gate.mjs',
+    file: 'src/client/OutfitWorkspace.tsx',
+    from: '      if (!stillActive) return\n      pollTimer.current = window.setTimeout(() => { void refreshTasksRef.current() }, 2000)\n',
+    to: '      if (!stillActive) return\n',
+    expect: /MISSING follow-up poll/,
+  },
+  {
     // 用户的要求是「模特库放在浏览人像图库中」。把 list 里注入模特那一行
     // 摘掉，人物图库就退回成只有内置人像的远程图库——门禁里的第一条断言
     // 随之失配，而模特库究竟还在不在人物图库里，正是这条用例在守的东西。

@@ -16,6 +16,20 @@ const required = [
   ['css.taskCard', '任务卡显示等待/结果'],
 ]
 
+// 跟拍必须写在 refreshTasks 里。挂载时列表通常是空的，只在 effect 里看到
+// 「没有进行中任务」就停，提交之后那一次刷新会把卡片停在「正在生成」，
+// 而左侧历史已经由宿主轮询写上了结果。
+const refreshStart = source.indexOf('const refreshTasks = async')
+const refreshEnd = refreshStart < 0 ? -1 : source.indexOf('useEffect', refreshStart)
+const refreshBody = refreshStart >= 0 && refreshEnd > refreshStart ? source.slice(refreshStart, refreshEnd) : ''
+const followsActiveTask = refreshBody.includes('setTimeout')
+  && refreshBody.includes("task.status === 'queued'")
+  && refreshBody.includes("task.status === 'running'")
+if (!followsActiveTask) {
+  console.error('MISSING follow-up poll：进行中的服饰任务必须在 refreshTasks 里继续轮询，不能只在挂载那一轮排计时器')
+  process.exit(1)
+}
+
 // 反向：面板里不得再自带一份历史列表。宿主的左侧历史已经列出每次生成，
 // 面板里重复一份只是把同一批图渲染两遍，还让「这条结果属于哪次提交」更难看清。
 // 这两条一旦回退（又把 historyList 拉回来、或重新渲染 history 区块）必须变红。

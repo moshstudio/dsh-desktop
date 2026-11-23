@@ -1,65 +1,68 @@
 /**
- * "让 AI 猜你喜欢什么插件" under Recently added on the Discover tab.
+ * "让 AI 猜你喜欢什么插件" under the discover teasers.
  *
  * Nothing runs until the user clicks: the click is what lets the market read
  * their installed and favorited plugins and spend their tokens. The picks are
- * drawn as the market's own plugin cards, and the last set is kept on this
- * device so reopening the market shows it again without asking the model.
+ * the same one-row tiles as 最近收录, with the model's why on the second line.
+ * The last set is kept on this device so reopening the market shows it again
+ * without asking the model.
  */
-import { useCallback, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react'
 import { Button, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './Market.module.css'
-import { api } from './market-data.ts'
-import type { RegistryPlugin } from './market-data.ts'
+import { api, type RegistryPlugin } from './market-data.ts'
 import type { FindResult } from './FindPluginCard.tsx'
 import { IconQuestionOutline14 } from './icons.ts'
 import { openModelSettings } from './model-settings.ts'
+import { StripArrows, StripRow } from './DiscoverStrip.tsx'
+import { parseSavedAiRecommend, type SavedAiPick, type SavedAiRecommend } from './discover-teasers.ts'
 
 type Translate = (key: string) => string
 const STORAGE_KEY = 'taichi-dshm-ai-recommend'
+const EMPTY: SavedAiRecommend = { picks: [], intro: '' }
 
 type RecState =
   | { phase: 'idle' }
-  | { phase: 'running'; previous: string[] }
-  | { phase: 'done'; urls: string[] }
+  | ({ phase: 'running' } & SavedAiRecommend)
+  | ({ phase: 'done' } & SavedAiRecommend)
   | { phase: 'error'; code: string; message: string }
 
-function readSaved(): string[] | null {
+function readSaved(): SavedAiRecommend | null {
   try {
-    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as { urls?: unknown } | null
-    return Array.isArray(value?.urls) ? value.urls.filter((url): url is string => typeof url === 'string') : null
+    return parseSavedAiRecommend(localStorage.getItem(STORAGE_KEY))
   } catch {
     return null
   }
 }
 
-function save(urls: string[] | null): void {
+function save(value: SavedAiRecommend | null): void {
   try {
-    if (urls === null) localStorage.removeItem(STORAGE_KEY)
-    else localStorage.setItem(STORAGE_KEY, JSON.stringify({ urls, at: new Date().toISOString() }))
+    if (value === null) localStorage.removeItem(STORAGE_KEY)
+    else localStorage.setItem(STORAGE_KEY, JSON.stringify({ picks: value.picks, intro: value.intro, at: new Date().toISOString() }))
   } catch { /* storage unavailable: the set just is not kept */ }
 }
 
-export function AiRecommend({ t, lang, plugins, render }: {
+export function AiRecommend({ t, lang, plugins, renderTile }: {
   t: Translate
   lang: string
   plugins: RegistryPlugin[]
-  render: (items: RegistryPlugin[]) => ReactNode
+  renderTile: (plugin: RegistryPlugin, why: string) => ReactElement
 }): ReactElement {
   const [state, setState] = useState<RecState>(() => {
-    const urls = readSaved()
-    return urls === null ? { phase: 'idle' } : { phase: 'done', urls }
+    const saved = readSaved()
+    return saved === null ? { phase: 'idle' } : { phase: 'done', ...saved }
   })
   const [setupFailed, setSetupFailed] = useState(false)
   const seq = useRef(0)
+  const rowRef = useRef<HTMLDivElement>(null)
 
   const byUrl = useMemo(() => new Map(plugins.map(plugin => [plugin.url, plugin])), [plugins])
-  const namesOf = useCallback((urls: string[]) => urls.flatMap(url => byUrl.get(url)?.name ?? []), [byUrl])
+  const namesOf = useCallback((picks: readonly SavedAiPick[]) => picks.flatMap(pick => byUrl.get(pick.url)?.name ?? []), [byUrl])
 
-  const run = useCallback((exclude: string[]) => {
+  const run = useCallback((exclude: string[], previous: SavedAiRecommend) => {
     const mine = ++seq.current
     setSetupFailed(false)
-    setState({ phase: 'running', previous: exclude })
+    setState({ picks: previous.picks, intro: previous.intro, phase: 'running' })
     fetch(api('/taichi-dsh-market/ai-recommend'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -69,9 +72,12 @@ export function AiRecommend({ t, lang, plugins, render }: {
       .then(({ ok, body }) => {
         if (mine !== seq.current) return
         if (ok && body.result !== undefined) {
-          const urls = body.result.picks.map(pick => pick.url)
-          save(urls)
-          setState({ phase: 'done', urls })
+          const picks = body.result.picks.flatMap(pick => (
+            typeof pick.url === 'string' && pick.url !== '' ? [{ url: pick.url, why: pick.why }] : []
+          ))
+          const next = { picks, intro: body.result.intro }
+          save(next)
+          setState({ phase: 'done', ...next })
         } else setState({ phase: 'error', code: body.code ?? 'model-failed', message: body.error ?? '' })
       })
       .catch((error: unknown) => {
@@ -89,10 +95,19 @@ export function AiRecommend({ t, lang, plugins, render }: {
     void openModelSettings().then(ok => { if (!ok) setSetupFailed(true) })
   }, [])
 
+  const shown = state.phase === 'done' || state.phase === 'running' ? state.picks : EMPTY.picks
+  const entries = useMemo(
+    () => shown.flatMap(pick => {
+      const plugin = byUrl.get(pick.url)
+      return plugin === undefined ? [] : [{ plugin, why: pick.why }]
+    }),
+    [shown, byUrl],
+  )
+
   if (state.phase === 'idle') {
     return (
       <div className={css.recTrigger} data-taichi-dshm-ai-recommend="idle">
-        <button type="button" className={css.fpLink} onClick={() => run([])}>{t('recTrigger')}</button>
+        <button type="button" className={css.fpLink} onClick={() => run([], EMPTY)}>{t('recTrigger')}</button>
         <Tooltip label={t('recHelp')} side="bottom" delayMs={150} portal maxWidth={320}>
           <span className={css.aiHelp} tabIndex={0} aria-label={t('recHelp')}><IconQuestionOutline14 size={14} /></span>
         </Tooltip>
@@ -100,19 +115,20 @@ export function AiRecommend({ t, lang, plugins, render }: {
     )
   }
 
-  const items = state.phase === 'done' ? state.urls.flatMap(url => byUrl.get(url) ?? []) : []
   return (
     <section className={css.recBlock} aria-labelledby="taichi-dshm-ai-recommend" data-taichi-dshm-ai-recommend={state.phase}>
       <div className={css.recHead}>
         <h3 id="taichi-dshm-ai-recommend" className={css.favoritesSectionHead}>{t('recTitle')}</h3>
+        {entries.length > 0 && <StripArrows rowRef={rowRef} t={t} />}
         <span className={css.recActions}>
-          {state.phase === 'done' && <Button variant="ghost" size="sm" className={css.recentHide} onClick={() => run(namesOf(state.urls))}>{t('recMore')}</Button>}
+          {state.phase === 'done' && <Button variant="ghost" size="sm" className={css.recentHide} onClick={() => run(namesOf(state.picks), state)}>{t('recMore')}</Button>}
           <Button variant="ghost" size="sm" className={css.recentHide} onClick={close}>{t('recClose')}</Button>
         </span>
       </div>
       <div className={css.recStatus}>
         {state.phase === 'running' && <span>{t('recRunning')}</span>}
-        {state.phase === 'done' && <span>{items.length === 0 ? t('recEmpty') : t('fpFoot')}</span>}
+        {state.phase === 'done' && state.intro !== '' && <span>{state.intro}</span>}
+        {state.phase === 'done' && <span>{entries.length === 0 ? t('recEmpty') : t('fpFoot')}</span>}
         {state.phase === 'error' && state.code === 'no-model' && (
           <>
             <span data-tone="error">{t('recNoModel')}</span>
@@ -124,11 +140,15 @@ export function AiRecommend({ t, lang, plugins, render }: {
         {state.phase === 'error' && state.code !== 'no-model' && state.code !== 'no-seeds' && (
           <>
             <span data-tone="error">{t('recFailed') + state.message}</span>
-            <Button size="sm" variant="outline" onClick={() => run([])}>{t('recRetry')}</Button>
+            <Button size="sm" variant="outline" onClick={() => run([], EMPTY)}>{t('recRetry')}</Button>
           </>
         )}
       </div>
-      {items.length > 0 && render(items)}
+      {entries.length > 0 && (
+        <StripRow id="taichi-dshm-ai-grid" rowRef={rowRef}>
+          {entries.map(entry => renderTile(entry.plugin, entry.why))}
+        </StripRow>
+      )}
     </section>
   )
 }

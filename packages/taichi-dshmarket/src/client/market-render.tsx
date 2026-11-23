@@ -8,6 +8,7 @@ import {
   blockAliases,
   catalogEntryForInstalled,
   compareInstalledRows,
+  formatCount,
   hostCompatibilityKey,
   isInstalled,
   matchInstalledName,
@@ -21,6 +22,8 @@ import { HostCheckbox, HostSwitch, HostTag } from './optional-primitives.ts'
 import { IconLoadingOutline16, IconWarningOutline16 } from './icons.ts'
 import { recordForUrl } from './operations.ts'
 import { isLocalDev, isPluginUpdatable } from './market-helpers.ts'
+import { addedAgoLabel } from './discover-teasers.ts'
+import { downloadStatistic, downloadStatsText } from './download-stats.ts'
 import { hostRequirementChip, phaseLabel } from './MarketStatusParts.tsx'
 import {
   aheadFacts,
@@ -596,10 +599,31 @@ export function useMarketRender(c: MarketRenderIn) {
                 )
   }
 
-  const recentTile = (p: RegistryPlugin) => {
-    const desc = (p.description && (p.description[lang] || p.description.en)) || ''
+  const recentTile = (p: RegistryPlugin, hint?: { blurb?: string; meta?: 'added' | 'downloads' | 'none' }) => {
+    const catalogDesc = (p.description && (p.description[lang] || p.description.en)) || ''
+    const desc = hint?.blurb !== undefined && hint.blurb !== '' ? hint.blurb : catalogDesc
+    const metaKind = hint?.meta ?? 'added'
+    let meta: string | null = null
+    let metaTip: string | null = null
+    if (metaKind === 'added') meta = addedAgoLabel(p.added, Date.now(), t)
+    else if (metaKind === 'downloads') {
+      const statistic = downloadStatistic(p)
+      if (statistic !== null) {
+        meta = formatCount(statistic.count)
+        metaTip = downloadStatsText(p, t)
+      }
+    }
     const record = recordForUrl(records, p.url)
     const blocked = record !== null && (record.state === 'input' || record.state === 'failed')
+    const metaNode = meta === null || meta === ''
+      ? null
+      : metaTip !== null && metaTip !== ''
+        ? (
+            <Tooltip label={metaTip} side="bottom" maxWidth={320} delayMs={HOVER_TIP_DELAY_MS}>
+              <span className={css.recentMeta} tabIndex={0}>{meta}</span>
+            </Tooltip>
+          )
+        : <span className={css.recentMeta}>{meta}</span>
     return (
       <div key={p.url} className={blocked ? `${css.recentTile} ${css.cardBlocked}` : css.recentTile}>
         <div className={css.recentTitle}>
@@ -611,6 +635,7 @@ export function useMarketRender(c: MarketRenderIn) {
               </a>
             </Tooltip>
           </div>
+          {metaNode}
           {installAction(p)}
         </div>
         <div className={css.recentBottom}>

@@ -11,6 +11,7 @@ import {
   type DrainOperationWire,
   failureText,
   hostCompatibilityKey,
+  isInstalled,
   matchInstalledName,
   pluginCategories,
   pluginsForFavorites,
@@ -20,8 +21,9 @@ import {
   visiblePlugins,
 } from './market-data.ts'
 import { drop, enqueue, type OperationRecord, patch as patchRecord } from './operations.ts'
-import { blockedSessions, readRecentCollapsed, readRecentFlag, withoutHostProjection, writeRecentFlag } from './market-helpers.ts'
-import { DEFAULT_PAGE_SIZE, RECENT_COLLAPSED_KEY, RECENT_HIDDEN_KEY, RECENT_STRIP_LIMIT } from './market-constants.ts'
+import { blockedSessions, readRecentCollapsed, readRecentFlag, readRecommendCollapsed, withoutHostProjection, writeRecentFlag } from './market-helpers.ts'
+import { recommendedToInstall } from './discover-teasers.ts'
+import { DEFAULT_PAGE_SIZE, RECENT_COLLAPSED_KEY, RECENT_HIDDEN_KEY, RECOMMEND_COLLAPSED_KEY, RECOMMEND_HIDDEN_KEY, RECENT_STRIP_LIMIT } from './market-constants.ts'
 import { usePagination, useShownCount } from './MarketListControls.tsx'
 import { discoveryScan } from './MarketImages.tsx'
 import type { CompatibilityNotice, ConflictNotice, MarketSectionProps } from './market-types.ts'
@@ -115,21 +117,33 @@ export function useMarketInstall(c: MarketInstallIn) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [pluginsAll, blockedNameSet, installed, repoIdentities, data, repoHints])
   // A sort the user chose is a request to see the list in THAT order, and
-  // this block ignores the sort by design (it is "what was added in the last
-  // seven days", ordered by downloads). Left in place it sits between the
-  // control and the list it just reordered: on a 1166px window it fills the
-  // screen, so switching to Stars looked like it did nothing (#1016). The
-  // block is a front-page teaser for the unfiltered default view — one more
-  // narrowing, alongside query, category and time range.
-  const recentlyAdded = useMemo(
-    () => data === null || tab !== 'discover' || q.trim() !== '' || cat !== 'all' || timeRange !== 'all'
-      || sortField !== 'downloads' || sortDir !== 'desc'
-      ? []
-      : visiblePlugins(data.plugins, {
-          category: 'all', query: '', lang, sort: 'downloads-desc', sinceDays: 7,
-        }).filter(plugin => !pluginBlocked(plugin)),
+  // these blocks ignore the sort by design (recent is "added in the last
+  // seven days", recommend is "not installed, most downloaded"). Left in
+  // place they sit between the control and the list it just reordered: on a
+  // 1166px window they fill the screen, so switching to Stars looked like it
+  // did nothing (#1016). Both are front-page teasers for the unfiltered
+  // default view — one more narrowing, alongside query, category and time range.
+  const discoverTeasers = useMemo(() => {
+    const empty = { recent: [] as RegistryPlugin[], recommend: [] as RegistryPlugin[] }
+    if (data === null || tab !== 'discover' || q.trim() !== '' || cat !== 'all' || timeRange !== 'all'
+      || sortField !== 'downloads' || sortDir !== 'desc') return empty
+    const recent = visiblePlugins(data.plugins, {
+      category: 'all', query: '', lang, sort: 'downloads-desc', sinceDays: 7,
+    }).filter(plugin => !pluginBlocked(plugin))
+    const ranked = visiblePlugins(data.plugins, {
+      category: 'all', query: '', lang, sort: 'downloads-desc',
+    })
+    const excludeUrls = new Set(recent.slice(0, RECENT_STRIP_LIMIT).map(plugin => plugin.url))
+    const recommend = recommendedToInstall(ranked, {
+      installed: plugin => isInstalled(plugin, installed, repoIdentities, data.plugins, repoHints),
+      blocked: pluginBlocked,
+      excludeUrls,
+      limit: RECENT_STRIP_LIMIT,
+    })
+    return { recent, recommend }
+    // pluginBlocked closes over the installed map and the catalog match.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, tab, q, cat, timeRange, sortField, sortDir, lang, blockedNameSet, installed, repoIdentities, repoHints])
+  }, [data, tab, q, cat, timeRange, sortField, sortDir, lang, blockedNameSet, installed, repoIdentities, repoHints])
   const [recentCollapsed, setRecentCollapsed] = useState(() => readRecentCollapsed(RECENT_COLLAPSED_KEY))
   const [recentHidden, setRecentHidden] = useState(() => readRecentFlag(RECENT_HIDDEN_KEY))
   const toggleRecentCollapsed = useCallback(() => {
@@ -150,6 +164,23 @@ export function useMarketInstall(c: MarketInstallIn) {
     setRecentCollapsed(false)
     writeRecentFlag(RECENT_COLLAPSED_KEY, false)
   }, [])
+  const [recommendCollapsed, setRecommendCollapsed] = useState(() => readRecommendCollapsed(RECOMMEND_COLLAPSED_KEY))
+  const [recommendHidden, setRecommendHidden] = useState(() => readRecentFlag(RECOMMEND_HIDDEN_KEY))
+  const toggleRecommendCollapsed = useCallback(() => {
+    const next = !recommendCollapsed
+    setRecommendCollapsed(next)
+    writeRecentFlag(RECOMMEND_COLLAPSED_KEY, next)
+  }, [recommendCollapsed])
+  const hideRecommend = useCallback(() => {
+    setRecommendHidden(true)
+    writeRecentFlag(RECOMMEND_HIDDEN_KEY, true)
+  }, [])
+  const showRecommend = useCallback(() => {
+    setRecommendHidden(false)
+    writeRecentFlag(RECOMMEND_HIDDEN_KEY, false)
+    setRecommendCollapsed(false)
+    writeRecentFlag(RECOMMEND_COLLAPSED_KEY, false)
+  }, [])
   // Fix the slice before compatibility resolves. Hiding a card must not
   // pull in an unchecked replacement and start another batch.
   const discoverResetDeps = [q, cat, sortField, sortDir, timeRange]
@@ -159,7 +190,8 @@ export function useMarketInstall(c: MarketInstallIn) {
   const basePage = surface === 'plugins'
     ? pluginsUnblocked.slice(0, discoverMore.shown)
     : pluginsUnblocked.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-  const baseRecent = recentlyAdded.slice(0, RECENT_STRIP_LIMIT)
+  const baseRecent = discoverTeasers.recent.slice(0, RECENT_STRIP_LIMIT)
+  const baseRecommend = discoverTeasers.recommend
   const hostVerdict = (plugin: RegistryPlugin) => {
     const key = hostCompatibilityKey(plugin)
     return key === null ? undefined : hostCompatibility[key]
@@ -168,10 +200,16 @@ export function useMarketInstall(c: MarketInstallIn) {
     !compatibleWithHost || hostVerdict(plugin)?.status !== 'incompatible'
   const pagePlugins = basePage.filter(compatible)
   const recentPlugins = baseRecent.filter(compatible)
+  const recommendPlugins = baseRecommend.filter(compatible)
   const hasRecent = recentPlugins.length > 0
-  // A catalog card can appear both in the grid and in the recent strip.
+  const hasRecommend = recommendPlugins.length > 0
+  // A catalog card can appear in the grid and in a teaser strip.
   // Keep distinct cards in counts even when they share the same lookup key.
-  const discoverCandidates = [...new Set([...basePage, ...(!recentHidden && !recentCollapsed ? baseRecent : [])])]
+  const discoverCandidates = [...new Set([
+    ...basePage,
+    ...(!recentHidden && !recentCollapsed ? baseRecent : []),
+    ...(!recommendHidden && !recommendCollapsed ? baseRecommend : []),
+  ])]
   const pageHostPackages = [...new Set(discoverCandidates.map(hostCompatibilityKey).filter(key => key !== null))]
   const pageVerdicts = discoverCandidates.map(hostVerdict)
   const loadedHostPackages = pageHostPackages.filter(key => hostCompatibility[key] !== undefined).length
@@ -652,11 +690,12 @@ export function useMarketInstall(c: MarketInstallIn) {
     currentPage, discoverMore, doInstall, doReplace, doRollback, downloadFile, favoriteListed,
     favoritePagePlugins, favoritePageThemes, favoritePluginMore, favoritePluginPagination,
     favoritePlugins, favoriteStale, favoriteTabCount, favoriteThemeMore, favoriteThemePagination,
-    favoriteThemes, favoritesAllStale, goToPage, hasRecent, hideRecent, hostHiddenCount,
+    favoriteThemes, favoritesAllStale, goToPage, hasRecent, hasRecommend, hideRecent, hideRecommend, hostHiddenCount,
     hostUnavailableCount, installedBlocked, loadedHostPackages, pageHostPackages, pagePlugins,
     pageSize, pluginsAll, pluginsUnblocked, recentCollapsed, recentHidden, recentPlugins,
-    shadowSummary, showRecent, themeMore, themePagePlugins, themePagination, themePlugins,
-    themePluginsAll, toggleRecentCollapsed, totalPages,
+    recommendCollapsed, recommendHidden, recommendPlugins,
+    shadowSummary, showRecent, showRecommend, themeMore, themePagePlugins, themePagination, themePlugins,
+    themePluginsAll, toggleRecentCollapsed, toggleRecommendCollapsed, totalPages,
   } as const
 }
 

@@ -3,14 +3,11 @@
  */
 
 import { Button, Input, Menu, Pill, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { RefObject } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import css from './Market.module.css'
 import { IconCloseOutline16 } from './icons.ts'
 import {
   IconChevronDownOutline14,
-  IconChevronLeftOutline14,
-  IconChevronRightOutline14,
   IconChevronUpOutline14,
   IconDownloadOutline16,
   IconFolderOpen16,
@@ -31,47 +28,10 @@ import type { MarketOperationsCtx } from './market-operations.ts'
 import type { MarketSectionProps } from './market-types.ts'
 import { useAiSearch } from './AiSearch.tsx'
 import { AiRecommend } from './AiRecommend.tsx'
+import { DiscoverStrip } from './DiscoverStrip.tsx'
 
 type MarketGoneNoticeCtx = { props: MarketSectionProps }
   & Pick<MarketStateCtx, 'reconnecting' | 'setReconnectRound' | 't'>
-
-/**
- * Recently added scrolls sideways, and a thin scrollbar that only shows on
- * hover (or never, on macOS) does not say so. Two arrows in the section head
- * do: each one is there only while there is more to see in its direction.
- */
-function RecentArrows({ rowRef, t }: { rowRef: RefObject<HTMLDivElement | null>; t: (key: 'recentPrev' | 'recentNext') => string }) {
-  const [edges, setEdges] = useState({ left: false, right: false })
-  useEffect(() => {
-    const row = rowRef.current
-    if (row === null) return
-    const measure = () => {
-      const max = row.scrollWidth - row.clientWidth
-      setEdges({ left: row.scrollLeft > 2, right: row.scrollLeft < max - 2 })
-    }
-    measure()
-    row.addEventListener('scroll', measure, { passive: true })
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
-    observer?.observe(row)
-    return () => { row.removeEventListener('scroll', measure); observer?.disconnect() }
-  }, [rowRef])
-  if (!edges.left && !edges.right) return null
-  const page = (direction: 1 | -1) => {
-    const row = rowRef.current
-    if (row === null) return
-    row.scrollBy({ left: direction * row.clientWidth * 0.85, behavior: 'smooth' })
-  }
-  return (
-    <span className={css.recentArrows}>
-      <button type="button" className={css.recentArrow} disabled={!edges.left} aria-label={t('recentPrev')} onClick={() => page(-1)}>
-        <IconChevronLeftOutline14 size={14} />
-      </button>
-      <button type="button" className={css.recentArrow} disabled={!edges.right} aria-label={t('recentNext')} onClick={() => page(1)}>
-        <IconChevronRightOutline14 size={14} />
-      </button>
-    </span>
-  )
-}
 
 const HOST_FILTER_NOTE_KEY = 'taichi-dshm-host-filter-note-closed'
 
@@ -326,8 +286,9 @@ type DiscoverTabCtx = { props: MarketSectionProps } & CatalogStatusCtx
     'basePage' | 'changePageSize' | 'currentPage' | 'discoverMore' | 'goToPage' | 'hasRecent' |
     'hideRecent' | 'hostHiddenCount' | 'hostUnavailableCount' | 'loadedHostPackages' |
     'pageHostPackages' | 'pagePlugins' | 'pageSize' | 'pluginsAll' | 'pluginsUnblocked' |
-    'recentCollapsed' | 'recentHidden' | 'recentPlugins' | 'showRecent' | 'toggleRecentCollapsed' |
-    'totalPages'>
+    'recentCollapsed' | 'recentHidden' | 'recentPlugins' | 'recommendCollapsed' | 'recommendHidden' |
+    'recommendPlugins' | 'showRecent' | 'showRecommend' | 'toggleRecentCollapsed' | 'toggleRecommendCollapsed' |
+    'hasRecommend' | 'hideRecommend' | 'totalPages'>
   & Pick<MarketRenderCtx, 'categories' | 'catsExpanded' | 'pluginCard' | 'recentTile'>
 
 export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
@@ -337,11 +298,12 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
     hideRecent, hostHiddenCount, hostUnavailableCount, hostVersion, lang, loadError,
     loadedHostPackages, pageHostPackages, pagePlugins, pageSize, pluginCard, pluginsAll,
     pluginsUnblocked, q, recentCollapsed, recentHidden, recentPlugins, recentTile,
+    recommendCollapsed, recommendHidden, recommendPlugins,
     resetDiscoverSearch, setCat, setCatsOpen, setCatsSentinel, setCompatibleWithHost, setQ,
-    setSortDir, setSortField, setStuckExpanded, setTimeRange, showRecent, sortDir, sortField,
-    surface, t, timeRange, toggleRecentCollapsed, totalPages, visibleCats,
+    setSortDir, setSortField, setStuckExpanded, setTimeRange, showRecent, showRecommend, sortDir, sortField,
+    surface, t, timeRange, toggleRecentCollapsed, toggleRecommendCollapsed, totalPages, visibleCats,
+    hasRecommend, hideRecommend,
   } = c
-  const recentRowRef = useRef<HTMLDivElement | null>(null)
   const aiSearch = useAiSearch(t)
   // AI picks resolved to the catalog's own entries (by repository URL: names
   // are not unique), in the model's order, drawn exactly like ordinary results.
@@ -442,39 +404,48 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
               </div>
               </div>
               {aiSearch.status}
-              {aiPlugins === null && hasRecent && (recentHidden
-                ? <button type="button" className={css.recentShow} onClick={showRecent}>
-                    <IconChevronRightOutline14 size={14} />{t('recentShow')}
-                  </button>
-                : <section className={css.recentBlock} aria-labelledby="taichi-dshm-recently-added">
-                    <div className={css.recentHead}>
-                      <h3 id="taichi-dshm-recently-added" className={css.favoritesSectionHead}>
-                        <button
-                          type="button"
-                          className={css.recentToggle}
-                          aria-expanded={!recentCollapsed}
-                          aria-controls="taichi-dshm-recent-grid"
-                          onClick={toggleRecentCollapsed}
-                        >
-                          {recentCollapsed ? <IconChevronRightOutline14 size={14} /> : <IconChevronDownOutline14 size={14} />}
-                          {t('recentlyAdded')}
-                        </button>
-                      </h3>
-                      {!recentCollapsed && <RecentArrows rowRef={recentRowRef} t={t} />}
-                      <Button variant="ghost" size="sm" className={css.recentHide} onClick={hideRecent}>{t('recentHide')}</Button>
-                    </div>
-                    {/* #940: clipped in place, never unmounted. */}
-                    <div
-                      id="taichi-dshm-recent-grid"
-                      ref={recentRowRef}
-                      className={recentCollapsed ? `${css.recentRow} ${css.recentCollapsed}` : css.recentRow}
-                    >
-                      {recentPlugins.map(plugin => recentTile(plugin))}
-                    </div>
-                  </section>
+              {aiPlugins === null && hasRecommend && (
+                <DiscoverStrip
+                  titleId="taichi-dshm-recommend-install"
+                  gridId="taichi-dshm-recommend-grid"
+                  title={t('recommendInstall')}
+                  help={t('recommendInstallHelp')}
+                  plugins={recommendPlugins}
+                  collapsed={recommendCollapsed}
+                  hidden={recommendHidden}
+                  showLabel={t('recommendShow')}
+                  hideLabel={t('recommendHide')}
+                  onToggle={toggleRecommendCollapsed}
+                  onHide={hideRecommend}
+                  onShow={showRecommend}
+                  tile={plugin => recentTile(plugin, { meta: 'downloads' })}
+                  t={t}
+                />
+              )}
+              {aiPlugins === null && hasRecent && (
+                <DiscoverStrip
+                  titleId="taichi-dshm-recently-added"
+                  gridId="taichi-dshm-recent-grid"
+                  title={t('recentlyAdded')}
+                  plugins={recentPlugins}
+                  collapsed={recentCollapsed}
+                  hidden={recentHidden}
+                  showLabel={t('recentShow')}
+                  hideLabel={t('recentHide')}
+                  onToggle={toggleRecentCollapsed}
+                  onHide={hideRecent}
+                  onShow={showRecent}
+                  tile={plugin => recentTile(plugin)}
+                  t={t}
+                />
               )}
               {aiPlugins === null && (
-                <AiRecommend t={t} lang={lang} plugins={data.plugins} render={items => <Masonry items={items} render={plugin => pluginCard(plugin)} />} />
+                <AiRecommend
+                  t={t}
+                  lang={lang}
+                  plugins={data.plugins}
+                  renderTile={(plugin, why) => recentTile(plugin, { meta: 'none', blurb: why })}
+                />
               )}
               {aiPlugins !== null
                 ? (aiPlugins.length === 0

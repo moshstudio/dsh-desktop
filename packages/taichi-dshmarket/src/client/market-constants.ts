@@ -54,6 +54,10 @@ export const TIME_OPTIONS: ReadonlyArray<{ key: TimeRange; label: string }> = [
  */
 export const RECENT_COLLAPSED_KEY = 'taichi-dshm-recent-collapsed'
 export const RECENT_HIDDEN_KEY = 'taichi-dshm-recent-hidden'
+/** 推荐安装 display preferences. Same shape as the recent strip, but the
+ * default is expanded: this row is the install action, so it starts open. */
+export const RECOMMEND_COLLAPSED_KEY = 'taichi-dshm-recommend-collapsed'
+export const RECOMMEND_HIDDEN_KEY = 'taichi-dshm-recommend-hidden'
 /** Cap for the Discover teaser. Extra tiles live in a quiet horizontal
  * scroll so the block stays one row tall. */
 export const RECENT_STRIP_LIMIT = 8

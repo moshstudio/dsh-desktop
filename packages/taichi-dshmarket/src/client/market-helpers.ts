@@ -290,6 +290,11 @@ export function readRecentCollapsed(key: string): boolean {
     return true
   }
 }
+
+/** Recommend-install starts expanded. Only an explicit fold is remembered. */
+export function readRecommendCollapsed(key: string): boolean {
+  try { return localStorage.getItem(key) === '1' } catch { return false }
+}
 export function writeRecentFlag(key: string, next: boolean): void {
   try { localStorage.setItem(key, next ? '1' : '0') } catch { /* storage unavailable — the choice just won't survive a reload */ }
 }

@@ -21,11 +21,14 @@ function hasEnterprisePlugin(): boolean {
  * the built-in taichi-dshmarket, Office, PPT, and the vendored image/video studio.
  * Safe Mode keeps the account and brand overlay only.
  */
+// rc.5 account notifications require the official account settings client.
 const DESKTOP_PRODUCT_PATCH_BASE = `- id: desktop-product-telemetry
   disabled: true
 - id: product-analytics
   disabled: true
 - id: ui-settings-account
+  disabled: true
+- id: ui-account-notifications
   disabled: true
 - id: ui-brand-official
   disabled: true
@@ -59,6 +62,14 @@ const DESKTOP_MARKET_ROW = `    - id: dsh-desktop-market-installer
 // switch closes every row whose id is in the disabled package's patch.
 const DESKTOP_TAICHI_MARKET_ROW = `    - id: taichi-dshmarket
       name: taichi-dshmarket
+`
+
+// The web bundle enables these providers too. Desktop installs its own copies
+// against the validated runtime and the installation's customized skill assets.
+const DESKTOP_OFFICE_OVERRIDES = `- id: workspace-dependencies
+  disabled: true
+- id: skill-office
+  disabled: true
 `
 
 const DESKTOP_OFFICE_ROW = `    - id: dsh-desktop-office
@@ -110,7 +121,7 @@ export const DESKTOP_SAFE_PRODUCT_PATCH = DESKTOP_PRODUCT_PATCH_BASE
 
 export function buildDesktopProductPatch(): string {
   const enterprise = hasEnterprisePlugin() ? DESKTOP_ENTERPRISE_ROW : ''
-  return `${DESKTOP_PRODUCT_PATCH_BASE}${enterprise}${DESKTOP_WORKBENCH_ROW}${DESKTOP_MARKET_ROW}${DESKTOP_TAICHI_MARKET_ROW}${DESKTOP_OFFICE_ROW}${DESKTOP_PPT_ROW}${DESKTOP_IMAGE_ROW}`
+  return `${DESKTOP_PRODUCT_PATCH_BASE}${enterprise}${DESKTOP_WORKBENCH_ROW}${DESKTOP_MARKET_ROW}${DESKTOP_TAICHI_MARKET_ROW}${DESKTOP_OFFICE_ROW}${DESKTOP_PPT_ROW}${DESKTOP_IMAGE_ROW}${DESKTOP_OFFICE_OVERRIDES}`
 }
 
 export const DESKTOP_PRODUCT_PATCH = buildDesktopProductPatch()

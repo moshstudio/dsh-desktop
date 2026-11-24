@@ -54,7 +54,11 @@ describe('0.2.2 workbench patch slots', () => {
       locale: { register: () => {}, subscribe: () => {} },
       slots: {
         entriesOfSlot: () => [], subscribe: () => {},
-        inject: (_name, callback) => callback(),
+        inject(_name, callback) {
+          const result = callback()
+          if (typeof result?.next === 'function') Array.from(result)
+        },
+        registerFactory: () => () => {},
         register: (options, Component) => registrations.push({ options, Component })
       },
       shortcuts: { catalog: {} },
@@ -80,8 +84,10 @@ describe('0.2.2 workbench patch slots', () => {
       usePanels: () => panels, useEntryPins: () => unpinned, useEntryActions: () => hasActions,
       useRemoteAccess: () => true,
       useShortcuts: () => [], usePanelInfo: selector => selector({ activePanelId: 'schedules' }), t: key => key,
+      renderFactorySlot: () => null,
       renderSlot: (name, owner, options) => {
         rendered.push({ name, owner })
+        if (name === 'sidebar.session.action') return options.children
         if (name === 'sidebar.quickSwitcher') return React.createElement('span', null, 'Workbench switcher')
         if (name === 'sidebar.settings') return React.createElement('button', null, 'Settings contribution')
         if (name === 'sidebar.settings.action') return React.createElement('button', null, 'Recovery contribution')
@@ -98,6 +104,18 @@ describe('0.2.2 workbench patch slots', () => {
       dom.window.document.documentElement.toggleAttribute('data-dsh-workbench-active', active)
       for (const button of buttons) expect(dom.window.getComputedStyle(button).display === 'none').toBe(active)
     }
+    const scrollArea = dom.window.document.querySelector('[class~="hHd-Xa_scrollArea"]')
+    const navigation = scrollArea.querySelector(':scope > [data-dsh-sidebar-navigation]')
+    const switcher = navigation?.firstElementChild
+    expect(switcher?.textContent).toBe('Workbench switcher')
+    expect(navigation.style.gridArea).toMatch(/^2\s*\/\s*2$/)
+    expect(navigation.style.flexDirection).toBe('column')
+    if (panels.length) {
+      const nativeNav = navigation.querySelector('nav')
+      expect(nativeNav.previousElementSibling).toBe(switcher)
+      expect(nativeNav.querySelector('button[aria-label="Plugins"]')).not.toBeNull()
+    }
+    expect(navigation.nextElementSibling.classList.contains('hHd-Xa_regionArea')).toBe(true)
     dom.window.close()
 
     expect(markup).toContain('Workbench switcher')

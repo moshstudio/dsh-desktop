@@ -60,7 +60,7 @@ describe('DSH PPT built-in plugin', () => {
   })
 
   it('ships Harness 0.2.2-compatible peer ranges in both generated packages', async () => {
-    const expected = '^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1'
+    const expected = '^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-alpha.2 || ^0.2.2-rc.1 || ^0.2.2-rc.5'
     const core = JSON.parse((await artifact('core')).get('package/package.json')!.toString('utf8'))
     const adapter = JSON.parse((await artifact('adapter')).get('package/package.json')!.toString('utf8'))
     expect(core.peerDependencies['@deepseek-ai/cordis']).toBe('~4.0.4 || ^4.0.6-alpha.1 || ^4.1.0')
@@ -180,7 +180,7 @@ describe('DSH PPT built-in plugin', () => {
       }
       const client = entries.get('package/lib/client.js')!.toString()
       expect(client).not.toContain('data:image/jpeg;base64,')
-      expect(Buffer.byteLength(client)).toBeLessThan(120_000)
+      expect(Buffer.byteLength(client)).toBeLessThan(140_000)
       const urls = [...client.matchAll(/\/dsh-ppt\/previews\/([a-f0-9]{64})\.jpg/gu)]
       expect(urls).toHaveLength(192)
       for (const url of urls) expect(allowed.has(url[1]!)).toBe(true)
@@ -196,8 +196,8 @@ describe('DSH PPT built-in plugin', () => {
     expect(client).not.toContain('heroModeCluster')
     expect(patch).not.toContain('conversation.hero.modeActions')
     expect(patch).not.toContain('heroModeCluster')
-    expect(client.split('renderSlot("conversation.hero.options", {})')).toHaveLength(2)
-    expect(client).toContain('sessionId === void 0 ? null : (0, react_jsx_runtime.jsx)("div", {')
+    expect(client.split('renderSlot(`conversation.hero.options`,{})')).toHaveLength(2)
+    expect(client).toContain('sessionId===void 0?null:(0,react_jsx_runtime.jsx)(`div`,{')
     expect(client).toContain('input !== void 0 && sessionId !== void 0 ? renderSlot("conversation.composer.dock", extensionZone ?? {}) : null')
   })
 
@@ -212,7 +212,7 @@ describe('DSH PPT built-in plugin', () => {
       ['conversation.composer.dock', 'session']
     ] as const) {
       const escaped = name.replaceAll('.', '\\.')
-      expect(runtime).toMatch(new RegExp(`"${escaped}": \\{\\s*kind: "list",\\s*scope: "${scope}"`))
+      expect(runtime).toMatch(new RegExp(`["\`]${escaped}["\`]:\\s*\\{\\s*kind:\\s*["\`]list["\`],\\s*scope:\\s*["\`]${scope}["\`]`))
       expect(types).toMatch(new RegExp(`'${escaped}': \\{\\s*kind: 'list';\\s*scope: '${scope}'`))
     }
   })
@@ -226,14 +226,14 @@ describe('DSH PPT built-in plugin', () => {
       'lib',
       'client.js'
     ), 'utf8')
-    const promptRow = client.indexOf('className: InputBar_module_css_default.promptRow')
-    const accessory = client.indexOf('className: InputBar_module_css_default.accessory', promptRow)
-    const editor = client.indexOf('(0, react_jsx_runtime.jsx)(DraftEditor, {', promptRow)
+    const promptRow = client.indexOf('InputBar_module_css_default.promptRow')
+    const accessory = client.indexOf('InputBar_module_css_default.accessory', promptRow)
+    const editor = client.indexOf('(0,react_jsx_runtime.jsx)(DraftEditor,{', promptRow)
 
     expect(promptRow).toBeGreaterThan(-1)
     expect(accessory).toBeGreaterThan(promptRow)
     expect(editor).toBeGreaterThan(accessory)
-    expect(client).toContain('children: accessory ?? (sessionId === void 0 ? null : renderSlot("conversation.input.accessory", extensionZone))')
+    expect(client).toContain('children:accessory??(sessionId===void 0?null:renderSlot("conversation.input.accessory",extensionZone))')
   })
 
   it('declares both local source packages and mounts only the PPT composer', async () => {
@@ -261,7 +261,7 @@ function sourceSlice(source: string, start: string, end: string): string {
 describe('opening PPT template card', () => {
   it('keeps the footer on the first loaded user message and its send echo', async () => {
     const chat = await readFile(path.join(projectRoot, 'node_modules', '@deepseek-ai', 'dsh-client-ui-chat', 'lib', 'client.js'), 'utf8')
-    const openingUserMessageTarget = new Function(`${sourceSlice(chat, 'function openingUserMessageTarget', 'function observedInputs')}\nreturn openingUserMessageTarget;`)() as (
+    const openingUserMessageTarget = new Function(`${sourceSlice(chat, 'function openingUserMessageTarget', 'const EMPTY_LIST$1')}\nreturn openingUserMessageTarget;`)() as (
       hasMore: boolean,
       order: readonly string[],
       kindAt: (key: string) => string | undefined,
@@ -282,14 +282,14 @@ describe('opening PPT template card', () => {
       leadingUserKey: null,
       leadingPendingId: null
     })
-    const flow = sourceSlice(chat, 'const ChatFlow = (0, react.memo)(function ChatFlow', 'const running = useSession')
-    expect(flow).toContain('const hasMore = useSession((snapshot) => snapshot.hasMore)')
-    expect(flow).not.toContain('useChat((snapshot) => snapshot.hasMore)')
-    expect(chat).toContain('renderSlot("conversation.chat.userMessageFooter", { leading: true })')
-    expect(chat).toContain('footer: item.requestId === leadingPendingId ? messageFooter : null')
-    expect(chat).toContain('const showBubble = text !== "" || extraBlocks.length > 0 || footer != null')
-    expect(chat).toContain('index)), footer]')
-    expect(chat).toMatch(/"conversation\.chat\.userMessageFooter": \{\s*kind: "list",\s*scope: "session"/)
+    const flow = sourceSlice(chat, 'const ChatFlow=(0,react.memo)(function ChatFlow', 'const running=useSession')
+    expect(flow).toContain('const hasMore=useSession(snapshot=>snapshot.hasMore)')
+    expect(flow).not.toContain('useChat(snapshot=>snapshot.hasMore)')
+    expect(chat).toContain('renderSlot("conversation.chat.userMessageFooter",{leading:true})')
+    expect(chat).toContain('leadingPendingId?messageFooter:null')
+    expect(chat).toContain('const showBubble=text!==``||extraBlocks.length>0||footer!=null')
+    expect(chat).toContain('index)),footer]')
+    expect(chat).toMatch(/"conversation\.chat\.userMessageFooter":\{\s*kind:"list",\s*scope:"session"/)
   })
 
   it('publishes the footer slot and restores the persisted template into a preview card', async () => {

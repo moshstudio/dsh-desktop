@@ -38,7 +38,11 @@ it('boots runProfile on a temporary home and redirects the authenticated documen
     projectDir: profile,
     dshHome: home,
     profile: 'desktop',
-    environment: { DSH_DESKTOP_PATCH_FILE: await writeDesktopProductPatch(home) },
+    environment: {
+      DSH_DESKTOP_PATCH_FILE: await writeDesktopProductPatch(home, 'desktop', { skipBlockingHmr: process.platform === 'win32' }),
+      DSH_DESKTOP_OFFICE_RESOURCES: join(root, '.build', 'office-runtime'),
+      DSH_DESKTOP_OFFICE_CLI: join(root, 'build', 'office-cli.mjs')
+    },
     primaryRuntime: join(home, 'unused-runtime')
   })
   try {
@@ -49,9 +53,18 @@ it('boots runProfile on a temporary home and redirects the authenticated documen
     expect(url.port).not.toBe('')
     const response = await fetch(ready.url, { redirect: 'manual' })
     expect(response.status).toBe(303)
-    expect(response.headers.has('set-cookie')).toBe(true)
+    const cookie = response.headers.get('set-cookie')?.split(';')[0]
+    expect(cookie).toBeTruthy()
+    const office = await fetch(new URL('/api/office-templates', url), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: cookie ?? '' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'office-catalog', method: 'office-templates', payload: { endpoint: 'catalog' } })
+    })
+    expect(office.status, await office.clone().text()).toBe(200)
+    expect(await office.json()).toMatchObject({ result: { ok: true, value: { templates: expect.any(Array) } } })
     const injections = JSON.stringify(ready.injections)
     expect(injections).toContain('dsh-desktop-office')
+    expect(injections).not.toContain('@deepseek-ai/dsh-client-ui-account-notifications')
     expect(injections).toContain('dsh-ppt-composer')
   } finally {
     await host.stop()
@@ -81,6 +94,7 @@ it('boots safe mode without creating the shared profile modules directory', asyn
     await expect(lstat(join(home, 'profiles', 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' })
     const injections = JSON.stringify(ready.injections)
     expect(injections).not.toContain('dsh-desktop-office')
+    expect(injections).not.toContain('@deepseek-ai/dsh-client-ui-account-notifications')
     expect(injections).not.toContain('dsh-ppt-composer')
   } finally {
     await host.stop()

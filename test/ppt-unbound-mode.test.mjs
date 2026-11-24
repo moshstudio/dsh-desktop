@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 const adapter = await readFile(path.resolve('packages/ppt-runtime/adapter/lib/client.js'), 'utf8')
@@ -247,20 +248,33 @@ describe('unbound PPT mode', () => {
 describe('PPT hero and session dock routing', () => {
   it('mounts only the hero dock without a session and only the shared dock with input', async () => {
     const runtime = await readFile(path.resolve('node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js'), 'utf8')
-    const expression = /children: \[([^\n]+), activity \?/.exec(runtime)?.[1]
-    expect(expression).toBeDefined()
-    const render = new Function('sessionId', 'input', 'extensionZone', 'renderSlot', `return ${expression}`)
+    const source = ts.createSourceFile('client.js', runtime, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+    const branches = new Map(['conversation.hero.dock', 'conversation.composer.dock'].map(name => [name, []]))
+    function visit(node) {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'renderSlot') {
+        const name = node.arguments[0]
+        if (name && ts.isStringLiteralLike(name) && branches.has(name.text)) {
+          expect(ts.isConditionalExpression(node.parent) && node.parent.whenTrue === node).toBe(true)
+          branches.get(name.text).push(node.parent.getText(source))
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
     const zone = { marker: 'owner' }
     const calls = []
     const renderSlot = (name, owner) => { calls.push({ name, owner }); return name }
-    const heroExpression = /sessionId === void 0 \? renderSlot\("conversation.hero.dock", zone \?\? \{\}\) : null/.exec(runtime)?.[0]
-    expect(heroExpression).toBeDefined()
-    const hero = new Function('sessionId', 'zone', 'renderSlot', `return ${heroExpression}`)
-    expect(hero(undefined, zone, renderSlot)).toBe('conversation.hero.dock')
-    expect(render(undefined, undefined, zone, renderSlot)).toBeNull()
-    expect(hero('session-a', zone, renderSlot)).toBeNull()
-    expect(render('session-a', {}, zone, renderSlot)).toBe('conversation.composer.dock')
-    expect(render('session-a', undefined, zone, renderSlot)).toBeNull()
+    function render(name, sessionId, input) {
+      const expressions = branches.get(name)
+      expect(expressions).toHaveLength(1)
+      return new Function('sessionId', 'input', 'zone', 'extensionZone', 'renderSlot', `return ${expressions[0]}`)(sessionId, input, zone, zone, renderSlot)
+    }
+    expect(render('conversation.hero.dock', undefined, undefined)).toBe('conversation.hero.dock')
+    expect(render('conversation.composer.dock', undefined, undefined)).toBeNull()
+    expect(render('conversation.composer.dock', undefined, {})).toBeNull()
+    expect(render('conversation.hero.dock', 'session-a', {})).toBeNull()
+    expect(render('conversation.composer.dock', 'session-a', {})).toBe('conversation.composer.dock')
+    expect(render('conversation.composer.dock', 'session-a', undefined)).toBeNull()
     expect(calls).toEqual([
       { name: 'conversation.hero.dock', owner: zone },
       { name: 'conversation.composer.dock', owner: zone }

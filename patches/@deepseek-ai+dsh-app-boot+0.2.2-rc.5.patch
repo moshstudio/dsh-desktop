@@ -1,8 +1,8 @@
 diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
-index 927ba78..0f30509 100644
+index 0fda9d3..e4b967f 100644
 --- a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
-@@ -1149,8 +1149,17 @@ function evaluatePluginCompatibility(manifest, exemptions = {}, runtimeVersion =
+@@ -1154,8 +1154,17 @@ function evaluatePluginCompatibility(manifest, exemptions = {}, runtimeVersion =
  * @returns an English diagnostic for logs and stderr.
  */
  function pluginCompatibilityWarning(issue) {
@@ -22,7 +22,7 @@ index 927ba78..0f30509 100644
  }
  //#endregion
  //#region lib/types/profile-compatibility.js
-@@ -1693,6 +1702,17 @@ function readProfileManifest(binName, dir) {
+@@ -1698,6 +1707,17 @@ function readProfileManifest(binName, dir) {
  	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${binName}: profile manifest ${path} must hold a JSON object`);
  	return parsed;
  }
@@ -40,7 +40,7 @@ index 927ba78..0f30509 100644
  /**
  * Write a profile's manifest back (2-space JSON, trailing newline).
  * @param dir - the profile directory.
-@@ -1792,32 +1812,55 @@ function resolveBundleDir(binName, packageName, installAnchor, profileDir) {
+@@ -1797,32 +1817,55 @@ function resolveBundleDir(binName, packageName, installAnchor, profileDir) {
  * @param options - `userLayer: false` skips reading `cordis.patch.yml`.
  * @returns the successfully loaded bundle layers and optional user patch layer.
  */
@@ -104,7 +104,7 @@ index 927ba78..0f30509 100644
  	}
  	const patchPath = join(dir, PROFILE_PATCH_FILENAME);
  	const patches = options.userLayer !== false && existsSync(patchPath) ? loadOverlayPatches(binName, patchPath) : [];
-@@ -3111,7 +3154,8 @@ function preflight(ctx, entries, parentURL, report) {
+@@ -3116,7 +3159,8 @@ function preflight(ctx, entries, parentURL, report) {
  			const manifest = manifestOf(ctx, row.name, base);
  			if (manifest === void 0) return void 0;
  			const issue = evaluatePluginCompatibility(manifest, exemptions);
@@ -114,7 +114,7 @@ index 927ba78..0f30509 100644
  		} catch (error) {
  			return `its declared dsh requirements cannot be validated: ${error instanceof Error ? error.message : String(error)}`;
  		}
-@@ -5056,7 +5100,10 @@ var StartupError = class extends Error {
+@@ -5076,7 +5120,10 @@ var StartupError = class extends Error {
  	* @param entries - inactive plugin metadata and original failure values.
  	*/
  	constructor(message, entries) {
@@ -126,7 +126,7 @@ index 927ba78..0f30509 100644
  		super(message, failures.length > 0 ? { cause: new AggregateError(failures, "Plugin activation failures") } : void 0);
  		this.entries = entries;
  		Object.defineProperties(this, {
-@@ -5106,7 +5153,7 @@ async function inactiveEntries(ctx, importNow = true) {
+@@ -5126,7 +5173,7 @@ async function inactiveEntries(ctx, importNow = true) {
  				entry,
  				outcome: error === void 0 ? {
  					kind: "failed",
@@ -135,7 +135,7 @@ index 927ba78..0f30509 100644
  				} : {
  					kind: "failed",
  					error,
-@@ -5215,13 +5262,22 @@ function startupDiagnostic(binName, failures, required) {
+@@ -5235,13 +5282,22 @@ function startupDiagnostic(binName, failures, required) {
  */
  async function auditStartupEntries(ctx, binName, warn = (line) => void process.stderr.write(line)) {
  	const failures = await inactiveEntries(ctx);
@@ -160,7 +160,7 @@ index 927ba78..0f30509 100644
  	})));
  	if (failures.length > 0) warn(activationDiagnostic(binName, failures));
  }
-@@ -5290,7 +5346,11 @@ async function boot(binName, absoluteConfigPath, patches, prepare, bareModuleBas
+@@ -5310,7 +5366,11 @@ async function boot(binName, absoluteConfigPath, patches, prepare, bareModuleBas
  		} catch (error) {
  			ctx.logger.warn("Startup composition diagnostic unavailable", error);
  		}
@@ -173,14 +173,14 @@ index 927ba78..0f30509 100644
  		if (cause instanceof StartupError) {
  			cause.startup = {
  				configurationPath: absoluteConfigPath,
-@@ -5312,4 +5372,4 @@ async function boot(binName, absoluteConfigPath, patches, prepare, bareModuleBas
+@@ -5332,4 +5392,4 @@ async function boot(binName, absoluteConfigPath, patches, prepare, bareModuleBas
  	}
  }
  //#endregion
 -export { FAIL_LOUD_RELEASE_TIMEOUT_MS, LOADER_EXPRESSION_SCHEMA, PROFILES_DIR, PROFILE_COMPATIBILITY_FILENAME, PROFILE_PATCH_FILENAME, PluginPackages, ProfileRuntimeResolution, ResolutionRestartRequired, StartupError, UnsupportedBundlePlatformError, assertBundlePlatform, auditStartupEntries, boot, bundlePatchFiles, bundlePatchPaths, composeEntries, createConfigProjector, createRuntimeResolution, evaluatePluginCompatibility, generateConfigSchema, getDshRuntimeVersion, initProfile, installFailLoud, isNativeConfigSchema, loadEnv, loadLayeredEnv, loadOptionalPatches, loadOverlayPatches, loadProfile, loadProfileDirectory, mountRootInclude, pluginCompatibilityWarning, prepareProfileEntries, prepareProfilePatches, readBundlePatches, readPluginMeta, readProfileCompatibility, readProfileManifest, readProfilePatches, readProfilePlugins, readProfileVersionExemptions, recomposeProfile, reconcileProfilePatches, reconcileProfilePlugins, removeLinkProjections, renderConfigDump, reportSkippedBundles, resolveBundleDir, resolveConfigPath, resolvePluginResource, resolveProfileDir, resolveTelemetryPatch, sanitizeProfile, setProfileVersionExemption, validatePluginVersionExemption, writeProfileBundles, writeProfileManifest };
 +export { reportPluginCompatibility, readDisabledProfileBundles, FAIL_LOUD_RELEASE_TIMEOUT_MS, LOADER_EXPRESSION_SCHEMA, PROFILES_DIR, PROFILE_COMPATIBILITY_FILENAME, PROFILE_PATCH_FILENAME, PluginPackages, ProfileRuntimeResolution, ResolutionRestartRequired, StartupError, UnsupportedBundlePlatformError, assertBundlePlatform, auditStartupEntries, boot, bundlePatchFiles, bundlePatchPaths, composeEntries, createConfigProjector, createRuntimeResolution, evaluatePluginCompatibility, generateConfigSchema, getDshRuntimeVersion, initProfile, installFailLoud, isNativeConfigSchema, loadEnv, loadLayeredEnv, loadOptionalPatches, loadOverlayPatches, loadProfile, loadProfileDirectory, mountRootInclude, pluginCompatibilityWarning, prepareProfileEntries, prepareProfilePatches, readBundlePatches, readPluginMeta, readProfileCompatibility, readProfileManifest, readProfilePatches, readProfilePlugins, readProfileVersionExemptions, recomposeProfile, reconcileProfilePatches, reconcileProfilePlugins, removeLinkProjections, renderConfigDump, reportSkippedBundles, resolveBundleDir, resolveConfigPath, resolvePluginResource, resolveProfileDir, resolveTelemetryPatch, sanitizeProfile, setProfileVersionExemption, validatePluginVersionExemption, writeProfileBundles, writeProfileManifest };
 diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/types/index.d.ts b/node_modules/@deepseek-ai/dsh-app-boot/lib/types/index.d.ts
-index 3759928..2988c8b 100644
+index 4d9a3ca..32a7c49 100644
 --- a/node_modules/@deepseek-ai/dsh-app-boot/lib/types/index.d.ts
 +++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/types/index.d.ts
 @@ -14,7 +14,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths';
@@ -202,15 +202,14 @@ index 3759928..2988c8b 100644
  export { ResolutionRestartRequired } from './profile-resolution/resolver.ts';
  /**
 diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/types/plugin-compatibility.d.ts b/node_modules/@deepseek-ai/dsh-app-boot/lib/types/plugin-compatibility.d.ts
-index 9594009..8129d88 100644
+index 9594009..4d1bdd4 100644
 --- a/node_modules/@deepseek-ai/dsh-app-boot/lib/types/plugin-compatibility.d.ts
 +++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/types/plugin-compatibility.d.ts
-@@ -34,3 +34,5 @@ export declare function evaluatePluginCompatibility(manifest: object, exemptions
+@@ -34,3 +34,4 @@ export declare function evaluatePluginCompatibility(manifest: object, exemptions
   */
  export declare function pluginCompatibilityWarning(issue: PluginCompatibility): string;
  //# sourceMappingURL=plugin-compatibility.d.ts.map
 +/** Report an unverified version declaration without blocking installation or loading. */
-+export declare function reportPluginCompatibility(issue: PluginCompatibility): void;
 \ No newline at end of file
 diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/types/profile.d.ts b/node_modules/@deepseek-ai/dsh-app-boot/lib/types/profile.d.ts
 index 7144f0e..dc057ba 100644

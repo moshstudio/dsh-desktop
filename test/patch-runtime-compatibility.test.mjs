@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { Script } from 'node:vm'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { unresolvedPatchedIdentifiers } from '../scripts/verify/check-patched-js-identifiers.mjs'
@@ -10,6 +11,10 @@ const require = createRequire(import.meta.url)
 const patchedJs = [...new Set(readdirSync('patches').filter(name => name.endsWith('.patch')).flatMap(name =>
   [...readFileSync(`patches/${name}`, 'utf8').matchAll(/^\+\+\+ b\/(.*\.js)$/gm)].map(match => match[1])
 ))]
+
+it.each(patchedJs.filter(file => file.endsWith('/client.js')))('can parse the installed client script %s', file => {
+  expect(() => new Script(readFileSync(file, 'utf8'), { filename: file })).not.toThrow()
+})
 
 it('all patched JavaScript has no unresolved local identifiers', () => {
 // TypeScript 5.9 semantic inference crashes on Cordis's minified named
@@ -80,7 +85,7 @@ it('maintained Desktop clients inject only slots declared by the installed Harne
       throw error
     }
   })
-  const declarations = new Set(clients.flatMap(source => [...source.matchAll(/["']([^"']+)["']\s*:\s*\{\s*kind:\s*["'](?:list|single|keyed|chain)["']/g)].map(match => match[1])))
+  const declarations = new Set(clients.flatMap(source => [...source.matchAll(/["']([^"']+)["']\s*:\s*\{\s*kind:\s*["'`](?:list|single|keyed|chain)["'`]/g)].map(match => match[1])))
   for (const file of ['packages/dsh-desktop-client-ui/client.js', 'packages/dsh-desktop-market-installer/client.js', 'packages/ppt-runtime/adapter/lib/client.js']) {
     for (const match of readFileSync(file, 'utf8').matchAll(/slots\.inject\(["']([^"']+)["']/g)) {
       expect(declarations.has(match[1]), `${file}: undeclared slot ${match[1]}`).toBe(true)

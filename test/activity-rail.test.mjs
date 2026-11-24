@@ -449,9 +449,9 @@ it("registers the desktop languages and only alias colors", async () => {
   );
   expect(
     activityPackage.peerDependencies["@deepseek-ai/dsh-client-ui-primitives"],
-  ).toContain("0.2.2-rc.1");
+  ).toContain("0.2.2-rc.5");
   const dshPatch = await readFile(
-    resolve("patches/@deepseek-ai+dsh+0.2.2-rc.1.patch"),
+    resolve("patches/@deepseek-ai+dsh+0.2.2-rc.5.patch"),
     "utf8",
   );
   expect(dshPatch).toContain('+    "dsh-desktop-activity": "0.1.0",');

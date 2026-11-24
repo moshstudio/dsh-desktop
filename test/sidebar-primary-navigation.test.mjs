@@ -18,7 +18,7 @@ async function sidebar({ collapsed = false, panels = [], unpinned = [], contribu
   }
   const primitives = { Tooltip: 'Tooltip', Menu: 'Menu', useModalLayer() {}, isDarwinDesktop: () => false }
   const dependencies = {
-    react: { useState: value => [value, () => {}], useRef: current => ({ current }), useEffect() {}, useLayoutEffect() {} },
+    react: { useState: value => [value, () => {}], useRef: current => ({ current }), useMemo: compute => compute(), useEffect() {}, useLayoutEffect() {} },
     'react/jsx-runtime': { jsx, jsxs: jsx },
     '@deepseek-ai/dsh-client-store': { createSnapshotStore: store },
     '@deepseek-ai/dsh-client-ui-slots': { resolveSlotLabel: label => label },
@@ -35,7 +35,11 @@ async function sidebar({ collapsed = false, panels = [], unpinned = [], contribu
     get: name => name === 'uiWorkspace' ? { startSession } : undefined, layout: { selectPanel, toggleSidebar },
     locale: { register() {}, subscribe: () => () => {} }, effect() {}, shortcuts: { catalog: {} },
     slots: {
-      inject: (_name, callback) => callback(),
+      inject(_name, callback) {
+        const result = callback()
+        if (typeof result?.next === 'function') Array.from(result)
+      },
+      registerFactory: () => () => {},
       register(options, component) { if (options.name === 'sidebar') { registration = options; Root = component }; return () => {} },
       entriesOfSlot: () => [], subscribe: () => () => {}
     }
@@ -48,6 +52,10 @@ async function sidebar({ collapsed = false, panels = [], unpinned = [], contribu
     useEntryActions: select => select(true), useShortcuts: select => select([]),
     usePanelInfo: select => select({ activePanelId: 'plugins' }), useRemoteAccess: () => true,
     t: key => key,
+    renderFactorySlot(name, owner) {
+      calls.push({ name, owner })
+      return null
+    },
     renderSlot(name, owner, options) {
       calls.push({ name, owner, options })
       if (name === 'sidebar.primaryNavigation') return contribution ? contribution(owner) : options.fallback
@@ -98,7 +106,7 @@ describe('sidebar primary navigation public slot', () => {
     owner.expandSidebar()
     expect(shell.toggleSidebar).toHaveBeenCalledTimes(collapsed ? 1 : 0)
     owner.renderPanelIcon('plugins')
-    expect(shell.calls.at(-1)).toMatchObject({ name: 'sidebar.panellist', owner: { size: 16, active: false }, options: { only: 'plugins' } })
+    expect(shell.calls.at(-1)).toMatchObject({ name: 'sidebar.panel.icon', owner: { id: 'plugins', size: 16, active: false } })
     const clicked = vi.fn()
     const action = evaluate(owner.renderAction({ id: 'custom', label: 'Long accessible custom label', expanded: false, active: true, onClick: clicked }))
     expect(action.props.side).toBe('right')

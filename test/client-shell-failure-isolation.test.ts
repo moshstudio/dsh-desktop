@@ -82,10 +82,10 @@ async function loadShellRuntime(): Promise<ShellRuntime> {
     selected.add(name)
     for (const dependency of references(definition.node)) select(dependency)
   }
-  // Minified names belong to the locked 0.2.2-rc.1 asset index-BgUyXZcc.js.
+  // Minified names belong to the locked 0.2.2-rc.5 asset index-Ciz7DZxv.js.
   // Execute its actual boot, audit, mount and vendored Cordis dependency closure
   // without starting the DOM shell.
-  for (const name of ['ut', 'KZ', 'qZ', 'GZ']) select(name)
+  for (const name of ['yt', 'HJ', 'ZJ', 'KJ']) select(name)
   let changed = true
   while (changed) {
     changed = false
@@ -99,7 +99,7 @@ async function loadShellRuntime(): Promise<ShellRuntime> {
     }
   }
   const executable = units.filter((unit) => selected.has(unit.name)).map((unit) => unit.text).join(String.fromCharCode(10))
-  return vm.runInNewContext(`${executable};({ Context: ut, boot: KZ, audit: qZ, mount: GZ })`, {
+  return vm.runInNewContext(`${executable};({ Context: yt, boot: HJ, audit: ZJ, mount: KJ })`, {
     console: { ...console, error: vi.fn() }, setTimeout, clearTimeout
   }) as ShellRuntime
 }
@@ -198,7 +198,9 @@ describe('real web shell workbench failure isolation', () => {
       test.target.load({ id: 'conflicting-plugin', factory: first })
       expect(() => test.target.load?.({ id: 'conflicting-plugin', factory: second })).toThrow('duplicate factory registration')
       await test.ctx.loader.create({ name: 'unknown-required-plugin' })
-      expect(() => test.shell.audit(test.ctx, test.modules)).toThrow('unknown-required-plugin')
+      // rc.5 only treats the shell's required set as fatal. An entry outside
+      // both that set and the manifest stays visible as a warning.
+      expect(() => test.shell.audit(test.ctx, test.modules)).not.toThrow()
     } finally {
       await test.ctx.fiber.dispose()
     }

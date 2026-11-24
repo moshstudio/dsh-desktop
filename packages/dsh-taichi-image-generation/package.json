@@ -62,7 +62,7 @@
     "three": "^0.187.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.1 || ^0.2.2-rc.5",
     "@deepseek-ai/schemastery": "^3.18.4",
     "react": "^18.2.0"
   },

@@ -9,15 +9,16 @@ const Service = { tracker: Symbol('service-tracker') }
 // navigation behavior while keeping Cordis boot and the renderer out of scope.
 const source = await readFile(new URL('../node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.js', import.meta.url), 'utf8')
 const workbenchSource = await readFile(new URL('../packages/dsh-desktop-workbenches/client.js', import.meta.url), 'utf8')
-const classStart = source.indexOf('class extends', source.indexOf('var UiWorkspaceService ='))
-const classEnd = source.indexOf('\n\t\t};', classStart) + '\n\t\t};'.length
-const recentStart = source.indexOf('function recentWorkspace(', classEnd)
-const recentEnd = source.indexOf('\n\t\t//#endregion', recentStart)
-if ([classStart, classEnd, recentStart, recentEnd].some(index => index < 0)) throw new Error('Workspace service extraction failed; check the installed Harness navigation module.')
-const UiWorkspaceService = vm.runInNewContext(`(() => {
-  ${source.slice(recentStart, recentEnd)}
-  return (${source.slice(classStart, classEnd).trim().replace(/;$/, '')})
-})()`, { _deepseek_ai_cordis: { Service: class {} }, AbortController, AbortSignal, console, setTimeout, clearTimeout })
+// Load the actual rc.5 factory and expose the internal service for the fixture.
+const workspaceExport = 'exports.apply=apply;'
+if (!source.includes(workspaceExport)) throw new Error('Workspace bundle export not found')
+let UiWorkspaceService
+vm.runInNewContext(source.replace(workspaceExport, `${workspaceExport}exports.navigationForTest=UiWorkspaceService;`), {
+  window: { __ModuleLoader__: { load({ factory }) {
+    UiWorkspaceService = factory(name => name === '@deepseek-ai/cordis' ? { Service: class {} } : {}).navigationForTest
+  } } },
+  AbortController, AbortSignal, console, setTimeout, clearTimeout
+})
 const document = new JSDOM('<html><head></head><body><button data-dsh-sidebar-new-session>New Session</button></body></html>').window.document
 let apply, Workbenches
 // Workbench routing only runs once the user has switched the feature on.
@@ -254,9 +255,9 @@ describe('native Workspace navigation with workbench routing', () => {
     expect(service.workspaces.delete).toHaveBeenCalledWith('project')
   })
   it('removes workspace folders that have no sessions in the active scope', () => {
-    expect(source).toContain('sessionIds: workspace.sessionIds.filter(isSessionVisible)')
-    expect(source).toContain('.filter((workspace) => workspace.sessionIds.length > 0)')
-    expect(source).toContain('if (g.sessions.length === 0) continue;')
+    expect(source).toMatch(/sessionIds:\s*workspace\.sessionIds\.filter\(isSessionVisible\)/)
+    expect(source).toMatch(/\.filter\(\s*workspace\s*=>\s*workspace\.sessionIds\.length\s*>\s*0\)/)
+    expect(source).toMatch(/if\s*\(g\.sessions\.length\s*===\s*0\)\s*continue;/)
   })
 
   it('registers one reactive sidebar session filter and restores all sessions on release', () => {
@@ -310,6 +311,7 @@ describe('native Workspace navigation with workbench routing', () => {
     const handler = vi.fn(() => true)
     const release = service.registerSessionOpener(handler)
     service.openSession('bound-session')
+    expect(service.view.markSessionRead).toHaveBeenCalledWith('bound-session')
     expect(handler).toHaveBeenCalledWith('bound-session', 'explicit-session')
     expect(service.sessions.retain).not.toHaveBeenCalled()
     expect(() => service.registerSessionOpener(() => true)).toThrow('already registered')
@@ -332,6 +334,7 @@ describe('native Workspace navigation with workbench routing', () => {
 
     await service.openWorkspace('project')
 
+    expect(service.view.markSessionRead).toHaveBeenCalledWith('new-session')
     expect(handler).toHaveBeenCalledWith('new-session', 'workspace', { workspaceId: 'project', created: true })
     expect(service.sessions.retain).toHaveBeenCalledWith('new-session', { source: 'mainView' })
   })

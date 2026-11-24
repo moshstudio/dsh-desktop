@@ -1,16 +1,8 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js b/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js
-index f4bc5b6..6d7c5ce 100644
+index e1a9691..92e93fa 100644
 --- a/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js
-@@ -1985,6 +1985,7 @@ function clipped(anchor) {
- * @param props.onlyWhenClipped - show the bubble only when the anchor or an HTML element inside it
- * overflows horizontally, measured when the bubble is about to show; for labels that repeat
- * text an ellipsis may cut off. Defaults to false.
-+* @param props.className - optional class appended to the bubble so a host can share one tooltip skin. Placement stays inside Tooltip.
- * @param props.children - a single anchor element; its own ref (callback or object) is forwarded alongside the tooltip's.
- * @returns the cloned anchor plus a fixed-position bubble, optionally portaled to the body.
- * The bubble stays hidden until ResizeObserver supplies its size for viewport fitting; clicking the
-@@ -1993,7 +1994,7 @@ function clipped(anchor) {
+@@ -1843,7 +1843,7 @@ function clipped(anchor) {
  * tooltips; tapping still invokes the child's action and can open an openOnClick explanation.
  * When no side fits, the viewport-bounded fallback may overlap the anchor; oversized content is scrollable when pinned.
  */
@@ -19,16 +11,16 @@ index f4bc5b6..6d7c5ce 100644
  	const id = useId();
  	const [pinned, setPinned] = useState(false);
  	const anchor = useRef(null);
-@@ -2152,7 +2153,7 @@ function Tooltip({ label, shortcutKeys, side = "right", align = "center", delayM
+@@ -2002,7 +2002,7 @@ function Tooltip({ label, shortcutKeys, side = "right", align = "center", delayM
  	const content = visible && !suppressed && jsxs("span", {
  		ref: bubble,
  		id: openOnClick ? id : void 0,
--		className: css$9.bubble,
-+		className: className ? `${css$9.bubble} ${className}` : css$9.bubble,
+-		className: css$8.bubble,
++		className: className ? `${css$8.bubble} ${className}` : css$8.bubble,
  		"data-side": side,
  		"data-portal": portal || void 0,
  		"data-pinned": pinned || void 0,
-@@ -10063,6 +10064,7 @@ function isExplicitFilePath(value) {
+@@ -10756,6 +10756,7 @@ function isExplicitFilePath(value) {
  * fragment-only links, queries, malformed escapes, or control characters.
  */
  function parseFileLink(value) {
@@ -36,7 +28,7 @@ index f4bc5b6..6d7c5ce 100644
  	const hash = value.indexOf("#");
  	const destination = hash < 0 ? value : value.slice(0, hash);
  	if (destination.includes("?")) return void 0;
-@@ -10073,11 +10075,14 @@ function parseFileLink(value) {
+@@ -10766,11 +10767,14 @@ function parseFileLink(value) {
  		return;
  	}
  	if (path.length === 0 || /[\u0000-\u001f\u007f]/.test(path)) return void 0;
@@ -54,7 +46,7 @@ index f4bc5b6..6d7c5ce 100644
  	if (match === null) return { path };
  	const line = Number(match[1]);
  	const end = match[2] === void 0 ? line : Number(match[2]);
-@@ -10487,7 +10492,7 @@ function renderNode(node, key, context) {
+@@ -11101,7 +11105,7 @@ function renderNode(node, key, context) {
  				onClick: mention.open,
  				...mention.contextMenuProps,
  				children: [jsx(LinkIconMedium, {

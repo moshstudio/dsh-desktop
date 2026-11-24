@@ -172,14 +172,14 @@ export class ImageGenApi {
    * copies the file itself, so this stays a small JSON call regardless of clip
    * size.
    */
-  async galleryAppendVideo(input: { entryId: string; tags?: string[] }): Promise<HistoryEntry[]> {
+  async galleryAppendVideo(input: { entryId: string; tags?: string[] }): Promise<{ entries: HistoryEntry[]; trash?: HistoryEntry[]; added: boolean }> {
     const response = await fetch(GALLERY_API.video, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),
     })
-    const body = await readEnvelope<{ ok: true; entries: HistoryEntry[]; added: boolean }>(response)
-    return body.entries
+    const body = await readEnvelope<{ ok: true; entries: HistoryEntry[]; trash?: HistoryEntry[]; added: boolean }>(response)
+    return { entries: body.entries, ...body.trash === undefined ? {} : { trash: body.trash }, added: body.added }
   }
 
   async videoHistoryList(): Promise<VideoHistoryEntry[]> {

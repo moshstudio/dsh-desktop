@@ -37,7 +37,7 @@ describe('account purchase', () => {
           orderId,
           yuan: 99,
           credits: 99_000,
-          qrCode: 'https://qr.alipay.com/bax00000test',
+          qrCode: 'https://openapi.alipay.com/gateway.do?method=alipay.trade.page.pay&sign_type=RSA2&sign=test',
           status: 'pending'
         })
       }
@@ -64,7 +64,7 @@ describe('account purchase', () => {
     expect(packageBodies).toEqual(['GET /v1/credits/packages'])
     await expect(account.purchase(99)).resolves.toMatchObject({
       ok: true,
-      order: { orderId, yuan: 99, credits: 99_000, status: 'pending', qrCode: 'https://qr.alipay.com/bax00000test' }
+      order: { orderId, yuan: 99, credits: 99_000, status: 'pending', qrCode: 'https://openapi.alipay.com/gateway.do?method=alipay.trade.page.pay&sign_type=RSA2&sign=test' }
     })
     expect(bodies).toEqual(['{"yuan":"99"}'])
     await expect(account.purchaseStatus(orderId)).resolves.toEqual({
@@ -142,12 +142,13 @@ describe('account purchase', () => {
     await expect(account.purchase(50)).resolves.toEqual({ ok: false, message: 'order_response_invalid', order: null })
   })
 
-  it('only draws an Alipay payment code', () => {
-    expect(alipayQrPayload('https://qr.alipay.com/bax00000test')).toBe('https://qr.alipay.com/bax00000test')
-    expect(alipayQrPayload('http://qr.alipay.com/bax00000test')).toBeUndefined()
-    expect(alipayQrPayload('https://user:secret@qr.alipay.com/bax00000test')).toBeUndefined()
-    expect(alipayQrPayload('https://openapi.alipay.com/gateway.do')).toBeUndefined()
-    expect(alipayQrPayload('https://example.com/bax00000test')).toBeUndefined()
+  it('only loads an official Alipay website payment page', () => {
+    const page = 'https://openapi.alipay.com/gateway.do?method=alipay.trade.page.pay&sign_type=RSA2&sign=test'
+    expect(alipayQrPayload(page)).toBe(page)
+    expect(alipayQrPayload('http://openapi.alipay.com/gateway.do?method=alipay.trade.page.pay&sign_type=RSA2&sign=test')).toBeUndefined()
+    expect(alipayQrPayload('https://user:secret@openapi.alipay.com/gateway.do?method=alipay.trade.page.pay&sign_type=RSA2&sign=test')).toBeUndefined()
+    expect(alipayQrPayload('https://qr.alipay.com/bax00000test')).toBeUndefined()
+    expect(alipayQrPayload('https://openapi.alipay.com/gateway.do?method=alipay.trade.precreate&sign_type=RSA2&sign=test')).toBeUndefined()
     expect(alipayQrPayload('not a url')).toBeUndefined()
   })
 })

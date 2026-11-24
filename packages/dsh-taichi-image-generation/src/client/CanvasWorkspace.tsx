@@ -3525,9 +3525,9 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps): React.JSX.Element 
   const favoriteVideoNode = useCallback((node: CanvasNode): void => {
     const clip = videoOf(node)
     if (clip === undefined || clip.entryId === undefined) return
-    void withNodeBusy(node.id, tt('canvas.videoFavorite'), async () => {
-      await api.galleryAppendVideo({ entryId: clip.entryId! })
-      setNotice(tt('canvas.videoFavorited'))
+    void withNodeBusy(node.id, tt('gallery.add'), async () => {
+      const result = await api.galleryAppendVideo({ entryId: clip.entryId! })
+      setNotice(result.added ? tt('canvas.videoFavorited') : tt('gallery.already'))
     }).catch(() => { setError(tt('canvas.videoFavoriteFailed')) })
   }, [api, withNodeBusy])
 

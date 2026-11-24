@@ -884,14 +884,16 @@ html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
   position: relative;
 }
 
-/* In the video tab the result container is `display: contents`, so its children
-   become flex items of `.generation` itself. The error line must take a full
-   row under the studio rather than sitting beside it as a column; wrapping
-   makes that possible. Keyed on an explicit attribute rather than `:has()`,
-   whose support is recent and which the rest of this stylesheet avoids. */
+/* The video surface and its shared error banner split the available height.
+   The task tray stays positioned against this container. */
 .generation[data-empty-result-host='true'] {
-  flex-wrap: wrap;
-  align-content: flex-start;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.generation[data-empty-result-host='true'] > .canvas {
+  min-height: 0;
 }
 
 /* The canvas workspace owns the full generation surface. Keep the classic
@@ -1095,8 +1097,10 @@ html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
    be reachable when a submit failed and therefore produced no task row. */
 .videoDiagnosticsRow {
   display: flex;
+  flex: none;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  padding: 2px 10px 6px;
+  padding: 2px 0 4px;
 }
 
 .diagnosticsPanel {
@@ -4140,25 +4144,24 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   display: contents;
 }
 
-/* `display: contents` removes the box, so the children are laid out against the
-   `.generation` row -- give the error line its own row instead of letting it
-   sit beside the studio. */
+/* The shared alert occupies only the space its content needs, leaving the
+   rest of the column to the video scrollport. */
 .generation > .canvas[data-empty-result='true'] > .canvasError {
-  flex: 1 1 100%;
+  flex: none;
 }
 
 /* ------------------------------------------------------------------ video tab
-   The video studio reuses the panel's token vocabulary so it follows the
-   active theme by construction. Layout: a composer column beside a results /
-   history column, collapsing to one column on narrow shells. */
+   The composer and task cards share one scrollport below the mode controls. */
 
 .videoWorkspace {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  height: 100%;
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
-  padding: 14px 16px 18px;
+  box-sizing: border-box;
+  padding: 10px 12px 12px;
   overflow: hidden;
   font-family: var(--dsw-font-family);
 }
@@ -4192,7 +4195,8 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 .videoToolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
   flex: none;
 }
 
@@ -4239,17 +4243,33 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 }
 
 .videoBody {
-  /* Sections stack and each takes the FULL panel width. The studio lives in a
-     narrow centre column inside a wide window, so the previous two-track grid
-     (composer capped at 280-420px, results taking the remainder) left the
-     composer cramped while a large sibling column sat empty. A width media
-     query cannot detect that: media queries measure the window, not this panel,
-     so the narrow fallback never fired. Stacking removes the guess entirely. */
+  /* Keep the toolbar and diagnostics fixed while the composer and task cards
+     share one predictable scrollport. The parent takeover intentionally clips
+     overflow, so the video tab must own the scrolling box here. */
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
   min-height: 0;
-  overflow: auto;
+  padding: 0 2px 4px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-border-l2) transparent;
+}
+
+.videoBody > * {
+  flex: none;
+}
+
+.videoBody::-webkit-scrollbar {
+  width: 8px;
+}
+
+.videoBody::-webkit-scrollbar-thumb {
+  background: var(--dsw-alias-border-l2);
+  border-radius: 999px;
 }
 
 /* Same failure banner as the image result area. The canvas rule insets it by
@@ -4310,9 +4330,11 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
 
 .videoFrameSlot {
   display: flex;
+  flex: 0 1 180px;
   flex-direction: column;
   gap: 6px;
-  min-width: 120px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .videoPick {

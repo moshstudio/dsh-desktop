@@ -7,7 +7,17 @@ import { formatCredits } from './catalog'
 import styles from './account.module.css'
 
 export function paymentQr(value: unknown): string {
-  return typeof value === 'string' && value.startsWith('data:image/png;base64,') && value.length <= 200000 ? value : ''
+  if (typeof value !== 'string' || value.length > 8192) return ''
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || url.hash !== '') return ''
+    if (url.hostname !== 'openapi.alipay.com' || url.pathname !== '/gateway.do') return ''
+    if (url.searchParams.get('method') !== 'alipay.trade.page.pay') return ''
+    if (url.searchParams.get('sign_type') !== 'RSA2' || !url.searchParams.get('sign')) return ''
+    return url.toString()
+  } catch {
+    return ''
+  }
 }
 
 export interface RechargeDialogProps {
@@ -52,7 +62,7 @@ export function rechargeDialog({ t, open, busy, phase, notice, qr, packages, pay
           <div className={styles.paymentStage}>
             {code && (
               <div className={styles.qrFrame}>
-                <img className={styles.qr} data-dsh-account-qr="true" src={code} alt={t('rechargeScan')} width={220} height={220} />
+                <iframe className={styles.qr} data-dsh-account-qr="true" src={code} title={t('rechargeScan')} width={220} height={220} />
               </div>
             )}
             <p className={styles.paymentHint} role="status">{t('rechargeWaiting')}</p>

@@ -1066,8 +1066,8 @@ describe('desktop account page', () => {
     expect(nodes(rerender().tree, node => node.props['data-dsh-account-balance'] === 'true')[0]?.children).toEqual(['4'])
   })
 
-  it('opens gateway Alipay packages and starts one purchase', async () => {
-    const qrImage = 'data:image/png;base64,aaaa'
+  it.each([false, true])('refreshes the account after payment (close before refresh: %s)', async closeBeforeRefresh => {
+    const pageUrl = 'https://openapi.alipay.com/gateway.do?method=alipay.trade.page.pay&sign_type=RSA2&sign=test'
     const packages = vi.fn(async () => ({
       packages: [{ yuan: 50, credits: 40_000 }, { yuan: 80, credits: 70_000 }],
       paymentAvailable: true,
@@ -1076,12 +1076,15 @@ describe('desktop account page', () => {
     const purchase = vi.fn(async () => ({
       ok: true,
       message: '',
-      order: { orderId: '11111111-1111-4111-8111-111111111111', yuan: 50, credits: 40_000, status: 'pending', qrImage }
+      order: { orderId: '11111111-1111-4111-8111-111111111111', yuan: 50, credits: 40_000, status: 'pending', qrImage: pageUrl }
     }))
+    let completeRefresh: (status: AccountStatus) => void = () => undefined
+    const refresh = vi.fn(() => new Promise<AccountStatus>(resolve => { completeRefresh = resolve }))
     const { rerender } = await mountReady({
       status: async () => emptyStatus({ signedIn: true, email: 'a@example.com', balance: 4 }),
       packages,
       purchase,
+      refresh,
       order: async orderId => ({ ok: true, message: '', order: { orderId, status: 'paid' } })
     })
     expect(nodes(rerender().tree, node => node.props['data-yuan'] === '50')).toHaveLength(0)
@@ -1106,15 +1109,37 @@ describe('desktop account page', () => {
     const waiting = rerender()
     expect(nodes(waiting.tree, node => node.props.role === 'status' && node.children.includes('rechargeWaiting'))).toHaveLength(1)
     expect(nodes(waiting.tree, node => node.props['data-dsh-account-pack'] === 'true')).toHaveLength(0)
-    const image = nodes(waiting.tree, node => node.type === 'img' && node.props['data-dsh-account-qr'] === 'true')[0]
-    expect(image?.props.src).toBe(qrImage)
-    expect(image?.props.alt).toBe('rechargeScan')
+    const frame = nodes(waiting.tree, node => node.type === 'iframe' && node.props['data-dsh-account-qr'] === 'true')[0]
+    expect(frame?.props.src).toBe(pageUrl)
+    expect(frame?.props.title).toBe('rechargeScan')
     for (const effect of waiting.effects) effect()
     await flush()
     const paid = rerender()
     for (const effect of paid.effects) effect()
     expect(nodes(paid.tree, node => node.props.role === 'status' && node.children.includes('rechargePaid'))).toHaveLength(1)
     expect(nodes(paid.tree, node => node.props['data-dsh-account-qr'] === 'true')).toHaveLength(0)
+    expect(refresh).toHaveBeenCalledOnce()
+    expect(nodes(paid.tree, node => node.props['data-dsh-account-balance'] === 'true')[0]?.children).toEqual(['4'])
+    if (closeBeforeRefresh) {
+      invoke(nodes(paid.tree, node => node.props.title === 'rechargeTitle')[0], 'onClose')
+      const closed = rerender()
+      for (const effect of closed.effects) effect()
+      expect(nodes(closed.tree, node => node.props.title === 'rechargeTitle')).toHaveLength(0)
+    }
+    completeRefresh(emptyStatus({
+      signedIn: true,
+      email: 'a@example.com',
+      balance: 40_004,
+      credits: {
+        consumed: 0, recharged: 40_000, usageCount: 0, consumption: [], daily: [],
+        recharge: [{ id: 'payment-1', kind: 'purchase', amount: 40_000, createdAt: '2026-11-18T15:30:00.000Z' }]
+      }
+    }))
+    await flush()
+    const refreshed = rerender().tree
+    expect(nodes(refreshed, node => node.props['data-dsh-account-balance'] === 'true')[0]?.children).toEqual(['40004'])
+    invoke(tabs(refreshed), 'onChange', 'recharge')
+    expect(nodes(rerender().tree, node => node.props['data-sign'] === 'plus' && node.children.includes('+40,000'))).toHaveLength(1)
   })
 
   it('keeps a failed package read retryable and does not show fallback prices', async () => {

@@ -16,7 +16,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { electronExecutable } from "../verify/electron-node-loader.mjs";
 import { createTemplateLibrary } from "../../packages/dsh-desktop-office/lib/templates.js";
-import { replaceDirectory } from "./prepare.mjs";
+import {
+  officeOutputIsCurrent,
+  officeOutputReceipt,
+  recordOfficeOutput,
+  replaceDirectory,
+} from "./prepare.mjs";
 
 const exec = promisify(execFile);
 const project = resolve(import.meta.dirname, "../..");
@@ -95,6 +100,7 @@ async function files(root, prefix = "") {
 export async function prepareOfficeTemplates({
   runtime = join(project, ".build/office-runtime"),
   cache = join(project, ".build/office-template-cache"),
+  incremental = false,
 } = {}) {
   const manifest = JSON.parse(
     await readFile(join(runtime, "primary-runtime/runtime.json"), "utf8"),
@@ -115,12 +121,17 @@ export async function prepareOfficeTemplates({
     Buffer.concat([
       Buffer.from(
         JSON.stringify({
-          format: 1,
-          python: manifest.python,
+          format: 2,
+          platform: manifest.platform,
+          arch: manifest.arch,
+          payload: manifest.payloadDigest,
           kit: kit.version,
         }),
       ),
       await readFile(fileURLToPath(import.meta.url)),
+      await readFile(join(project, "package-lock.json")),
+      await readFile(join(project, "build/office-cli.mjs")),
+      await readFile(join(project, "build/office-engine-resolution.mjs")),
       await readFile(join(import.meta.dirname, "normalize-package.py")),
       await readFile(join(import.meta.dirname, "check-templates.py")),
       ...(await Promise.all(
@@ -135,6 +146,12 @@ export async function prepareOfficeTemplates({
   );
   const saved = join(cache, fingerprint);
   const output = join(runtime, "templates");
+  const receipt = officeOutputReceipt(cache, output);
+  if (incremental && await officeOutputIsCurrent(runtime, receipt, fingerprint, ["templates"])) {
+    console.log(`Office template resources are up to date: ${fingerprint.slice(0, 12)}`);
+    return;
+  }
+  await rm(receipt, { force: true });
   await mkdir(cache, { recursive: true });
   let cached = false;
   try {
@@ -358,6 +375,8 @@ export async function prepareOfficeTemplates({
   try {
     await cp(saved, published, { recursive: true });
     await replaceDirectory(published, output);
+    if (incremental)
+      await recordOfficeOutput(runtime, receipt, fingerprint, ["templates"]);
   } finally {
     await rm(published, { recursive: true, force: true });
   }
@@ -370,4 +389,4 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 )
-  await prepareOfficeTemplates();
+  await prepareOfficeTemplates({ incremental: process.argv.includes("--incremental") });

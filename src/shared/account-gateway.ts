@@ -136,9 +136,9 @@ export interface AccountOrder {
   yuan: number
   credits: number
   status: 'pending' | 'paid'
-  /** Raw Alipay code. The renderer receives qrImage instead. */
+  /** Raw Alipay website payment page. The renderer receives it as qrImage and loads it directly. */
   qrCode?: string
-  /** PNG data URL drawn in the main process from a validated Alipay code. */
+  /** Validated Alipay website payment URL loaded by the recharge dialog. */
   qrImage?: string
 }
 

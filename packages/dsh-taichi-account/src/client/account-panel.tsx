@@ -266,14 +266,24 @@ export function AccountPanel({ t, bridge, initialStatus, onClose, onStatus, layo
   useEffect(() => {
     if (!rechargeOpen || rechargeOrder === '' || rechargePhase === 'paid' || typeof account?.order !== 'function') return undefined
     let alive = true
+    let polling = false
+    let paid = false
     const readOrder = account.order
     const tick = () => {
+      if (polling || paid) return
+      polling = true
       void readOrder(rechargeOrder).then(result => {
         if (!alive || result?.ok !== true || result.order?.status !== 'paid') return
+        paid = true
+        const revision = operationId.current
+        const epoch = ++profileEpoch.current
         setRechargePhase('paid')
         setRechargeNotice('')
-        void account.refresh?.().then(next => { if (alive && next) publish(next) }).catch(() => undefined)
-      }).catch(() => undefined)
+        // Entering the paid state stops polling, but the profile read belongs to the account panel.
+        void account.refresh?.().then(next => {
+          if (revision === operationId.current && epoch === profileEpoch.current && next) publish(next)
+        }).catch(() => undefined)
+      }).catch(() => undefined).finally(() => { polling = false })
     }
     tick()
     const timer = setInterval(tick, 2000)

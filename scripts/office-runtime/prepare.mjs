@@ -4,15 +4,17 @@
 import { createHash } from "node:crypto";
 import {
   cp,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rename,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { unzipSync } from "fflate";
 import { x as extractTar } from "tar";
@@ -275,17 +277,95 @@ export async function publishOfficeRuntime(staging, output) {
   }
 }
 
-/** Always assemble this build's payload. Keep only verified downloads as cache. */
+export function officeOutputReceipt(cache, output) {
+  const key = createHash("sha256").update(resolve(output)).digest("hex");
+  return join(cache, `published-${key}.json`);
+}
+
+async function deploymentEntries(root, names) {
+  const entries = [];
+  for (const name of names) {
+    const path = join(root, name);
+    if (!(await lstat(path)).isDirectory()) return null;
+    for (const entry of await readdir(path, { recursive: true, withFileTypes: true })) {
+      const kind = entry.isDirectory() ? "directory" : entry.isSymbolicLink() ? "link" : "file";
+      entries.push([relative(root, join(entry.parentPath, entry.name)), kind]);
+    }
+  }
+  return entries;
+}
+
+/** Check the receipt written after publication without rereading the Python payload. */
+export async function officeOutputIsCurrent(output, receipt, fingerprint, names) {
+  try {
+    const saved = JSON.parse(await readFile(receipt, "utf8"));
+    if (saved?.fingerprint !== fingerprint || !Array.isArray(saved.entries) || !saved.entries.length)
+      return false;
+    const actual = await deploymentEntries(output, names);
+    if (!actual) return false;
+    const entries = new Map(actual);
+    return saved.entries.every((entry) =>
+      Array.isArray(entry) && entries.get(entry[0]) === entry[1] && entries.has(entry[0]));
+  } catch (error) {
+    if (error instanceof SyntaxError || ["ENOENT", "ENOTDIR"].includes(error.code)) return false;
+    throw error;
+  }
+}
+
+export async function recordOfficeOutput(output, receipt, fingerprint, names) {
+  const entries = await deploymentEntries(output, names);
+  if (!entries?.length) throw new Error("Office preparation output is incomplete");
+  const temporary = `${receipt}.${process.pid}.tmp`;
+  try {
+    await writeFile(temporary, JSON.stringify({ fingerprint, entries }));
+    await rename(temporary, receipt);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+async function runtimeFingerprint(target, version, skillSources) {
+  const digest = createHash("sha256");
+  digest.update(JSON.stringify({ target, version, lock }));
+  for (const file of [fileURLToPath(import.meta.url), join(project, "package-lock.json")]) {
+    digest.update(createHash("sha256").update(await readFile(file)).digest());
+  }
+  for (const root of skillSources) {
+    const entries = await readdir(root, { recursive: true, withFileTypes: true });
+    const paths = entries.filter((entry) => !entry.isDirectory())
+      .map((entry) => join(entry.parentPath, entry.name).slice(root.length + 1)).sort();
+    digest.update(JSON.stringify(paths));
+    for (const path of paths) {
+      digest.update(createHash("sha256").update(await readFile(join(root, path))).digest());
+    }
+  }
+  return digest.digest("hex");
+}
+
+/** Assemble from verified downloads, or reuse a published payload in development. */
 export async function prepareOfficeRuntime({
   target = officeTarget(),
   output = join(project, ".build/office-runtime"),
   cache = join(project, ".build/office-downloads"),
+  incremental = false,
 } = {}) {
   const artifact = lock.targets[target];
-  if (!artifact) throw new Error(`Office runtime: unknown target ${target}`);
+  const identity = officeRuntimeIdentity(target);
   const { version } = JSON.parse(
     await readFile(join(project, "package.json"), "utf8"),
   );
+  const upstreamSkills = join(
+    dirname(require.resolve("@deepseek-ai/dsh-skill-office/package.json")),
+    "assets",
+  );
+  const businessSkills = join(project, "packages/dsh-desktop-office/business-skills");
+  const receipt = officeOutputReceipt(cache, output);
+  const fingerprint = incremental && await runtimeFingerprint(target, version, [upstreamSkills, businessSkills]);
+  if (incremental && await officeOutputIsCurrent(output, receipt, fingerprint, officeRuntimeEntries)) {
+    console.log(`Office runtime is up to date: ${identity.platform}/${identity.arch}, Python ${lock.pythonVersion}`);
+    return;
+  }
+  await rm(receipt, { force: true });
   await mkdir(output, { recursive: true });
   // Keep the previous payload until publish, and keep `templates/` either way.
   // A failed assembly still removes the payload so it cannot be reused.
@@ -342,18 +422,13 @@ export async function prepareOfficeRuntime({
       join(runtime, "runtime.json"),
       `${JSON.stringify(manifest, null, 2)}\n`,
     );
-    const skillRoot = dirname(
-      require.resolve("@deepseek-ai/dsh-skill-office/package.json"),
-    );
-    await cp(join(skillRoot, "assets"), join(staging, "office-skills"), {
+    await cp(upstreamSkills, join(staging, "office-skills"), {
       recursive: true,
       dereference: true,
     });
-    await cp(
-      join(project, "packages/dsh-desktop-office/business-skills"),
-      join(staging, "business-skills"),
-      { recursive: true },
-    );
+    await cp(businessSkills, join(staging, "business-skills"), {
+      recursive: true,
+    });
     // Keep upstream skills intact; add the Windows packaging constraint at the
     // generated deployment boundary, where all three workflows can see it.
     for (const skill of ["office-docx", "office-pptx", "office-xlsx"]) {
@@ -371,6 +446,8 @@ export async function prepareOfficeRuntime({
       );
     }
     await publishOfficeRuntime(staging, output);
+    if (incremental)
+      await recordOfficeOutput(output, receipt, fingerprint, officeRuntimeEntries);
     console.log(
       `Office runtime prepared: ${manifest.platform}/${manifest.arch}, Python ${manifest.python}`,
     );
@@ -394,4 +471,4 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 )
-  await prepareOfficeRuntime();
+  await prepareOfficeRuntime({ incremental: process.argv.includes("--incremental") });

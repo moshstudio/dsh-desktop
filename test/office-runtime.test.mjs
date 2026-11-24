@@ -20,6 +20,9 @@ import {
   downloadAsset,
   unpackWheel,
   prepareOfficeRuntime,
+  officeOutputIsCurrent,
+  officeOutputReceipt,
+  recordOfficeOutput,
   publishOfficeRuntime,
   replaceDirectory,
 } from "../scripts/office-runtime/prepare.mjs";
@@ -119,6 +122,31 @@ describe("Office template preview limits", () => {
       }),
     ).rejects.toBe(invalid);
     expect(invalidCalls).toBe(1);
+  });
+});
+
+describe("Office preparation cache", () => {
+  it("reuses a published tree only while the fingerprint and recorded files match", async () => {
+    const root = await temporary();
+    const output = join(root, "output");
+    const names = ["templates"];
+    const receipt = officeOutputReceipt(root, output);
+    const sample = join(output, "templates", "case", "sample.docx");
+    await mkdir(join(output, "templates", "case"), { recursive: true });
+    await writeFile(sample, "sample");
+
+    expect(await officeOutputIsCurrent(output, receipt, "first", names)).toBe(false);
+    await recordOfficeOutput(output, receipt, "first", names);
+    expect(await officeOutputIsCurrent(output, receipt, "first", names)).toBe(true);
+    expect(await officeOutputIsCurrent(output, receipt, "changed", names)).toBe(false);
+    expect(officeOutputReceipt(root, join(root, "other"))).not.toBe(receipt);
+
+    await rm(sample);
+    expect(await officeOutputIsCurrent(output, receipt, "first", names)).toBe(false);
+    await mkdir(sample);
+    expect(await officeOutputIsCurrent(output, receipt, "first", names)).toBe(false);
+    await writeFile(receipt, "{partial");
+    expect(await officeOutputIsCurrent(output, receipt, "first", names)).toBe(false);
   });
 });
 

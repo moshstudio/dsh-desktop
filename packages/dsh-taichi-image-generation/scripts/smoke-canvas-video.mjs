@@ -1930,13 +1930,13 @@ await check('C6-C7 the composed clip lands, plays, and its favorite control foll
   // This is the defect that hides from an eyeball: without an entry id the
   // favorite button still RENDERS -- 加入对话 / 下载 / 抓帧 / 预览 all still
   // work -- and only its disabled state differs. So both halves are pinned.
-  const composedFavorite = composedEl.querySelector('[data-toolbar] button[aria-label="收藏到画廊"]')
-  assert.ok(composedFavorite !== null, 'C7: the composed node offers 收藏到画廊')
+  const composedFavorite = composedEl.querySelector('[data-toolbar] button[aria-label="加入素材库"]')
+  assert.ok(composedFavorite !== null, 'C7: the composed node offers 加入素材库')
   assert.equal(
     composedFavorite.disabled, false,
     'C7: a composed clip CAN be favorited -- its video ref carries an entry id',
   )
-  const noEntryFavorite = nodeById('node-clip-noentry').querySelector('[data-toolbar] button[aria-label="收藏到画廊"]')
+  const noEntryFavorite = nodeById('node-clip-noentry').querySelector('[data-toolbar] button[aria-label="加入素材库"]')
   assert.ok(noEntryFavorite !== null, 'C7: a clip without a history entry still renders its favorite control')
   assert.equal(
     noEntryFavorite.disabled, true,

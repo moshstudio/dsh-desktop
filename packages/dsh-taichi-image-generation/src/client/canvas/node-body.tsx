@@ -723,7 +723,7 @@ return <>
       <S.IconButton name="download" label={tt('canvas.videoDownload')} onClick={() => A.downloadVideoNode(node)} />
       <S.IconButton name="sparkle" label={tt('canvas.videoGrabFrame')} disabled={busyLabel !== undefined} onClick={() => { void A.grabVideoFrame(node) }} />
       <S.IconButton name="layers" label={tt('canvas.storyboard.grabLastFrame')} disabled={busyLabel !== undefined} onClick={() => { void A.continueFromClip(node) }} />
-      <S.IconButton name="favorite" label={tt('canvas.videoFavorite')} disabled={busyLabel !== undefined || video.entryId === undefined} onClick={() => { A.favoriteVideoNode(node) }} />
+      <S.IconButton name="favorite" label={tt('gallery.add')} disabled={busyLabel !== undefined || video.entryId === undefined} onClick={() => { A.favoriteVideoNode(node) }} />
       <S.IconButton name="expand" label={tt('canvas.videoPreview')} onClick={() => { A.setVideoPreviewNodeId(node.id) }} />
     </> : null}
     {node.type === 'image' && hasImage ? <>

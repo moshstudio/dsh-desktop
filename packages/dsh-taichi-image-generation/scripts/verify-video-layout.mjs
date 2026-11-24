@@ -100,12 +100,13 @@ const page = `<!doctype html><html><head><style>
   * { box-sizing: border-box; }
   body { margin: 0; display: flex; }
   .sidebar { width: 480px; flex: none; background: #222; }
-  .centre { width: 1010px; flex: none; background: #111; }
+  .centre { width: min(1010px, 100vw); height: 100vh; flex: none; background: #111; }
+  @media (max-width: 760px) { .sidebar, .right { display: none; } }
   .right { flex: 1; background: #eee; }
   ${css}
 </style></head><body>
   <div class="sidebar"></div>
-  <div class="centre" id="centre"><div class="generation" id="generation" data-empty-result-host="true">
+  <div class="centre" id="centre"><div class="panel"><div class="studio"><div class="generation" id="generation" data-empty-result-host="true">
     <!-- the classic result container, empty in the video tab -->
     <section class="canvas" data-video="true" data-empty-result="true" id="classic">
       <!-- These two are NOT gated on the image modes and must stay visible on
@@ -119,6 +120,11 @@ const page = `<!doctype html><html><head><style>
     <!-- the video studio -->
     <section class="canvas" data-video="true" id="canvas">
     <div class="videoWorkspace" id="ws">
+    <header class="videoToolbar" id="toolbar">
+      <button class="videoBack">返回</button>
+      <div class="videoModes"><button class="videoModeButton">Text to video</button><button class="videoModeButton">Image to video</button><button class="videoModeButton">First and last frames</button></div>
+    </header>
+    <div class="videoDiagnosticsRow"><button>诊断记录</button></div>
     <div class="videoBody" id="body">
       <section class="videoComposer" id="composer">
         <textarea class="videoPrompt" rows="5"></textarea>
@@ -126,7 +132,10 @@ const page = `<!doctype html><html><head><style>
           <div class="videoParam"><span class="videoLabel">视频模型</span></div>
           <div class="videoParam"><span class="videoLabel">画面比例</span></div>
         </div>
-        <div class="videoActions"><button class="videoGenerate">生成视频</button></div>
+        <div id="frames" hidden>
+          <div class="videoFrames"><div class="videoFrameSlot"><span class="videoLabel">参考图</span><img width="160" height="180" alt="参考图"></div></div>
+        </div>
+        <div class="videoActions"><button class="videoGenerate" id="generate">生成视频</button></div>
       </section>
       <section class="videoResults" id="results"><header class="videoResultsHead"><h3>本次生成</h3></header>
         <ul class="videoTaskList" id="tasks">
@@ -139,7 +148,7 @@ const page = `<!doctype html><html><head><style>
       </section>
     </div>
     </div></section>
-  </div></div>
+  </div></div></div></div>
   <div class="right"></div>
 </body></html>`
 
@@ -224,7 +233,46 @@ const res = await send('Runtime.evaluate', {
   })())`,
   returnByValue: true,
 })
+const scrollCases = []
+for (const { width, height, withFrame } of [
+  { width: 1520, height: 380, withFrame: false },
+  { width: 390, height: 420, withFrame: true },
+]) {
+  await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+  const measured = await send('Runtime.evaluate', {
+    expression: `(() => {
+      document.getElementById('frames').hidden = ${!withFrame}
+      const body = document.getElementById('body')
+      const toolbar = document.getElementById('toolbar')
+      const generate = document.getElementById('generate')
+      body.scrollTop = 0
+      const bounds = body.getBoundingClientRect()
+      const toolbarTop = toolbar.getBoundingClientRect().top
+      body.scrollTop += Math.max(0, generate.getBoundingClientRect().bottom - bounds.bottom + 2)
+      const button = generate.getBoundingClientRect()
+      const generateReachable = button.top >= bounds.top - 1 && button.bottom <= bounds.bottom + 1
+      body.scrollTop = body.scrollHeight
+      const lastTask = document.querySelector('#tasks > :last-child').getBoundingClientRect()
+      return {
+        scrollable: body.scrollTop > 0,
+        generateReachable,
+        lastTaskReachable: lastTask.bottom <= bounds.bottom + 1,
+        toolbarFixed: toolbarTop === toolbar.getBoundingClientRect().top,
+        fitsWidth: body.scrollWidth <= body.clientWidth + 1 && toolbar.scrollWidth <= toolbar.clientWidth + 1,
+      }
+    })()`,
+    returnByValue: true,
+  })
+  scrollCases.push({ width, height, withFrame, checks: measured.result.result.value })
+}
 ws.close(); launched.close(); server.close()
+for (const { checks, ...scenario } of scrollCases) {
+  if (!checks || Object.values(checks).some(value => value !== true)) {
+    console.error('FAIL: video scroll layout', scenario, checks)
+    process.exit(1)
+  }
+  console.log('VIDEO SCROLL LAYOUT OK', scenario)
+}
 const out = JSON.parse(res.result.result.value)
 console.log(JSON.stringify(out, null, 1))
 const centre = out.centre.w

@@ -21,7 +21,7 @@ npm run dev
 
 `npm ci` runs the repository's `postinstall` hook. It reapplies the tracked `patch-package` patches, installs DSH brand assets into the pinned Harness frontend, and installs Electron.
 
-`npm run dev` prepares the Office runtime and templates, prepares PPT, then starts the Electron shell and Host. Unpackaged launches default to `<repository>/.build/office-runtime/primary-runtime`, the output of `office:prepare`; `DSH_DESKTOP_PRIMARY_RUNTIME_DIR` is optional and only needed to test a different runtime. Installed packages always use `Resources/office-runtime/primary-runtime` and ignore that development override.
+`npm run dev` prepares the Office runtime and templates, prepares PPT, then starts the Electron shell and Host. On repeat launches, `office:prepare:dev` reuses published Office files when the build inputs match and the recorded files are present. To rerun runtime assembly and template validation explicitly, use `npm run office:prepare`, which is also the preparation step used by `npm run build`. Unpackaged launches default to `<repository>/.build/office-runtime/primary-runtime`, the output of Office preparation. `DSH_DESKTOP_PRIMARY_RUNTIME_DIR` can point an unpackaged launch at a different runtime. Installed packages use `Resources/office-runtime/primary-runtime`.
 
 Development builds use the separate application name `DSH Desktop Dev` and the separate user-data directory `dsh-desktop-dev`, so they do not reuse production DSH Desktop data. Multiple development worktrees still share that development profile by default; avoid running them at the same time when testing profile, plugin, migration, or recovery changes.
 

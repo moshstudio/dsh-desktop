@@ -6357,6 +6357,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
   const mutateCalls = []
   let rejectNextSettingsMutation = false
   const ecommerceSubmissions = []
+  const imageComparisonTasks = []
   /** Replica submissions are kept separate so its queue lifecycle can be
    * asserted without borrowing the ecommerce fixture's completion rules. */
   const replicaSubmissions = []
@@ -7089,6 +7090,17 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
         replicaTasks.push(task)
         return { ok: true, json: async () => ({ ok: true, task }) }
       }
+      if (payload.comparisonId !== undefined) {
+        const task = {
+          id: `comparison-task-${imageComparisonTasks.length + 1}`,
+          request: payload,
+          status: 'completed',
+          createdAt: Date.now(),
+          result: { images: [{ b64: pngBytes.toString('base64'), mime: 'image/png' }] },
+        }
+        imageComparisonTasks.push(task)
+        return { ok: true, json: async () => ({ ok: true, task }) }
+      }
       ecommerceSubmissions.push(payload)
       if (payload.canvas !== undefined) canvasTasks.push(payload)
       // Freeze the id eagerly: the json() closure runs after all concurrent
@@ -7099,6 +7111,8 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     }
     if (path.endsWith('/tasks/get')) {
       const requestedId = JSON.parse(init.body).id
+      const comparisonTask = imageComparisonTasks.find(task => task.id === requestedId)
+      if (comparisonTask !== undefined) return { ok: true, json: async () => ({ ok: true, task: comparisonTask }) }
       const replicaMatch = /^replica-task-(\d+)$/.exec(requestedId)
       if (replicaMatch !== null) {
         const payload = replicaSubmissions[Number(replicaMatch[1]) - 1]
@@ -7174,6 +7188,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
               }
             }),
             ...replicaSummaries,
+            ...imageComparisonTasks,
           ],
         }),
       }
@@ -8229,14 +8244,30 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // The video tab is a separate surface: selecting it must render the video
     // composer (not the image one), offer the configured video model, and
     // submit through the video route with the chosen mode/params.
-    const videoTab = [...view.querySelectorAll('[role="tablist"] button')]
-      .find(button => button.textContent?.includes('生视频'))
+    const imagePrompt = view.querySelector('textarea[placeholder*="描述你想要的画面"]')
+    const setTextareaValue = Object.getOwnPropertyDescriptor(jsdomWindow.HTMLTextAreaElement.prototype, 'value').set
+    setTextareaValue.call(imagePrompt, 'Compare these image results')
+    imagePrompt.dispatchEvent(new jsdomWindow.Event('input', { bubbles: true }))
+    view.querySelector('[class*="compareToggle"] input').click()
+    await waitForSelector(view, '[class*="compareModelChoices"] input')
+    for (const input of view.querySelectorAll('[class*="compareModelChoices"] input')) {
+      if (!input.checked) input.click()
+    }
+    view.querySelector('button[class*="generateButton"]').click()
+    assert.ok(await waitFor(() => view.querySelectorAll('[data-comparison-task] img').length === 2), 'the image comparison displays both generated results')
+
+    const videoTab = view.querySelector('#dsh-taichi-imagegen-mode-video')
     assert.ok(videoTab !== undefined, 'video mode entry is present')
     videoTab.click()
     await waitForSelector(view, '[id="dsh-video-prompt"]')
     assert.ok(view.querySelector('[id="dsh-video-prompt"]') !== null, 'video prompt renders')
     assert.equal(view.querySelector('button[class*="generateButton"]') === null, true, 'the image generate button is replaced in video mode')
     assert.ok(view.querySelector('button[class*="videoGenerate"]') !== null, 'video generate button renders')
+    assert.equal(view.querySelector('[data-comparison-task]'), null, 'the image comparison no longer occupies the video surface')
+    view.querySelector('[data-video-back]').click()
+    assert.ok(await waitFor(() => view.querySelectorAll('[data-comparison-task] img').length === 2), 'returning restores the same image results')
+    view.querySelector('#dsh-taichi-imagegen-mode-video').click()
+    assert.ok(await waitFor(() => view.querySelector('#dsh-video-prompt')?.closest('section[data-video]')?.hidden === false), 'video composer is visible when reopened')
 
     // The configured video model is offered; image-only models are not.
     const videoModelSelect = view.querySelector('[class*="videoSelect"]')
@@ -9198,7 +9229,9 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // The clip row carries clip-specific actions, not image ones.
     const clipRow = histHost.querySelector('[data-video-row]')
     assert.ok(clipRow !== null, 'the clip row is marked as a video row')
-    assert.ok(clipRow.querySelector('[data-history-video-gallery]') !== null, 'the clip row offers add-to-gallery')
+    const clipGallery = clipRow.querySelector('[data-history-video-gallery]')
+    assert.ok(clipGallery !== null, 'the clip row offers add-to-gallery')
+    assert.equal(clipGallery.getAttribute('aria-label'), '加入素材库', 'a clip uses the same gallery wording as an image')
     assert.ok(clipRow.querySelector('[data-history-video-canvas]') !== null, 'the clip row offers add-to-canvas')
     assert.ok(clipRow.querySelector('[data-history-video-download]') !== null, 'the clip row offers download')
     assert.equal(clipRow.querySelector('[data-history-add-canvas]') === null, true, 'the clip row has no image-only add-to-canvas action')
@@ -9207,6 +9240,9 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     const imageRow = [...histHost.querySelectorAll('[data-kind="image"]')][0]
     assert.ok(imageRow.querySelector('[data-history-add-canvas]') !== null, 'image rows keep add-to-canvas')
     assert.equal(imageRow.querySelector('[data-history-video-gallery]') === null, true, 'image rows have no clip gallery action')
+
+    clipGallery.dispatchEvent(new jsdomWindow.MouseEvent('click', { bubbles: true, cancelable: true }))
+    assert.ok(await waitUntil(() => (view.textContent ?? '').includes('已加入素材库')), 'adding a clip confirms it joined the gallery')
 
     // Deleting a clip removes only that row, from the clip store.
     const clipDelete = clipRow.querySelector('.historyIconAction[data-danger], [data-danger]')
@@ -9725,7 +9761,7 @@ await check('E1 client apply mounts the sidebar entry and studio (jsdom)', async
     // The video node toolbar exposes download / frame grab / gallery actions.
     assert.ok(view.querySelector(`[data-node-id="${placeholderId}"] [title="下载视频"]`) !== null, 'the video node offers a download action')
     assert.ok(view.querySelector(`[data-node-id="${placeholderId}"] [title="抽取当前帧"]`) !== null, 'the video node offers a frame-grab action')
-    assert.ok(view.querySelector(`[data-node-id="${placeholderId}"] [title="收藏到画廊"]`) !== null, 'the video node offers a gallery action')
+    assert.ok(view.querySelector(`[data-node-id="${placeholderId}"] [title="加入素材库"]`) !== null, 'the video node offers a gallery action')
 
     // The clip opens in a full-screen player (double-click, or the expand
     // action), and Escape/close dismisses it.

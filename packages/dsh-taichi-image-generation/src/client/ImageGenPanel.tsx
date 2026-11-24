@@ -1608,7 +1608,7 @@ export function ImageGenPanel(props: {
       setRenderQuality(defaultRenderQuality(catalogEntry) ?? '')
     }
     const formats = outputFormatsOf(catalogEntry, tab === 'text' && !compareEnabled && workspace === 'normal' ? 'text' : 'edit')
-    if (!formats.includes(outputFormat)) setOutputFormat('png')
+    if (tab !== 'video' && !formats.includes(outputFormat)) setOutputFormat('png')
     if (!(catalogEntry.background_options ?? []).includes('transparent') && transparentBackground) setTransparentBackground(false)
     const ecommerceSize = aspects.includes('1:1') ? '1:1' : aspects[0]
     if (ecommerceSize !== undefined) {
@@ -2999,17 +2999,22 @@ export function ImageGenPanel(props: {
     setWorkspace('canvas')
   }, [])
 
-  /** Favorite one clip into the gallery (the host copies it; see appendGalleryVideo). */
+  /** Add one clip to the asset library. Same wording and toast as an image:
+   *  the host copies the file and reports whether it was new. */
   const favoriteVideoEntry = useCallback(async (entry: VideoHistoryEntry): Promise<void> => {
+    if (galleryAdding) return
+    setGalleryAdding(true)
     try {
-      await api.galleryAppendVideo({ entryId: entry.id })
-      const listed = await api.galleryList()
-      setGallery(listed.entries)
-      setGalleryTrash(sortGalleryTrash(listed.trash))
+      const result = await api.galleryAppendVideo({ entryId: entry.id })
+      setGallery(result.entries.filter(item => item.deletedAt === undefined))
+      if (result.trash !== undefined) setGalleryTrash(sortGalleryTrash(result.trash))
+      showGalleryToast(result.added ? tt('gallery.added') : tt('gallery.already'))
     } catch (caught) {
       setError(errorMessage(caught))
+    } finally {
+      setGalleryAdding(false)
     }
-  }, [api])
+  }, [api, galleryAdding])
 
   const deleteVideoHistoryEntry = useCallback(async (id: string): Promise<void> => {
     setVideoHistory(previous => previous.filter(entry => entry.id !== id))
@@ -3943,8 +3948,9 @@ export function ImageGenPanel(props: {
                     <button
                       type="button"
                       className={css.historyIconAction}
-                      title={tt('canvas.videoFavorite')}
-                      aria-label={tt('canvas.videoFavorite')}
+                      disabled={galleryAdding}
+                      title={tt('gallery.add')}
+                      aria-label={tt('gallery.add')}
                       data-history-video-gallery=""
                       onClick={() => { void favoriteVideoEntry(row.entry!) }}
                     >
@@ -4192,8 +4198,8 @@ export function ImageGenPanel(props: {
                   options={MODE_TABS.map(item => ({
                     value: item,
                     label: tt(item === 'text' ? 'mode.text' : item === 'edit' ? 'mode.edit' : 'mode.video'),
-                    disabled: specialFormat && item !== 'text',
-                    title: specialFormat && item !== 'text' ? tt('params.gifLocksMode') : undefined,
+                    disabled: specialFormat && item === 'edit',
+                    title: specialFormat && item === 'edit' ? tt('params.gifLocksMode') : undefined,
                   }))}
                   onChange={next => { setTab(next) }}
                 />
@@ -5083,7 +5089,7 @@ export function ImageGenPanel(props: {
               </div>
             </section>
           ) : null}
-          {workspace === 'normal' && tab !== 'gallery' && comparison !== null ? (
+          {isGeneration && comparison !== null ? (
             <section className={css.comparisonBoard} aria-label={tt('compare.title')}>
               <header><div><strong>{tt('compare.title')}</strong><span>{comparisonResults.length} / {comparisonTasks.length}{generating ? ` · ${tt('canvas.elapsed', { seconds: elapsed })}` : ''}</span></div><button type="button" disabled={comparisonResults.length === 0} onClick={() => { setComparisonFullscreen(true) }}>{tt('compare.fullscreen')}</button></header>
               <div className={css.comparisonGrid}>

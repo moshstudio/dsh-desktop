@@ -24,7 +24,7 @@
   ],
   "scripts": {
     "postinstall": "patch-package && node scripts/release/install-brand-assets.mjs && install-electron --no",
-    "dev": "npm run office:prepare && npm run ppt:build && npm run imagegen:build && npm run account:build && npm run market:build && electron-vite dev",
+    "dev": "npm run office:prepare:dev && npm run ppt:build && npm run imagegen:build && npm run account:build && npm run market:build && electron-vite dev",
     "build": "npm run office:prepare && npm run ppt:build && npm run imagegen:build && npm run account:build && npm run market:build && electron-vite build",
     "icons:generate": "node scripts/release/generate-app-icons.mjs",
     "loader:generate": "node scripts/release/generate-loader-gifs.mjs",
@@ -49,7 +49,8 @@
     "market:build": "npm --prefix packages/taichi-dshmarket run build",
     "pretest": "npm run office:prepare && npm run ppt:build && npm run account:build && npm run market:build",
     "pretest:watch": "npm run office:prepare && npm run ppt:build && npm run account:build && npm run market:build",
-    "office:prepare": "node scripts/office-runtime/prepare.mjs && node scripts/office-runtime/prepare-templates.mjs"
+    "office:prepare": "node scripts/office-runtime/prepare.mjs && node scripts/office-runtime/prepare-templates.mjs",
+    "office:prepare:dev": "node scripts/office-runtime/prepare.mjs --incremental && node scripts/office-runtime/prepare-templates.mjs --incremental"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.1.0",

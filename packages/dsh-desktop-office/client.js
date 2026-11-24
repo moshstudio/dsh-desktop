@@ -158,11 +158,13 @@ window.__ModuleLoader__.load({ id: 'dsh-desktop-office', factory: require => {
       const card = element.closest('[data-composer-seat]')?.querySelector('[data-composer-card]')
       if (!body || !card) return
       const seat = typeof card.closest === 'function' ? card.closest('[data-composer-seat]') : null
+      // Harness slot anchors can sit between the scrollport and the phase host.
+      const phaseHost = body.closest('[data-content-phase]')
       let frame = 0
       const sync = () => {
         const bodyRect = body.getBoundingClientRect(), cardRect = card.getBoundingClientRect()
         element.style.setProperty('--dso-dock-width', `${Math.min(cardRect.width, bodyRect.width)}px`)
-        const hero = body.parentElement?.getAttribute('data-content-phase') === 'hero'
+        const hero = phaseHost?.getAttribute('data-content-phase') === 'hero'
         const readTranslate = element => {
           try {
             if (element?.nodeType === 1 && typeof getComputedStyle === 'function') {
@@ -202,8 +204,8 @@ window.__ModuleLoader__.load({ id: 'dsh-desktop-office', factory: require => {
       }
       const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(sync) : null
       observer?.observe(body); observer?.observe(card)
-      const phaseObserver = body.parentElement && typeof MutationObserver === 'function' ? new MutationObserver(sync) : null
-      phaseObserver?.observe(body.parentElement, { attributes: true, attributeFilter: ['data-content-phase'] })
+      const phaseObserver = phaseHost && typeof MutationObserver === 'function' ? new MutationObserver(sync) : null
+      phaseObserver?.observe(phaseHost, { attributes: true, attributeFilter: ['data-content-phase'] })
       window.addEventListener('resize', sync)
       frame = window.requestAnimationFrame(sync)
       return () => {

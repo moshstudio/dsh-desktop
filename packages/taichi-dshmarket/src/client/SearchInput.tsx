@@ -35,7 +35,7 @@ export interface SearchAiMode {
   placeholder: string
 }
 
-export function SearchInput({ value, onCommit, className, placeholder, resetToken, t, ai }: {
+export function SearchInput({ value, onCommit, className, placeholder, resetToken, t, ai, aiPlacement = 'inside' }: {
   value: string
   onCommit: (value: string) => void
   className?: string
@@ -44,6 +44,8 @@ export function SearchInput({ value, onCommit, className, placeholder, resetToke
   resetToken?: number
   t: Translate
   ai?: SearchAiMode
+  /** Discover parks the switch beside the field so a narrow query stays readable. */
+  aiPlacement?: 'inside' | 'beside'
 }) {
   const aiOn = ai?.on === true
   const [draft, setDraft] = useState(value)
@@ -90,55 +92,60 @@ export function SearchInput({ value, onCommit, className, placeholder, resetToke
   // Switching tabs/unmounting must not apply a stale query later.
   useEffect(() => cancel, [cancel])
 
-  return <div ref={field} data-ai={ai !== undefined ? '' : undefined} className={className === undefined ? css.searchField : `${css.searchField} ${className}`}>
-    <Input
-      className={css.searchInput}
-      icon={<IconSearchOutline16 size={14} />}
-      placeholder={aiOn ? ai!.placeholder : placeholder}
-      value={draft}
-      // A plugin name is not prose: the browser's red squiggles under
-      // `dsh-session-manager` are noise on a field that only ever takes names.
-      spellCheck={false}
-      onChange={event => {
-        const next = event.target.value
-        setDraft(next)
-        schedule(next)
-      }}
-      onCompositionStart={() => { composing.current = true; cancel() }}
-      onCompositionEnd={event => {
-        composing.current = false
-        const next = event.currentTarget.value
-        setDraft(next)
-        schedule(next)
-      }}
-      onKeyDown={event => {
-        if (event.key === 'Enter' && !composing.current && !event.nativeEvent.isComposing && event.keyCode !== 229) {
-          if (aiOn) ai!.submit(event.currentTarget.value)
-          else commit(event.currentTarget.value)
-        }
-      }}
-      onBlur={event => {
-        if (!composing.current && !aiOn) commit(event.currentTarget.value)
-      }}
-    />
-    {draft !== '' && (
-      <button
-        type="button"
-        className={css.searchClear}
-        aria-label={t('clearSearch')}
-        // Keep focus in the field while the button is pressed. Otherwise the
-        // press blurs the input, onBlur commits the query that was still
-        // inside its 250ms wait, the list reflows (e.g. to "No plugins
-        // match"), the button moves, and the release lands elsewhere — so the
-        // clear never happens. Clearing should never apply the old query first.
-        onMouseDown={event => event.preventDefault()}
-        onClick={clear}
-      >
-        <span aria-hidden="true">×</span>
-      </button>
-    )}
+  const fieldClass = [css.searchField, className, ai !== undefined && aiPlacement === 'beside' ? css.searchFieldSplit : '']
+    .filter(Boolean)
+    .join(' ')
+  return <div ref={field} data-ai={ai !== undefined && aiPlacement === 'inside' ? '' : undefined} className={fieldClass}>
+    <div className={css.searchBox}>
+      <Input
+        className={css.searchInput}
+        icon={<IconSearchOutline16 size={14} />}
+        placeholder={aiOn ? ai!.placeholder : placeholder}
+        value={draft}
+        // A plugin name is not prose: the browser's red squiggles under
+        // `dsh-session-manager` are noise on a field that only ever takes names.
+        spellCheck={false}
+        onChange={event => {
+          const next = event.target.value
+          setDraft(next)
+          schedule(next)
+        }}
+        onCompositionStart={() => { composing.current = true; cancel() }}
+        onCompositionEnd={event => {
+          composing.current = false
+          const next = event.currentTarget.value
+          setDraft(next)
+          schedule(next)
+        }}
+        onKeyDown={event => {
+          if (event.key === 'Enter' && !composing.current && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+            if (aiOn) ai!.submit(event.currentTarget.value)
+            else commit(event.currentTarget.value)
+          }
+        }}
+        onBlur={event => {
+          if (!composing.current && !aiOn) commit(event.currentTarget.value)
+        }}
+      />
+      {draft !== '' && (
+        <button
+          type="button"
+          className={css.searchClear}
+          aria-label={t('clearSearch')}
+          // Keep focus in the field while the button is pressed. Otherwise the
+          // press blurs the input, onBlur commits the query that was still
+          // inside its 250ms wait, the list reflows (e.g. to "No plugins
+          // match"), the button moves, and the release lands elsewhere — so the
+          // clear never happens. Clearing should never apply the old query first.
+          onMouseDown={event => event.preventDefault()}
+          onClick={clear}
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      )}
+    </div>
     {ai !== undefined && (
-      <span className={css.aiGroup} onMouseDown={event => event.preventDefault()}>
+      <span className={aiPlacement === 'beside' ? `${css.aiGroup} ${css.aiGroupBeside}` : css.aiGroup} onMouseDown={event => event.preventDefault()}>
         <Tooltip label={t('aiSearchHelp')} side="bottom" delayMs={150} portal maxWidth={320}>
           <span className={css.aiHelp} tabIndex={0} aria-label={t('aiSearchHelp')}><IconQuestionOutline14 size={14} /></span>
         </Tooltip>

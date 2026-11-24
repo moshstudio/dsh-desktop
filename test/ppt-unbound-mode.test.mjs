@@ -305,10 +305,10 @@ describe('PPT hero and session dock routing', () => {
 describe('PPT panel geometry', () => {
   it('uses the composer width instead of the shrink-wrapped dock width and clamps to the viewport', () => {
     const values = new Map()
-    const source = slice(adapter, 'const syncGeometry = () => {', 'const resizeObserver =')
+    const source = slice(adapter, 'const phaseHost = scrollBody.closest(', 'const resizeObserver =')
     const sync = new Function('root', 'scrollBody', 'composerCard', 'panel', 'TEMPLATE_PANEL_MIN_HEIGHT_PX', 'TEMPLATE_DOCK_BOTTOM_PX', `${source}\nreturn syncGeometry;`)(
       { style: { setProperty: (name, value) => values.set(name, value) } },
-      { getBoundingClientRect: () => ({ width: 720, bottom: 900 }) },
+      { closest: () => null, getBoundingClientRect: () => ({ width: 720, bottom: 900 }) },
       { getBoundingClientRect: () => ({ width: 900 }) },
       { getBoundingClientRect: () => ({ top: 500, width: 32 }) },
       120, 16
@@ -321,7 +321,7 @@ describe('PPT panel geometry', () => {
   it('lifts the centered composer while templates are open and eases it back when they close', async () => {
     const values = new Map()
     const helpers = new Function(`${slice(adapter, 'const TEMPLATE_LIFT_TRANSITION = "', 'const STAGED_MODE_KEY')}\nreturn { templateLiftMotion, releaseTemplatePanelLift, clearTemplatePanelLift, TEMPLATE_LIFT_TRANSITION };`)()
-    const source = slice(adapter, 'const syncGeometry = () => {', 'const resizeObserver =')
+    const source = slice(adapter, 'const phaseHost = scrollBody.closest(', 'const resizeObserver =')
     const createSync = new Function('root', 'scrollBody', 'composerCard', 'panel', 'TEMPLATE_PANEL_MIN_HEIGHT_PX', 'TEMPLATE_DOCK_BOTTOM_PX', 'TEMPLATE_LIFT_TOP_PX', 'TEMPLATE_LIFT_TRANSITION', 'templateLiftMotion', 'clearTemplatePanelLift', `${source}\nreturn syncGeometry;`)
     let transformValue = ''
     const attributes = new Set()
@@ -345,9 +345,14 @@ describe('PPT panel geometry', () => {
       getBoundingClientRect() { return { top: 280 + offset() } }
     }
     const panel = { getBoundingClientRect() { return { top: 500 + offset() } } }
+    const phase = { getAttribute: name => name === 'data-content-phase' ? 'hero' : null }
     const args = [
       { style: { setProperty: (name, value) => values.set(name, value) } },
-      { parentElement: { getAttribute: name => name === 'data-content-phase' ? 'hero' : null }, getBoundingClientRect: () => ({ top: 0, width: 720, bottom: 900 }) },
+      {
+        parentElement: { getAttribute: () => null, parentElement: phase },
+        closest: selector => selector === '[data-content-phase]' ? phase : null,
+        getBoundingClientRect: () => ({ top: 0, width: 720, bottom: 900 })
+      },
       { closest: () => seat, getBoundingClientRect: () => ({ width: 900 }) },
       panel,
       120, 16, 24, helpers.TEMPLATE_LIFT_TRANSITION, helpers.templateLiftMotion, helpers.clearTemplatePanelLift
@@ -381,7 +386,6 @@ describe('PPT panel geometry', () => {
     expect(seat.style.transform).toBe('')
     expect(attributes.has('data-template-panel-lift')).toBe(false)
     delete seat.closest
-    const phase = args[1].parentElement
     phase.getAttribute = () => 'active'
     transformValue = 'translateY(-180px)'
     attributes.add('data-template-panel-lift')

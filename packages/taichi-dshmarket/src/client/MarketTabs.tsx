@@ -8,7 +8,6 @@ import css from './Market.module.css'
 import { IconCloseOutline16 } from './icons.ts'
 import {
   IconChevronDownOutline14,
-  IconChevronRightOutline14,
   IconChevronUpOutline14,
   IconDownloadOutline16,
   IconFolderOpen16,
@@ -16,7 +15,6 @@ import {
   IconLinkOutline14,
 } from './icons.ts'
 import { api, categoryLabel, formatCount, orderedCategories, themeSwatch } from './market-data.ts'
-import { discoverHomeView } from './discover-teasers.ts'
 import { SearchInput } from './SearchInput.tsx'
 import { MarketLogo } from './MarketLogo.tsx'
 import { EmptyResults, FilterMenu, LoadMore, Pager } from './MarketListControls.tsx'
@@ -30,8 +28,9 @@ import type { MarketOperationsCtx } from './market-operations.ts'
 import type { MarketSectionProps } from './market-types.ts'
 import { useAiSearch } from './AiSearch.tsx'
 import { AiRecommend } from './AiRecommend.tsx'
-import { DiscoverStrip } from './DiscoverStrip.tsx'
+import { RecommendationGrid } from './DiscoverStrip.tsx'
 import { ActiveFilters, CategoryRail } from './CategoryRail.tsx'
+import { RECOMMENDED_CATEGORY } from './discover-teasers.ts'
 
 type MarketGoneNoticeCtx = { props: MarketSectionProps }
   & Pick<MarketStateCtx, 'reconnecting' | 'setReconnectRound' | 't'>
@@ -289,23 +288,23 @@ type DiscoverTabCtx = { props: MarketSectionProps } & CatalogStatusCtx
     'setSortField' | 'setTimeRange' | 'sortDir' | 'sortField' | 'surface' |
     'timeRange' | 'visibleCats'>
   & Pick<MarketInstallCtx,
-    'basePage' | 'changePageSize' | 'currentPage' | 'discoverMore' | 'goToPage' | 'hasRecent' |
-    'hasRecommend' | 'hideHighlights' | 'highlightsHidden' | 'highlightsOpen' | 'hostHiddenCount' |
+    'basePage' | 'changePageSize' | 'currentPage' | 'discoverMore' | 'goToPage' |
+    'hostHiddenCount' |
     'hostUnavailableCount' | 'loadedHostPackages' | 'pageHostPackages' | 'pagePlugins' | 'pageSize' |
-    'pluginsAll' | 'pluginsUnblocked' | 'recentPlugins' | 'recommendPlugins' | 'showHighlights' |
-    'toggleHighlights' | 'totalPages'>
-  & Pick<MarketRenderCtx, 'categories' | 'discoverCard' | 'recentTile'>
+    'pluginsAll' | 'pluginsUnblocked' | 'recentPlugins' | 'recommendedView' | 'recommendPlugins' |
+    'totalPages'>
+  & Pick<MarketRenderCtx, 'categories' | 'discoverCard'>
 
 export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
   const {
     basePage, bodyRef, cat, categories, catsWrapRef, changePageSize,
-    compatibleWithHost, currentPage, data, discoverCard, discoverMore, discoverSearchReset, goToPage, hasRecent,
-    hasRecommend, hideHighlights, highlightsHidden, highlightsOpen, hostHiddenCount, hostUnavailableCount, hostVersion, lang, loadError,
+    compatibleWithHost, currentPage, data, discoverCard, discoverMore, discoverSearchReset, goToPage,
+    hostHiddenCount, hostUnavailableCount, hostVersion, lang, loadError,
     loadedHostPackages, pageHostPackages, pagePlugins, pageSize, pluginsAll,
-    pluginsUnblocked, q, recentPlugins, recentTile, recommendPlugins,
+    pluginsUnblocked, q, recentPlugins, recommendedView, recommendPlugins,
     resetDiscoverSearch, setCat, setCatsSentinel, setCompatibleWithHost, setQ,
-    setSortDir, setSortField, setTimeRange, showHighlights, sortDir, sortField,
-    surface, t, timeRange, toggleHighlights, totalPages, visibleCats,
+    setSortDir, setSortField, setTimeRange, sortDir, sortField,
+    surface, t, timeRange, totalPages, visibleCats,
   } = c
   const [filtersOpen, setFiltersOpen] = useState(false)
   const aiSearch = useAiSearch(t)
@@ -319,6 +318,7 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
       return plugin === undefined ? [] : [plugin]
     })
   }, [aiSearch.picks, data])
+  const showRecommendations = recommendedView && aiPlugins === null
   return (
     loadError !== null || data === null
       ? <CatalogStatus c={c} />
@@ -328,7 +328,7 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
               <div className={css.discoverMain}>
               <div className={css.stickyHead}>
               <div className={css.tabSearchRow}>
-                <SearchInput key="discover" resetToken={discoverSearchReset} className={css.tabSearch} placeholder={t('searchPh')} value={q} onCommit={setQ} t={t} ai={aiSearch.mode} />
+                <SearchInput key="discover" resetToken={discoverSearchReset} className={css.tabSearch} placeholder={t('searchPh')} value={q} onCommit={setQ} t={t} ai={aiSearch.mode} aiPlacement="beside" />
                 <div className={filtersOpen ? `${css.discoverFilters} ${css.discoverFiltersOpen}` : css.discoverFilters}>
                 <FilterMenu
                   sortField={sortField}
@@ -349,7 +349,7 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
               <ActiveFilters
                 query={q}
                 category={cat}
-                categoryLabelText={cat === 'all' ? t('all') : categoryLabel(data.categories, cat, lang)}
+                categoryLabelText={cat === 'all' ? t('all') : cat === RECOMMENDED_CATEGORY ? t('categoryRecommended') : categoryLabel(data.categories, cat, lang)}
                 timeRange={timeRange}
                 timeLabel={timeRange === 'week' ? t('timeWeek') : timeRange === 'month' ? t('timeMonth') : timeRange === 'year' ? t('timeYear') : t('timeAll')}
                 sortField={sortField}
@@ -379,64 +379,36 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
                 )}
               </div>
               {aiSearch.status}
-              {aiPlugins === null && (
-                <div className={css.catalogHead}>
-                  <h2 className={css.catalogHeading}>{t('catalogHeading')}</h2>
-                  {discoverHomeView({ query: q, category: cat, timeRange, sortField, sortDir }) && (
-                    highlightsHidden
-                      ? (
-                          <button type="button" className={css.recentShow} onClick={showHighlights}>
-                            <IconChevronRightOutline14 size={14} />{t('highlightsShow')}
-                          </button>
-                        )
-                      : (
-                          <button
-                            type="button"
-                            className={css.highlightsToggle}
-                            aria-expanded={highlightsOpen}
-                            aria-controls="taichi-dshm-highlights"
-                            onClick={toggleHighlights}
-                          >
-                            {highlightsOpen ? <IconChevronDownOutline14 size={14} /> : <IconChevronRightOutline14 size={14} />}
-                            {highlightsOpen ? t('highlightsClose') : t('highlightsOpen')}
-                          </button>
-                        )
-                  )}
-                </div>
-              )}
-              {aiPlugins === null && highlightsOpen && !highlightsHidden
-                && discoverHomeView({ query: q, category: cat, timeRange, sortField, sortDir }) && (
-                <div id="taichi-dshm-highlights" className={css.highlightsPanel}>
-                  {hasRecommend && (
-                    <DiscoverStrip
-                      titleId="taichi-dshm-recommend-install"
-                      gridId="taichi-dshm-recommend-grid"
-                      title={t('recommendInstall')}
-                      help={t('recommendInstallHelp')}
-                      plugins={recommendPlugins}
-                      tile={plugin => recentTile(plugin, { meta: 'downloads' })}
-                      t={t}
-                    />
-                  )}
-                  {hasRecent && (
-                    <DiscoverStrip
-                      titleId="taichi-dshm-recently-added"
-                      gridId="taichi-dshm-recent-grid"
-                      title={t('recentlyAdded')}
-                      plugins={recentPlugins}
-                      tile={plugin => recentTile(plugin)}
-                      t={t}
-                    />
-                  )}
+              {showRecommendations ? (
+                <div className={css.highlightsPanel}>
+                  <RecommendationGrid
+                    titleId="taichi-dshm-recommend-install"
+                    title={t('recommendInstall')}
+                    help={t('recommendInstallHelp')}
+                    empty={t('empty')}
+                    plugins={recommendPlugins}
+                    renderCard={discoverCard}
+                  />
+                  <RecommendationGrid
+                    titleId="taichi-dshm-recently-added"
+                    title={t('recentlyAdded')}
+                    empty={t('empty')}
+                    plugins={recentPlugins}
+                    renderCard={discoverCard}
+                  />
                   <AiRecommend
                     t={t}
                     lang={lang}
                     plugins={data.plugins}
-                    renderTile={(plugin, why) => recentTile(plugin, { meta: 'none', blurb: why })}
+                    renderCard={(plugin, reason) => discoverCard(plugin, reason, `recommend-ai:${plugin.url}`)}
                   />
-                  <div className={css.highlightsHideRow}>
-                    <Button variant="ghost" size="sm" className={css.recentHide} onClick={hideHighlights}>{t('highlightsHide')}</Button>
-                  </div>
+                </div>
+              )
+                : (
+                    <>
+              {aiPlugins === null && (
+                <div className={css.catalogHead}>
+                  <h2 className={css.catalogHeading}>{t('catalogHeading')}</h2>
                 </div>
               )}
               {aiPlugins !== null
@@ -458,6 +430,8 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
                   : <LoadMore more={discoverMore.more} onLoad={discoverMore.loadMore} t={t} />
                 : <Pager currentPage={currentPage} totalPages={totalPages} pageSize={pageSize}
                     onGoToPage={goToPage} onChangePageSize={changePageSize} t={t} />)}
+                    </>
+                  )}
               </div>
               </div>
           )

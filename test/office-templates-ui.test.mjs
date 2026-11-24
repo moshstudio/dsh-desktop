@@ -369,7 +369,7 @@ it('lifts the centered composer while Word or Excel templates are open and eases
   const helperFrom = source.indexOf('const TEMPLATE_LIFT_TRANSITION = ')
   const helperTo = source.indexOf('function useDockGeometry', helperFrom)
   const helpers = new Function(`${source.slice(helperFrom, helperTo)}\nreturn { templateLiftMotion, releaseTemplatePanelLift, clearTemplatePanelLift, TEMPLATE_LIFT_TRANSITION };`)()
-  const from = source.indexOf('const sync = () => {')
+  const from = source.indexOf('const phaseHost = body.closest(')
   const to = source.indexOf('const observer = typeof ResizeObserver', from)
   const createSync = new Function('element', 'body', 'card', 'seat', 'panel', 'TEMPLATE_LIFT_TOP_PX', 'TEMPLATE_LIFT_TRANSITION', 'templateLiftMotion', 'clearTemplatePanelLift', `${source.slice(from, to)}\nreturn sync;`)
   let transformValue = ''
@@ -393,9 +393,14 @@ it('lifts the centered composer while Word or Excel templates are open and eases
     removeEventListener() { onEnd = null },
     getBoundingClientRect() { return { top: 280 + offset() } }
   }
+  const phaseHost = document.createElement('div')
+  phaseHost.dataset.contentPhase = 'hero'
+  phaseHost.innerHTML = '<div data-slot="conversation.hero.frame"><div data-conversation-scroll></div></div>'
+  const scrollBody = phaseHost.querySelector('[data-conversation-scroll]')
+  scrollBody.getBoundingClientRect = () => ({ top: 0, width: 720, bottom: 900 })
   const args = [
     { style: { setProperty: (name, value) => values.set(name, value) } },
-    { parentElement: { getAttribute: name => name === 'data-content-phase' ? 'hero' : null }, getBoundingClientRect: () => ({ top: 0, width: 720, bottom: 900 }) },
+    scrollBody,
     { getBoundingClientRect: () => ({ width: 900 }) },
     seat,
     { current: { getBoundingClientRect: () => ({ top: 500 + offset() }) } },
@@ -430,7 +435,7 @@ it('lifts the centered composer while Word or Excel templates are open and eases
   expect(seat.style.transform).toBe('')
   expect(attributes.has('data-template-panel-lift')).toBe(false)
   delete seat.closest
-  args[1].parentElement.getAttribute = () => 'active'
+  phaseHost.dataset.contentPhase = 'active'
   transformValue = 'translateY(-180px)'
   attributes.add('data-template-panel-lift')
   sync()

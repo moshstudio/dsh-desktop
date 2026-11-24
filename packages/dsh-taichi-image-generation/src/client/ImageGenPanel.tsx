@@ -8,7 +8,7 @@
  * a platform module) so the studio matches the dsh shell look by construction.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, IconListPenOutlineRegular, Modal, Pill, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
@@ -20,7 +20,7 @@ import { openImageGenConfig } from './config-entry.tsx'
 import { TemplateLibrary } from './TemplateLibrary.tsx'
 import { ReferenceImages } from './ReferenceImages.tsx'
 import { editReferenceLimit, useEditReferences, EDIT_REFERENCE_LIMIT } from './reference-images.ts'
-import { ModuleTabs } from './ModuleTabs.tsx'
+import { alignHistoryToModuleTabs, ModuleTabs } from './ModuleTabs.tsx'
 import { InspirationGallery } from './InspirationGallery.tsx'
 import { CanvasWorkspace } from './CanvasWorkspace.tsx'
 import { PptWorkspace } from './PptWorkspace.tsx'
@@ -1565,6 +1565,15 @@ export function ImageGenPanel(props: {
     },
   })
   const sidebarHistoryHost = useSidebarHistoryHost()
+  const promptId = useId()
+  const panelHeaderRef = useRef<HTMLElement>(null)
+  const historyHeaderRef = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const tabs = panelHeaderRef.current?.querySelector<HTMLElement>('[data-module-tabs-scroll]')
+    const historyHeader = historyHeaderRef.current
+    if (tabs == null || historyHeader === null) return
+    return alignHistoryToModuleTabs(tabs, historyHeader)
+  }, [sidebarHistoryHost])
   const modeGroups: ImageModelGroup[] = tab === 'edit'
     ? modelGroups
         .map(group => ({ ...group, models: group.models.filter(candidate => describeModel(candidate).supportsEdit) }))
@@ -3761,7 +3770,7 @@ export function ImageGenPanel(props: {
   // surface from both the image workspace and the native conversation.
   const historyPanel = (
     <aside className={css.history} data-dsh-taichi-imagegen-history>
-      <header className={css.historyHeader}>
+      <header ref={historyHeaderRef} className={css.historyHeader}>
         <span className={css.historyTitle}>{tt('history.title')}</span>
         <div className={css.historyHeaderActions}>
           <button
@@ -4032,7 +4041,7 @@ export function ImageGenPanel(props: {
 
   return (
     <div className={css.panel}>
-      <header className={css.panelHeader}>
+      <header ref={panelHeaderRef} className={css.panelHeader}>
         {/* Wrapped so the mobile layout can promote the nav onto its own full-width
             row with `order`/`flex-basis`; on desktop the wrapper is display:contents
             and does not generate a box. */}
@@ -4451,67 +4460,196 @@ export function ImageGenPanel(props: {
               </section>
             ) : null}
 
-            {isGeneration && tab === 'edit' ? (
+            {isGeneration ? (
               <section className={css.card}>
-                <ReferenceImages
-                  images={refs.images}
-                  reading={refs.reading}
-                  onAdd={files => { refs.add(files) }}
-                  onRemove={refs.remove}
-                  onClear={refs.clear}
-                  notice={editLimitNotice}
-                  limit={editReferenceCapacity}
+                {tab === 'edit' ? (
+                  <ReferenceImages
+                    images={refs.images}
+                    reading={refs.reading}
+                    onAdd={files => { refs.add(files) }}
+                    onRemove={refs.remove}
+                    onClear={refs.clear}
+                    notice={editLimitNotice}
+                    limit={editReferenceCapacity}
+                  />
+                ) : null}
+                <label className={css.modelLabel} htmlFor={promptId}>{tt('prompt.label')}</label>
+                <textarea
+                  id={promptId}
+                  className={css.prompt}
+                  value={prompt}
+                  placeholder={tt('prompt.placeholder')}
+                  onChange={(event) => { setPrompt(event.target.value); autoGrowPrompt(event.currentTarget) }}
+                  ref={node => { if (node !== null) autoGrowPrompt(node) }}
                 />
+                <div className={css.promptFooter}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={css.templatesButton}
+                    title={tt('templates.title')}
+                    icon={<IconListPenOutlineRegular size={14} />}
+                    onClick={() => { setLibraryOpen(true) }}
+                  >
+                    {tt('templates.open')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={css.enhanceButton}
+                    disabled={prompt.trim() === '' || enhancing}
+                    title={tt('prompt.enhanceHint')}
+                    onClick={() => { void enhanceCurrentPrompt() }}
+                  >
+                    {enhancing ? tt('prompt.enhancing') : tt('prompt.enhance')}
+                  </Button>
+                  <span
+                    className={css.promptCount}
+                    data-over={promptOverLimit ? '' : undefined}
+                    title={promptOverLimit ? tt('prompt.overLimit', { limit: promptLimit ?? 0 }) : undefined}
+                  >
+                    {promptLimit === null
+                      ? tt('prompt.count', { count: prompt.length })
+                      : tt('prompt.countLimit', { count: prompt.length, limit: promptLimit })}
+                  </span>
+                </div>
               </section>
             ) : null}
-
-                {/* prompt (normal workspace only — ecommerce has its own form) */}
-                {isGeneration ? (<>
-                <section className={css.card}>
-              <textarea
-                className={css.prompt}
-                value={prompt}
-                placeholder={tt('prompt.placeholder')}
-                onChange={(event) => { setPrompt(event.target.value); autoGrowPrompt(event.currentTarget) }}
-                ref={node => { if (node !== null) autoGrowPrompt(node) }}
-              />
-              <div className={css.promptFooter}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={css.templatesButton}
-                  title={tt('templates.title')}
-                  icon={<IconListPenOutlineRegular size={14} />}
-                  onClick={() => { setLibraryOpen(true) }}
-                >
-                  {tt('templates.open')}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={css.enhanceButton}
-                  disabled={prompt.trim() === '' || enhancing}
-                  title={tt('prompt.enhanceHint')}
-                  onClick={() => { void enhanceCurrentPrompt() }}
-                >
-                  {enhancing ? tt('prompt.enhancing') : tt('prompt.enhance')}
-                </Button>
-                <span
-                  className={css.promptCount}
-                  data-over={promptOverLimit ? '' : undefined}
-                  title={promptOverLimit ? tt('prompt.overLimit', { limit: promptLimit ?? 0 }) : undefined}
-                >
-                  {promptLimit === null
-                    ? tt('prompt.count', { count: prompt.length })
-                    : tt('prompt.countLimit', { count: prompt.length, limit: promptLimit })}
-                </span>
-              </div>
-            </section>
-            </>) : null}
+            {isGeneration ? (
+              <section className={css.card}>
+                <div className={css.modelWrap}>
+                  <span className={css.modelLabel}>{tt('model.channel')} / {tt('model.label')}</span>
+                  <ModelPicker
+                    groups={modeGroups}
+                    value={{ channelId: modelChannelId, model }}
+                    channelLabel={tt('model.channel')}
+                    modelLabel={tt('model.label')}
+                    channelPlaceholder={tt('model.channelPlaceholder')}
+                    emptyLabel={tt('model.noEditModels')}
+                    ariaLabel={tt('model.label')}
+                    disabled={submitting}
+                    onChange={choice => { setModelChannelId(choice.channelId); setModel(choice.model) }}
+                  />
+                  {modelLifecycleNotice !== null ? (
+                    <p className={css.modelLifecycleNotice} role="status" data-model-lifecycle={describeModel(model).lifecycle}>
+                      {modelLifecycleNotice}
+                    </p>
+                  ) : null}
+                  <div className={css.paramStrip}>
+                    {catalogAspects.length > 0 ? (
+                      <Select
+                        variant="composer"
+                        aria-label={tt('params.size')}
+                        value={size}
+                        label={sizeTriggerLabel(size)}
+                        options={catalogAspects.map(option => ({ value: option, label: sizeMenuLabel(option) }))}
+                        onChange={setSize}
+                      />
+                    ) : null}
+                    <Select
+                      variant="composer"
+                      aria-label={tt('params.count')}
+                      value={String(outputFormat === 'gif' ? 1 : count)}
+                      disabled={outputFormat === 'gif'}
+                      title={outputFormat === 'gif' ? tt('params.gifSingleCount') : undefined}
+                      options={[1, 2, 3, 4].map(option => ({ value: String(option), label: countLabel(option) }))}
+                      onChange={value => {
+                        const next = Number(value)
+                        if (next === 1 || next === 2 || next === 3 || next === 4) setCount(next)
+                      }}
+                    />
+                  </div>
+                  {specialFormat ? <span className={css.paramHint}>{tt('params.gifLocksMode')}</span> : null}
+                </div>
+                <details className={css.advancedSettings}>
+                  <summary>{tt('params.moreSettings')}</summary>
+                  <div className={css.modelWrap}>
+                    <div className={css.paramStrip}>
+                      {catalogQualities.length > 0 ? (
+                        <Select
+                          variant="composer"
+                          aria-label={tt('params.quality')}
+                          value={quality}
+                          options={catalogQualities.map(option => ({ value: option, label: qualityLabel(option) }))}
+                          onChange={setQuality}
+                        />
+                      ) : null}
+                      {catalogRenders.length > 0 ? (
+                        <Select
+                          variant="composer"
+                          aria-label={tt('params.renderQuality')}
+                          value={renderQuality}
+                          options={catalogRenders.map(option => ({ value: option, label: qualityLabel(option) }))}
+                          onChange={setRenderQuality}
+                        />
+                      ) : null}
+                      {catalogEntry === undefined ? (
+                        <Select
+                          variant="composer"
+                          aria-label={tt('params.detail')}
+                          value={detail}
+                          options={DETAILS.map(option => ({ value: option, label: detailLabel(option) }))}
+                          onChange={value => {
+                            const next = DETAILS.find(option => option === value)
+                            if (next !== undefined) setDetail(next)
+                          }}
+                        />
+                      ) : null}
+                      {(catalogEntry?.background_options ?? []).includes('transparent') ? (
+                        <div className={css.optionRow} role="group" aria-label={tt('params.background')}>
+                          <Pill active={!transparentBackground} onClick={() => { setTransparentBackground(false) }} className={css.optionPill}>{tt('params.backgroundDefault')}</Pill>
+                          <Pill active={transparentBackground} onClick={() => { setTransparentBackground(true) }} className={css.optionPill}>{tt('params.backgroundTransparent')}</Pill>
+                        </div>
+                      ) : null}
+                      {catalogFormats.length > 1 ? (
+                        <div className={css.optionRow} role="group" aria-label={tt('params.output')}>
+                          {catalogFormats.map(option => (
+                            <Pill
+                              key={option}
+                              active={outputFormat === option}
+                              onClick={() => { setOutputFormat(option) }}
+                              className={css.optionPill}
+                            >
+                              {outputFormatLabel(option)}
+                            </Pill>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    {catalogEntry === undefined ? <span className={css.paramHint}>{tt('detail.hint')}</span> : null}
+                    <div className={css.compareControl}>
+                      <label className={css.compareToggle}>
+                        <input
+                          type="checkbox"
+                          checked={compareEnabled}
+                          disabled={specialFormat}
+                          title={specialFormat ? tt('params.gifLocksMode') : undefined}
+                          onChange={event => { setCompareEnabled(event.target.checked) }}
+                        />
+                        <span>{tt('compare.enable')}</span>
+                      </label>
+                      {compareEnabled ? (
+                        <div className={css.compareModelChoices} role="group" aria-label={tt('compare.models')}>
+                          {modeGroups.map(group => <div key={group.id || '__default__'} className={css.compareChannelGroup}>
+                            <span className={css.compareChannelName}>{group.name || tt('model.channelPlaceholder')}</span>
+                            {group.models.map(option => {
+                              const key = modelChoiceKey({ channelId: group.id, model: option })
+                              return <label key={key} title={option}>
+                                <input type="checkbox" checked={compareModels.includes(key)} onChange={() => { setCompareModels(previous => previous.includes(key) ? previous.filter(value => value !== key) : [...previous, key]) }} />
+                                <span>{option}</span>
+                              </label>
+                            })}
+                          </div>)}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </details>
+              </section>
+            ) : null}
           </div>
 
-          {/* footer: model + generate — a fixed sibling of the scroll area, so
-              it never overlaps the cards scrolling above it. */}
+          {/* The footer stays below the scrollport so its actions never overlap the form. */}
             <section className={css.footer} data-video={isVideo ? 'true' : undefined}>
             {workspace === 'ecommerce' ? (
               <div className={css.ecommerceFooterBody}>
@@ -4536,152 +4674,32 @@ export function ImageGenPanel(props: {
                 )}
               </div>
             ) : null}
-            {isGeneration ? <div className={css.modelWrap}>
-              <span className={css.modelLabel}>{tt('model.channel')} / {tt('model.label')}</span>
-              <ModelPicker
-                groups={modeGroups}
-                value={{ channelId: modelChannelId, model }}
-                channelLabel={tt('model.channel')}
-                modelLabel={tt('model.label')}
-                channelPlaceholder={tt('model.channelPlaceholder')}
-                emptyLabel={tt('model.noEditModels')}
-                ariaLabel={tt('model.label')}
-                disabled={submitting}
-                onChange={choice => { setModelChannelId(choice.channelId); setModel(choice.model) }}
-              />
-              {/* Size, quality, count and the binary pills sit with the model:
-                  they describe the same request, and the footer stays put while
-                  the prompt scrolls. GIF still forces one image upstream. */}
-              <div className={css.paramStrip}>
-                {catalogAspects.length > 0 ? (
-                  <Select
-                    variant="composer"
-                    aria-label={tt('params.size')}
-                    value={size}
-                    label={sizeTriggerLabel(size)}
-                    options={catalogAspects.map(option => ({ value: option, label: sizeMenuLabel(option) }))}
-                    onChange={setSize}
-                  />
-                ) : null}
-                {catalogQualities.length > 0 ? (
-                  <Select
-                    variant="composer"
-                    aria-label={tt('params.quality')}
-                    value={quality}
-                    options={catalogQualities.map(option => ({ value: option, label: qualityLabel(option) }))}
-                    onChange={setQuality}
-                  />
-                ) : null}
-                {catalogRenders.length > 0 ? (
-                  <Select
-                    variant="composer"
-                    aria-label={tt('params.renderQuality')}
-                    value={renderQuality}
-                    options={catalogRenders.map(option => ({ value: option, label: qualityLabel(option) }))}
-                    onChange={setRenderQuality}
-                  />
-                ) : null}
-                <Select
-                  variant="composer"
-                  aria-label={tt('params.count')}
-                  value={String(outputFormat === 'gif' ? 1 : count)}
-                  disabled={outputFormat === 'gif'}
-                  title={outputFormat === 'gif' ? tt('params.gifSingleCount') : undefined}
-                  options={[1, 2, 3, 4].map(option => ({ value: String(option), label: countLabel(option) }))}
-                  onChange={value => {
-                    const next = Number(value)
-                    if (next === 1 || next === 2 || next === 3 || next === 4) setCount(next)
-                  }}
-                />
-                {catalogEntry === undefined ? (
-                  <Select
-                    variant="composer"
-                    aria-label={tt('params.detail')}
-                    value={detail}
-                    options={DETAILS.map(option => ({ value: option, label: detailLabel(option) }))}
-                    onChange={value => {
-                      const next = DETAILS.find(option => option === value)
-                      if (next !== undefined) setDetail(next)
-                    }}
-                  />
-                ) : null}
-                {(catalogEntry?.background_options ?? []).includes('transparent') ? (
-                  <div className={css.optionRow} role="group" aria-label={tt('params.background')}>
-                    <Pill active={!transparentBackground} onClick={() => { setTransparentBackground(false) }} className={css.optionPill}>{tt('params.backgroundDefault')}</Pill>
-                    <Pill active={transparentBackground} onClick={() => { setTransparentBackground(true) }} className={css.optionPill}>{tt('params.backgroundTransparent')}</Pill>
-                  </div>
-                ) : null}
-                {catalogFormats.length > 1 ? (
-                  <div className={css.optionRow} role="group" aria-label={tt('params.output')}>
-                    {catalogFormats.map(option => (
-                      <Pill
-                        key={option}
-                        active={outputFormat === option}
-                        onClick={() => { setOutputFormat(option) }}
-                        className={css.optionPill}
-                      >
-                        {outputFormatLabel(option)}
-                      </Pill>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-              {specialFormat ? <span className={css.paramHint}>{tt('params.gifLocksMode')}</span> : null}
-              {catalogEntry === undefined ? <span className={css.paramHint}>{tt('detail.hint')}</span> : null}
-            </div> : null}
-            {/* Upstream retired or deprecated the selected id. A notice, never
-                a block: the request still goes out unchanged, because a
-                gateway may well still serve a model the first party dropped.
-                Absent for every ordinary model, so the row costs nothing. */}
-            {isGeneration && modelLifecycleNotice !== null ? (
-              <p
-                className={css.modelLifecycleNotice}
-                role="status"
-                data-model-lifecycle={describeModel(model).lifecycle}
-              >
-                {modelLifecycleNotice}
-              </p>
-            ) : null}
-            {isGeneration ? <div className={css.compareControl}>
-              <label className={css.compareToggle}>
-                <input
-                  type="checkbox"
-                  checked={compareEnabled}
-                  disabled={specialFormat}
-                  title={specialFormat ? tt('params.gifLocksMode') : undefined}
-                  onChange={event => { setCompareEnabled(event.target.checked) }}
-                />
-                <span>{tt('compare.enable')}</span>
-              </label>
-              {compareEnabled ? (
-                <div className={css.compareModelChoices} role="group" aria-label={tt('compare.models')}>
-                  {modeGroups.map(group => <div key={group.id || '__default__'} className={css.compareChannelGroup}>
-                    <span className={css.compareChannelName}>{group.name || tt('model.channelPlaceholder')}</span>
-                    {group.models.map(option => {
-                      const key = modelChoiceKey({ channelId: group.id, model: option })
-                      return <label key={key} title={option}>
-                        <input type="checkbox" checked={compareModels.includes(key)} onChange={() => { setCompareModels(previous => previous.includes(key) ? previous.filter(value => value !== key) : [...previous, key]) }} />
-                        <span>{option}</span>
-                      </label>
-                    })}
-                  </div>)}
+            {isGeneration ? (
+              <>
+                <div className={css.generationSummary}>
+                  {[
+                    compareEnabled ? tt('compare.enable') : activeModel || tt('model.noEditModels'),
+                    catalogAspects.length > 0 ? sizeTriggerLabel(size) : '',
+                    countLabel(outputFormat === 'gif' ? 1 : count),
+                    specialFormat ? outputFormatLabel(outputFormat) : '',
+                  ].filter(Boolean).join(' · ')}
                 </div>
-              ) : null}
-            </div> : null}
-            {isGeneration ? <Button
-              variant="primary"
-              size="md"
-              className={css.generateButton}
-              disabled={generateDisabled}
-              onClick={() => { void handleGenerate() }}
-            >
-              {generating ? (
-                <span className={css.generateInner}>
-                  <span className={css.spinner} />
-                  {tt('generating')}
-                </span>
-              ) : tt('generate')}
-              </Button> : null}
+                <Button
+                  variant="primary"
+                  size="md"
+                  className={css.generateButton}
+                  disabled={generateDisabled}
+                  onClick={() => { void handleGenerate() }}
+                >
+                  {generating ? (
+                    <span className={css.generateInner}>
+                      <span className={css.spinner} />
+                      {tt('generating')}
+                    </span>
+                  ) : tt('generate')}
+                </Button>
+              </>
+            ) : null}
             </section>
           </aside>
 

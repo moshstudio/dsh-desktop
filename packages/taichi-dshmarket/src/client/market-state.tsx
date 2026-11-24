@@ -51,6 +51,7 @@ import {
 import type { CompatibilityNotice, MarketSectionProps, SourceMigrationConfirm } from './market-types.ts'
 import type { ResolvedNotes } from './MarketNotes.tsx'
 import { UPDATE_CHECK_REQUEST_MS } from './market-constants.ts'
+import { RECOMMENDED_CATEGORY } from './discover-teasers.ts'
 import { isHostDependencyFinding } from './MarketStatusParts.tsx'
 
 /**
@@ -308,7 +309,7 @@ const t = props.t
   const [themeSearchReset, resetThemeSearch] = useState(0)
   const [qFavorites, setQFavorites] = useState('')
   const [qInstalled, setQInstalled] = useState('')
-  const [cat, setCat] = useState('all')
+  const [cat, setCat] = useState(RECOMMENDED_CATEGORY)
   // FLAQ Desktop supplies this for onboarding/feature navigation; upstream dsh web omits it, so ordinary web opens intentionally leave this effect idle.
   useEffect(() => {
     const target = props.preferredSubsectionId
@@ -322,7 +323,7 @@ const t = props.t
       resetInstalledSearch(n => n + 1)
     } else if (kind === 'discover') {
       setTab('discover')
-      setCat('all')
+      setCat(value.trim() === '' ? RECOMMENDED_CATEGORY : 'all')
       setQ(value)
       resetDiscoverSearch(n => n + 1)
     }

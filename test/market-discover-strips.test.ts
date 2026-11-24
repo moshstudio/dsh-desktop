@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   addedAgoLabel,
-  discoverHomeView,
+  catalogCategory,
+  isRecommendedView,
+  RECOMMENDED_CATEGORY,
   parseSavedAiRecommend,
   primaryCategoryId,
   recommendedToInstall,
@@ -46,15 +48,24 @@ describe('addedAgoLabel', () => {
   })
 })
 
-describe('discoverHomeView', () => {
-  it('is only the unfiltered download sort', () => {
-    const home = { query: '', category: 'all', timeRange: 'all', sortField: 'downloads', sortDir: 'desc' }
-    expect(discoverHomeView(home)).toBe(true)
-    expect(discoverHomeView({ ...home, query: '  word  ' })).toBe(false)
-    expect(discoverHomeView({ ...home, category: 'office' })).toBe(false)
-    expect(discoverHomeView({ ...home, timeRange: 'week' })).toBe(false)
-    expect(discoverHomeView({ ...home, sortField: 'stars' })).toBe(false)
-    expect(discoverHomeView({ ...home, sortDir: 'asc' })).toBe(false)
+describe('catalogCategory', () => {
+  it('searches the full catalog from Recommended and keeps real category filters', () => {
+    expect(catalogCategory(RECOMMENDED_CATEGORY)).toBe('all')
+    expect(catalogCategory('office')).toBe('office')
+  })
+})
+
+describe('isRecommendedView', () => {
+  it('loads the strips in Recommended instead of the All catalog', () => {
+    expect(isRecommendedView(RECOMMENDED_CATEGORY, '', 'all')).toBe(true)
+    expect(isRecommendedView(RECOMMENDED_CATEGORY, '  ', 'all')).toBe(true)
+    expect(isRecommendedView('all', '', 'all')).toBe(false)
+    expect(isRecommendedView('office', '', 'all')).toBe(false)
+  })
+
+  it('leaves keyword and time-filtered results to the catalog', () => {
+    expect(isRecommendedView(RECOMMENDED_CATEGORY, '  word  ', 'all')).toBe(false)
+    expect(isRecommendedView(RECOMMENDED_CATEGORY, '', 'week')).toBe(false)
   })
 })
 

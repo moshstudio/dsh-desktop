@@ -6,6 +6,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import css from './Market.module.css'
 import { categoryLabel, formatCount, pluginCategories, type Registry, type Translate } from './market-data.ts'
+import { RECOMMENDED_CATEGORY } from './discover-teasers.ts'
 
 export function CategoryRail({
   data, categories, cat, lang, onSelect, t, mode,
@@ -44,7 +45,7 @@ export function CategoryRail({
     }
     return map
   }, [data])
-  const item = (id: string, label: string, count: number, className: string) => (
+  const item = (id: string, label: string, count: number | null, className: string) => (
     <button
       key={id}
       type="button"
@@ -53,13 +54,15 @@ export function CategoryRail({
       onClick={() => onSelect(id)}
     >
       <span>{label}</span>
-      <span className={css.railCount}>{formatCount(count)}</span>
+      {count !== null && <span className={css.railCount}>{formatCount(count)}</span>}
     </button>
   )
+  const recommended = item(RECOMMENDED_CATEGORY, t('categoryRecommended'), null, mode === 'chips' ? css.chipItem : css.railItem)
   if (mode === 'chips') {
     return (
       <div ref={chipsRef} className={chipsFade ? `${css.categoryChips} ${css.categoryChipsFade}` : css.categoryChips}>
         {item('all', t('all'), data.count, css.chipItem)}
+        {recommended}
         {categories.map(id => item(id, categoryLabel(data.categories, id, lang), counts.get(id) ?? 0, css.chipItem))}
       </div>
     )
@@ -67,6 +70,7 @@ export function CategoryRail({
   return (
     <nav className={css.categoryRail} aria-label={t('tabDiscover')}>
       {item('all', t('all'), data.count, css.railItem)}
+      {recommended}
       {categories.map(id => item(id, categoryLabel(data.categories, id, lang), counts.get(id) ?? 0, css.railItem))}
     </nav>
   )

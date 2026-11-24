@@ -775,8 +775,8 @@ export function useMarketRender(c: MarketRenderIn) {
    * Discover catalog card. The name and the empty area open the detail page.
    * Version and downloads sit on the meta line; stars stay in the detail page.
    */
-  const discoverCard = (p: RegistryPlugin) => {
-    const desc = (p.description && (p.description[lang] || p.description.en)) || ''
+  const discoverCard = (p: RegistryPlugin, reason?: string, menuKey = p.url) => {
+    const desc = reason || p.description?.[lang] || p.description?.en || ''
     const busy = busyUrl === p.url
     const record = recordByUrl.get(p.url) ?? null
     const blocked = record !== null && (record.state === 'input' || record.state === 'failed')
@@ -808,14 +808,18 @@ export function useMarketRender(c: MarketRenderIn) {
               <button type="button" className={css.nmButton} title={p.name} onClick={() => setConfirming(p)}>
                 {title}
               </button>
-              {p.deprecated === true && <span className={css.depBadge}>{t('deprecatedBadge')}</span>}
-              {installedAlready && <span className={css.depBadge}>{t('alreadyInstalled')}</span>}
-              {urgent && (
-                <CardTip label={t('cardUrgent')} maxWidth={280}>
-                  <span className={css.depBadge} tabIndex={0}>{t('cardUrgent')}</span>
-                </CardTip>
-              )}
             </div>
+            {(p.deprecated === true || installedAlready || urgent) && (
+              <div className={css.discoverStatus}>
+                {p.deprecated === true && <span className={css.depBadge}>{t('deprecatedBadge')}</span>}
+                {installedAlready && <span className={css.depBadge}>{t('alreadyInstalled')}</span>}
+                {urgent && (
+                  <CardTip label={t('cardUrgent')} maxWidth={280}>
+                    <span className={css.depBadge} tabIndex={0}>{t('cardUrgent')}</span>
+                  </CardTip>
+                )}
+              </div>
+            )}
             {desc !== '' && <p className={css.discoverPurpose} title={desc}>{desc}</p>}
             {(metaParts.length > 0 || hasFigures || hostChip.bad) && (
               <div className={css.discoverMeta}>
@@ -853,7 +857,7 @@ export function useMarketRender(c: MarketRenderIn) {
         <div className={css.discoverFoot}>
           <span className={css.discoverTools}>
             {renderFavoriteControl(p.url)}
-            {renderPluginMenu(p)}
+            {renderPluginMenu(p, menuKey)}
           </span>
           {installAction(p)}
         </div>

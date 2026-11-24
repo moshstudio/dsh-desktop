@@ -40,18 +40,7 @@ export const TIME_OPTIONS: ReadonlyArray<{ key: TimeRange; label: string }> = [
   { key: 'year', label: 'timeYear' },
 ]
 
-/**
- * Discover "推荐与上新" display preferences.
- *
- * One entry covers recommended installs, recently added, and AI picks. It
- * only appears on the unfiltered home view. A missing store means collapsed
- * and still offered — older per-strip keys are not read, so a previous
- * "expanded" choice cannot put the teasers back in front of the catalog.
- */
-export const HIGHLIGHTS_OPEN_KEY = 'taichi-dshm-highlights-open'
-export const HIGHLIGHTS_HIDDEN_KEY = 'taichi-dshm-highlights-hidden'
-/** Cap for the Discover teaser. Extra tiles live in a quiet horizontal
- * scroll so the block stays one row tall. */
+/** Max cards shown per recommendation group. */
 export const RECENT_STRIP_LIMIT = 8
 
 /** "不再提示" on the settings-page sidebar tip. A missing store means show it. */

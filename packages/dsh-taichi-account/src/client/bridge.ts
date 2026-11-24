@@ -34,6 +34,17 @@ export interface PurchaseResult {
   order?: AccountOrder | null
 }
 
+export interface RechargePackage {
+  yuan: number
+  credits: number
+}
+
+export interface RechargeCatalog {
+  packages?: RechargePackage[] | null
+  paymentAvailable?: boolean
+  message?: string
+}
+
 export interface AccountApi {
   status: () => Promise<AccountSnapshot>
   register: (email: string, password: string) => Promise<AccountSnapshot>
@@ -44,6 +55,7 @@ export interface AccountApi {
   confirmReset: (token: string, password: string) => Promise<AccountSnapshot>
   checkIn: () => Promise<AccountSnapshot>
   refresh?: () => Promise<AccountSnapshot>
+  packages?: () => Promise<RechargeCatalog>
   purchase?: (yuan: number) => Promise<PurchaseResult>
   order?: (orderId: string) => Promise<PurchaseResult>
 }

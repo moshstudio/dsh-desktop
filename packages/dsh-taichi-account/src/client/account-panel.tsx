@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import * as React from 'react'
 import { Button, Modal, RiskConfirmation, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { AccountApi, AccountSnapshot, DesktopBridge, LayoutScope } from './bridge'
+import type { AccountApi, AccountSnapshot, DesktopBridge, LayoutScope, RechargeCatalog, RechargePackage } from './bridge'
 import type { Translate } from './locale'
 import { isErrorCode } from './locale'
 import {
@@ -128,6 +128,20 @@ function pendingKey(mode: AuthMode): string {
   return 'signingIn'
 }
 
+function readRechargePackage(value: unknown): RechargePackage[] {
+  if (value === null || typeof value !== 'object') return []
+  const pack = value as { yuan?: unknown; credits?: unknown }
+  if (!Number.isSafeInteger(pack.yuan) || !Number.isSafeInteger(pack.credits)) return []
+  if ((pack.yuan as number) <= 0 || (pack.credits as number) <= 0) return []
+  return [{ yuan: pack.yuan as number, credits: pack.credits as number }]
+}
+
+const PURCHASE_CODES = new Set(['payment_unconfigured', 'payment_provider_unavailable', 'invalid_amount', 'order_response_invalid', 'unauthorized', 'rate_limited'])
+
+function purchaseNotice(message: unknown): string {
+  return typeof message === 'string' && PURCHASE_CODES.has(message) ? message : 'order_response_invalid'
+}
+
 function unavailableStatus(): AccountSnapshot {
   return {
     configured: true,
@@ -191,7 +205,10 @@ export function AccountPanel({ t, bridge, initialStatus, onClose, onStatus, layo
   const [rechargeNotice, setRechargeNotice] = useState('')
   const [rechargeOrder, setRechargeOrder] = useState('')
   const [rechargeQr, setRechargeQr] = useState('')
+  const [rechargePackages, setRechargePackages] = useState<RechargePackage[] | null>(null)
+  const [paymentAvailable, setPaymentAvailable] = useState(false)
   const rechargeGeneration = useRef(0)
+  const purchaseLock = useRef(false)
   const desktop = bridge ?? window.dshDesktop
   const account = desktop?.account
   const [panelActive, setPanelActive] = useState(() => {
@@ -575,6 +592,32 @@ export function AccountPanel({ t, bridge, initialStatus, onClose, onStatus, layo
     if (address !== email) setEmail(address)
     void run(api => api.requestReset(address), 'resend')
   }
+  const loadRechargePackages = async (generation: number) => {
+    if (typeof account?.packages !== 'function') {
+      if (generation !== rechargeGeneration.current) return
+      setRechargePhase('')
+      setRechargeNotice('unavailable')
+      setRechargePackages(null)
+      setPaymentAvailable(false)
+      return
+    }
+    const readPackages = account.packages
+    try {
+      const catalog = await readPackages()
+      if (generation !== rechargeGeneration.current) return
+      const packages = Array.isArray(catalog?.packages) ? catalog.packages.flatMap(readRechargePackage) : null
+      setRechargePackages(packages)
+      setPaymentAvailable(catalog?.paymentAvailable === true)
+      setRechargeNotice(catalog?.message || (catalog?.paymentAvailable === true ? '' : 'payment_unconfigured'))
+      setRechargePhase('')
+    } catch {
+      if (generation !== rechargeGeneration.current) return
+      setRechargePackages(null)
+      setPaymentAvailable(false)
+      setRechargeNotice('unavailable')
+      setRechargePhase('')
+    }
+  }
 
   const body = screen === 'loading'
     ? <p className={styles.loading}>{t('descLoading')}</p>
@@ -600,12 +643,16 @@ export function AccountPanel({ t, bridge, initialStatus, onClose, onStatus, layo
           rechargeId,
           onCheckIn: () => { void run(api => api.checkIn(), 'checkIn') },
           onRecharge: () => {
-            rechargeGeneration.current += 1
+            const generation = ++rechargeGeneration.current
             setRechargeNotice('')
-            setRechargePhase('')
+            setRechargePhase('loading')
             setRechargeOrder('')
             setRechargeQr('')
+            setRechargePackages(null)
+            setPaymentAvailable(false)
+            purchaseLock.current = false
             setRechargeOpen(true)
+            void loadRechargePackages(generation)
           },
           onLogout: () => { setAcknowledged(false); setConfirmLogout(true) },
           onRetry: () => {
@@ -714,17 +761,34 @@ export function AccountPanel({ t, bridge, initialStatus, onClose, onStatus, layo
         phase: rechargePhase,
         notice: rechargeNotice,
         qr: rechargeQr,
+        packages: rechargePackages,
+        paymentAvailable,
         onClose: () => {
           if (rechargeBusy) return
           rechargeGeneration.current += 1
+          purchaseLock.current = false
           setRechargeOpen(false)
         },
+        onRetry: () => {
+          if (rechargeBusy) return
+          const generation = ++rechargeGeneration.current
+          setRechargePhase('loading')
+          setRechargeNotice('')
+          setRechargePackages(null)
+          setPaymentAvailable(false)
+          void loadRechargePackages(generation)
+        },
         onBuy: yuan => {
-          if (rechargeBusy || typeof account?.purchase !== 'function') {
-            setRechargeNotice('unavailable')
+          if (purchaseLock.current || rechargeBusy || rechargePhase === 'waiting' || rechargePhase === 'paid' || !paymentAvailable || typeof account?.purchase !== 'function') {
+            setRechargeNotice(paymentAvailable ? 'unavailable' : 'payment_unconfigured')
+            return
+          }
+          if (!rechargePackages?.some(pack => pack.yuan === yuan)) {
+            setRechargeNotice('invalid_amount')
             return
           }
           const generation = ++rechargeGeneration.current
+          purchaseLock.current = true
           setRechargeBusy(true)
           setRechargePhase('opening')
           setRechargeNotice('')
@@ -740,13 +804,16 @@ export function AccountPanel({ t, bridge, initialStatus, onClose, onStatus, layo
               return
             }
             setRechargePhase('')
-            setRechargeNotice(typeof result?.message === 'string' && result.message !== '' ? result.message : 'unavailable')
+            setRechargeNotice(purchaseNotice(result?.message))
           }).catch(() => {
             if (generation !== rechargeGeneration.current) return
             setRechargePhase('')
             setRechargeNotice('unavailable')
           }).finally(() => {
-            if (generation === rechargeGeneration.current) setRechargeBusy(false)
+            if (generation === rechargeGeneration.current) {
+              purchaseLock.current = false
+              setRechargeBusy(false)
+            }
           })
         }
       })}

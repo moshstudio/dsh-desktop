@@ -53,6 +53,7 @@ export const DESKTOP_IPC = {
   accountResetConfirm: ACCOUNT_IPC.resetConfirm,
   accountCheckIn: ACCOUNT_IPC.checkIn,
   accountRefresh: ACCOUNT_IPC.refresh,
+  accountPackages: ACCOUNT_IPC.packages,
   accountPurchase: ACCOUNT_IPC.purchase,
   accountOrder: ACCOUNT_IPC.order
 } as const

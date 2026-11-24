@@ -36,7 +36,7 @@ export function CatalogGrid<T>({ items, render }: {
 }) {
   return (
     <div className={css.catalogGrid}>
-      {items.map(render)}
+      {items.map(item => render(item))}
     </div>
   )
 }

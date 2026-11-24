@@ -994,13 +994,15 @@ button[data-desktop-ppt]:focus-visible{outline:2px solid var(--dsw-alias-label-p
 				const scrollBody = root.closest("[data-conversation-scroll]");
 				const composerCard = root.closest("[data-composer-seat]")?.querySelector("[data-composer-card]") ?? null;
 				if (scrollBody === null || composerCard === null) return;
+				// Harness slot anchors can sit between the scrollport and the phase host.
+				const phaseHost = scrollBody.closest("[data-content-phase]");
 				let frame = 0;
 				const syncGeometry = () => {
 					const scrollRect = scrollBody.getBoundingClientRect();
 					const cardRect = composerCard.getBoundingClientRect();
 					root.style.setProperty("--office-ppt-template-panel-width", `${Math.min(cardRect.width, scrollRect.width)}px`);
 					const seat = typeof composerCard.closest === "function" ? composerCard.closest("[data-composer-seat]") : null;
-					const hero = scrollBody.parentElement?.getAttribute("data-content-phase") === "hero";
+					const hero = phaseHost?.getAttribute("data-content-phase") === "hero";
 					const readTranslate = (element) => {
 						try {
 							if (element?.nodeType === 1 && typeof getComputedStyle === "function") {
@@ -1043,7 +1045,6 @@ button[data-desktop-ppt]:focus-visible{outline:2px solid var(--dsw-alias-label-p
 				const resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(syncGeometry) : null;
 				resizeObserver?.observe(scrollBody);
 				resizeObserver?.observe(composerCard);
-				const phaseHost = scrollBody.parentElement;
 				const phaseObserver = phaseHost && typeof MutationObserver === "function" ? new MutationObserver(syncGeometry) : null;
 				phaseObserver?.observe(phaseHost, { attributes: true, attributeFilter: ["data-content-phase"] });
 				window.addEventListener("resize", syncGeometry);

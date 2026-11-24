@@ -311,6 +311,19 @@ window.__ModuleLoader__.load({
         style.id = id
         style.textContent = `
           [data-dsh-sidebar-brand-identity] { display:none !important; }
+          /* The caption already houses the toggle on Windows/Linux and macOS.
+             Hide the empty brand control and collapse its row without clipping the fixed toggle. */
+          :is(html[data-windows-titlebar], html[data-platform="darwin"])
+            [data-dsh-sidebar-root][data-dsh-sidebar-wide="true"] > [data-window-drag]:has([data-dsh-sidebar-brand-identity]) {
+            height: 0;
+            margin: 0;
+            padding: 0;
+            overflow: visible;
+          }
+          :is(html[data-windows-titlebar], html[data-platform="darwin"])
+            [data-dsh-sidebar-root][data-dsh-sidebar-wide="true"] > [data-window-drag] > :has(> [data-dsh-sidebar-brand-identity]) {
+            display: none;
+          }
           /* Third-party plugins (dshmarket, dsh-better-sidebar) draw custom icons via ::before on settings nav rows,
              expecting direct > svg to hide the fallback gear. In 0.2.2-rc.1, navIcon wraps the fallback in a span,
              so ensure the fallback gear container is hidden when custom nav marker is present. */

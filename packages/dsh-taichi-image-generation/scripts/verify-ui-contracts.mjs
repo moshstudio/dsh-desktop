@@ -1740,6 +1740,15 @@ if (navTsc.status !== 0) {
   process.exit(1)
 }
 const navModuleSource = readSourceText(join(navModuleDir, 'GooeyNav.js'))
+const moduleTabsCss = read('ModuleTabs.module.css')
+const compileFixtureModule = (file, jsx = false) => ts.transpileModule(read(file), {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, ...(jsx ? { jsx: ts.JsxEmit.ReactJSX } : {}) },
+}).outputText
+const moduleTabsFiles = new Map([
+  ['/ModuleTabs.js', compileFixtureModule('ModuleTabs.tsx', true)],
+  ['/tablist.ts', compileFixtureModule('tablist.ts')],
+  ['/ModuleTabs.module.css', 'export default { root: "root", tabs: "tabs", tab: "tab" }'],
+])
 
 const page = `<!doctype html><html><head><style>
   /* A light surface, then flipped to dark at runtime. */
@@ -1786,21 +1795,9 @@ const page = `<!doctype html><html><head><style>
 // reported by any event the component listens to (no scroll listener, by
 // design), so the only honest test is: scroll the container, then measure where
 // the decoration is against the tab it belongs to.
-const navScrollPage = `<!doctype html><html><head><style>
+const navFixturePage = ({ styles, component, ready, action = false, sidebar = '' }) => `<!doctype html><html><head><style>
   body { margin: 0; background: #ffffff; color: #17171c; }
-  /* The four tokens .container reads for its palette. They only affect color;
-     the geometry does not depend on them, but a var() that never resolves is
-     noise in the console, so they are supplied. */
-  body {
-    --dsw-alias-brand-primary: #17171c;
-    --dsw-static-red-400: #f25a5a;
-    --dsw-static-neutral-00: #ffffff;
-    --dsw-static-blue-400: #60a5fa;
-  }
-  /* Narrow enough that the nine real labels cannot fit: without an overflow
-     this fixture would measure nothing and pass vacuously. */
-  #host { width: 520px; }
-  ${gooeyCss}
+  ${styles}
 </style>
 <script type="importmap">
 { "imports": {
@@ -1810,6 +1807,7 @@ const navScrollPage = `<!doctype html><html><head><style>
 } }
 </script>
 </head><body>
+  ${sidebar}
   <div id="host"></div>
   <!-- The UMD builds are classic scripts: they assign window.React /
        window.ReactDOM, which the three ESM shims above read. They have to load
@@ -1819,31 +1817,66 @@ const navScrollPage = `<!doctype html><html><head><style>
   <script type="module">
     import { createRoot } from 'react-dom/client'
     import { createElement } from 'react'
-    import { GooeyNav } from '/GooeyNav.js'
-    // The real nine workspace labels, in the order the panel renders them: the
-    // overflow has to come from labels a user actually sees, because the widths
-    // are what decides whether the row overflows.
+    import { ${component} as Tabs } from '/${component}.js'
+    // Use real labels so the fixture reproduces the row's intrinsic width.
     const items = ['普通生图','素材库','无限画布','电商模式预览','图片转 PPT','爆款复刻','服饰穿戴','带货图文','A+ 详情页'].map((label, index) => ({ key: String(index), label }))
     const host = document.getElementById('host')
     const root = createRoot(host)
     let activeIndex = 0
-    // createElement, not a direct call to GooeyNav: a component invoked as a
-    // plain function runs its hooks with no React dispatcher installed, which
-    // fails as "Invalid hook call" -- the fixture would report a harness
-    // failure and prove nothing about the drift.
-    const render = () => root.render(createElement(GooeyNav, { items, activeIndex, onSelect: index => { activeIndex = index; render() }, ariaLabel: '工作区' }))
+    const render = () => root.render([
+      createElement(Tabs, { key: 'tabs', items, activeIndex, onSelect: index => { activeIndex = index; render() }, ariaLabel: '工作区' }),
+      ${action ? "createElement('button', { key: 'action', id: 'action' }, 'Chat')" : 'null'},
+    ])
     render()
-    // The mount effects run synchronously in React 18's createRoot, but the
-    // ResizeObserver callback that positions the pill is a separate task: poll
-    // for the decoration existing rather than assuming a number of frames.
-    const ready = () => host.querySelector('.effectText') !== null && host.querySelector('.effectFilter') !== null
+    const ready = () => ${ready}
     const deadline = Date.now() + 2000
     const wait = () => { if (ready() || Date.now() > deadline) { window.__navReady = ready(); return }; requestAnimationFrame(wait) }
     requestAnimationFrame(wait)
   </script>
 </body></html>`
 
+const navScrollPage = navFixturePage({
+  component: 'GooeyNav',
+  ready: "host.querySelector('.effectText') !== null && host.querySelector('.effectFilter') !== null",
+  styles: `
+    body {
+      --dsw-alias-brand-primary: #17171c;
+      --dsw-static-red-400: #f25a5a;
+      --dsw-static-neutral-00: #ffffff;
+      --dsw-static-blue-400: #60a5fa;
+    }
+    #host { width: 520px; }
+    ${gooeyCss}
+  `,
+})
+
+const moduleTabsPage = navFixturePage({
+  component: 'ModuleTabs',
+  ready: "host.querySelectorAll('[role=tab]').length === items.length",
+  action: true,
+  sidebar: `<aside id="history-seat" data-dsh-taichi-imagegen-sidebar-region><header class="historyHeader"><span>History</span><button type="button" class="historyNew">+</button></header></aside>`,
+  styles: `
+    #history-seat { position: absolute; width: 180px; top: 22px; }
+    #host { display: flex; align-items: center; gap: 12px; padding-top: 14px; }
+    #action { flex: none; }
+    @media (min-width: 761px) { #host { margin-left: 200px; } }
+    @media (max-width: 760px) { #history-seat:not([data-open]) { display: none; } }
+    ${['historyHeader', 'historyNew'].map(name => `.${name} ${ruleBodyOf(read('panel.module.css'), `.${name}`)}`).join('\n')}
+    body { --dsw-alias-bg-layer-2: #eeeeef; --dsw-alias-label-primary: #17171c;
+      --dsw-alias-label-secondary: #565864; --dsw-alias-border-l2: #d0d1d5;
+      --dsw-alias-state-business-primary: #2468d2; --dsw-radius-sm: 6px; }
+    body[data-dark] { --dsw-alias-bg-layer-2: #33333b; --dsw-alias-label-primary: #fafafa; }
+    ${moduleTabsCss}
+  `,
+})
+
 const server = (await import('node:http')).createServer((req, res) => {
+  const fixtureModule = moduleTabsFiles.get(req.url)
+  if (fixtureModule !== undefined) {
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' })
+    res.end(fixtureModule)
+    return
+  }
   // The scroll-drift fixture mounts the real component, so it needs React
   // itself. The UMD development builds are served as plain scripts (they set
   // `window.React` / `window.ReactDOM`), and the three `.mjs` shims below turn
@@ -1900,6 +1933,7 @@ const server = (await import('node:http')).createServer((req, res) => {
   else if (req.url?.includes('sourcetabs=1') === true) res.end(sourceTabsPage)
   else if (req.url?.includes('sidebartabs=1') === true) res.end(sidebarTabsPage)
   else if (req.url?.includes('shortcuts=1') === true) res.end(shortcutPage)
+  else if (req.url?.includes('moduletabs=1') === true) res.end(moduleTabsPage)
   else if (req.url?.includes('navscroll=1') === true) res.end(navScrollPage)
   else if (req.url?.includes('historyscroll=1') === true) res.end(historyScrollPage)
   else if (req.url?.includes('settings850=1') === true) res.end(settingsPage)
@@ -1931,6 +1965,81 @@ const evaluate = async expression => {
   return res.result.result.value
 }
 await send('Runtime.enable', {})
+
+const moduleTabs = await openPage(launched.port, `http://127.0.0.1:${port}/?moduletabs=1`)
+try {
+  const resizeTabs = width => moduleTabs.send('Emulation.setDeviceMetricsOverride', {
+    width, height: 400, deviceScaleFactor: 1, mobile: false,
+  })
+  const waitForTabs = async expression => {
+    for (let i = 0; i < 40; i++) {
+      if (await moduleTabs.evaluate(expression)) return
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    throw new Error(`ModuleTabs contract failed: ${expression}`)
+  }
+  await resizeTabs(1200)
+  await waitForTabs('window.__navReady === true')
+  const dividerPositions = `(() => {
+    const tabs = document.querySelector('[data-module-tabs-scroll]')
+    const history = document.querySelector('.historyHeader')
+    return { tabs: tabs.getBoundingClientRect().bottom, history: history.getBoundingClientRect().bottom }
+  })()`
+  const initialDividers = await moduleTabs.evaluate(dividerPositions)
+  await moduleTabs.evaluate(`(async () => {
+    const { alignHistoryToModuleTabs } = await import('/ModuleTabs.js')
+    window.stopHistoryAlignment = alignHistoryToModuleTabs(
+      document.querySelector('[data-module-tabs-scroll]'), document.querySelector('.historyHeader'))
+  })()`)
+  const alignedDividers = await moduleTabs.evaluate(dividerPositions)
+  if (Math.abs(initialDividers.tabs - initialDividers.history) < 1
+    || alignedDividers.tabs !== initialDividers.tabs || Math.abs(alignedDividers.tabs - alignedDividers.history) >= 1) {
+    throw new Error(`History divider must move to the tab divider: ${JSON.stringify({ initialDividers, alignedDividers })}`)
+  }
+  await waitForTabs(`(() => {
+    const row = document.querySelector('[data-module-tabs-scroll]')
+    const selected = row.querySelector('[aria-selected=true]')
+    const leftAligned = Math.abs(selected.getBoundingClientRect().left - document.getElementById('host').getBoundingClientRect().left) < 1
+    const light = getComputedStyle(selected).backgroundColor
+    document.body.setAttribute('data-dark', '')
+    const dark = getComputedStyle(selected).backgroundColor
+    return leftAligned && row.scrollWidth === row.clientWidth && light !== dark
+      && getComputedStyle(selected, '::after').content !== 'none'
+  })()`)
+  await resizeTabs(360)
+  await waitForTabs(`(() => {
+    const row = document.querySelector('[data-module-tabs-scroll]')
+    const action = document.getElementById('action')
+    const box = action.getBoundingClientRect()
+    return row.scrollWidth > row.clientWidth && row.getBoundingClientRect().right <= box.left
+      && document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === action
+  })()`)
+  await waitForTabs(`(() => {
+    const header = document.querySelector('.historyHeader')
+    return header.getClientRects().length === 0
+      && header.style.getPropertyValue('--dsh-taichi-imagegen-history-header-height') === ''
+  })()`)
+  await moduleTabs.evaluate(`document.getElementById('history-seat').setAttribute('data-open', '')`)
+  await waitForTabs(`(() => {
+    const { tabs, history } = ${dividerPositions}
+    return Math.abs(tabs - history) < 1
+  })()`)
+  await moduleTabs.evaluate(`window.stopHistoryAlignment(); document.getElementById('history-seat').removeAttribute('data-open')`)
+  await waitForTabs(`document.querySelector('.historyHeader').style.getPropertyValue('--dsh-taichi-imagegen-history-header-height') === ''`)
+  console.log('ModuleTabs: the history divider follows the tab divider on desktop and when the narrow sidebar reopens')
+  await moduleTabs.evaluate(`document.querySelector('[data-module-tabs-scroll] [aria-selected=true]').focus()`)
+  await moduleTabs.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'End', code: 'End', windowsVirtualKeyCode: 35 })
+  await waitForTabs(`(() => {
+    const row = document.querySelector('[data-module-tabs-scroll]')
+    const last = row.lastElementChild
+    return last.getAttribute('aria-selected') === 'true' && document.activeElement === last
+      && getComputedStyle(last).outlineStyle === 'solid' && row.scrollLeft > 0
+      && last.getBoundingClientRect().right <= row.getBoundingClientRect().right + 1
+  })()`)
+  console.log('ModuleTabs: left aligned, follows the theme, and scrolls to the focused tab without covering the header action')
+} finally {
+  moduleTabs.close()
+}
 
 // The module script has to finish evaluating before anything is asserted;
 // polling its own readiness flag is the only honest wait here (a fixed sleep

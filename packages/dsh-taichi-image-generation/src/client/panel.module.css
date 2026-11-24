@@ -1275,7 +1275,10 @@ html[data-dsh-taichi-imagegen-active] .sidebarHistoryHost {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
+  box-sizing: border-box;
+  block-size: var(--dsh-taichi-imagegen-history-header-height, 47px);
+  min-block-size: min-content;
+  padding-inline: 12px;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
   flex: none;
 }
@@ -2595,8 +2598,29 @@ html[data-dsh-taichi-imagegen-chat-collapsed] [data-dsh-taichi-imagegen-chat-res
   color: var(--dsw-alias-label-tertiary);
 }
 
+.advancedSettings > summary {
+  cursor: pointer;
+  padding-block: 6px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.advancedSettings[open] > summary {
+  margin-bottom: 6px;
+}
+
+.generationSummary {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
 .promptFooter {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;

@@ -98,6 +98,14 @@ const CONFIG: ImageGenConfig = {
     ],
     videoModels: [{ alias: 'agnes-video-2.5-flash', id: 'agnes-video-2.5-flash' }],
   }],
+  imageCatalog: [{
+    id: 'gpt-image-2', name: 'gpt-image-2', quality_options: ['1k', '2k'],
+    sizes: [
+      { aspect_ratio: '1:1', quality: '1k', size: '1024x1024' },
+      { aspect_ratio: '1:1', quality: '2k', size: '2048x2048' },
+    ],
+    output_formats: ['png', 'gif'],
+  }],
   defaultChannelId: 'default',
   defaultModel: 'gpt-image-2',
   defaultVideoModel: 'agnes-video-2.5-flash',

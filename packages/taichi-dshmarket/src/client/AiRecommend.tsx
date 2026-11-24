@@ -2,8 +2,8 @@
  * "让 AI 猜你喜欢什么插件" under the discover teasers.
  *
  * Nothing runs until the user clicks: the click is what lets the market read
- * their installed and favorited plugins and spend their tokens. The picks are
- * the same one-row tiles as 最近收录, with the model's why on the second line.
+ * their installed and favorited plugins and spend their tokens. Picks use the
+ * catalog cards with the model's reason as the description.
  * The last set is kept on this device so reopening the market shows it again
  * without asking the model.
  */
@@ -14,7 +14,7 @@ import { api, type RegistryPlugin } from './market-data.ts'
 import type { FindResult } from './FindPluginCard.tsx'
 import { IconQuestionOutline14 } from './icons.ts'
 import { openModelSettings } from './model-settings.ts'
-import { StripArrows, StripRow } from './DiscoverStrip.tsx'
+import { CatalogGrid } from './MarketLayout.tsx'
 import { parseSavedAiRecommend, type SavedAiPick, type SavedAiRecommend } from './discover-teasers.ts'
 
 type Translate = (key: string) => string
@@ -42,11 +42,11 @@ function save(value: SavedAiRecommend | null): void {
   } catch { /* storage unavailable: the set just is not kept */ }
 }
 
-export function AiRecommend({ t, lang, plugins, renderTile }: {
+export function AiRecommend({ t, lang, plugins, renderCard }: {
   t: Translate
   lang: string
   plugins: RegistryPlugin[]
-  renderTile: (plugin: RegistryPlugin, why: string) => ReactElement
+  renderCard: (plugin: RegistryPlugin, why: string) => ReactElement
 }): ReactElement {
   const [state, setState] = useState<RecState>(() => {
     const saved = readSaved()
@@ -54,7 +54,6 @@ export function AiRecommend({ t, lang, plugins, renderTile }: {
   })
   const [setupFailed, setSetupFailed] = useState(false)
   const seq = useRef(0)
-  const rowRef = useRef<HTMLDivElement>(null)
 
   const byUrl = useMemo(() => new Map(plugins.map(plugin => [plugin.url, plugin])), [plugins])
   const namesOf = useCallback((picks: readonly SavedAiPick[]) => picks.flatMap(pick => byUrl.get(pick.url)?.name ?? []), [byUrl])
@@ -119,7 +118,6 @@ export function AiRecommend({ t, lang, plugins, renderTile }: {
     <section className={css.recBlock} aria-labelledby="taichi-dshm-ai-recommend" data-taichi-dshm-ai-recommend={state.phase}>
       <div className={css.recHead}>
         <h3 id="taichi-dshm-ai-recommend" className={css.favoritesSectionHead}>{t('recTitle')}</h3>
-        {entries.length > 0 && <StripArrows rowRef={rowRef} t={t} />}
         <span className={css.recActions}>
           {state.phase === 'done' && <Button variant="ghost" size="sm" className={css.recentHide} onClick={() => run(namesOf(state.picks), state)}>{t('recMore')}</Button>}
           <Button variant="ghost" size="sm" className={css.recentHide} onClick={close}>{t('recClose')}</Button>
@@ -145,9 +143,7 @@ export function AiRecommend({ t, lang, plugins, renderTile }: {
         )}
       </div>
       {entries.length > 0 && (
-        <StripRow id="taichi-dshm-ai-grid" rowRef={rowRef}>
-          {entries.map(entry => renderTile(entry.plugin, entry.why))}
-        </StripRow>
+        <CatalogGrid items={entries} render={entry => renderCard(entry.plugin, entry.why)} />
       )}
     </section>
   )

@@ -24,6 +24,7 @@ export function registerAccountIpc(
   handle(ACCOUNT_IPC.resetConfirm, args => account.confirmPasswordReset(args[0], args[1]))
   handle(ACCOUNT_IPC.checkIn, () => account.checkIn())
   handle(ACCOUNT_IPC.refresh, () => account.refresh())
+  handle(ACCOUNT_IPC.packages, () => account.packages())
   handle(ACCOUNT_IPC.purchase, async args => {
     const result = await account.purchase(args[0])
     const source = result.order

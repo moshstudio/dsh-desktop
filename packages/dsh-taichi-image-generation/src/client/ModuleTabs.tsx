@@ -12,6 +12,35 @@ export interface ModuleTabItem {
   label: ReactNode
 }
 
+/** The history lives in a sidebar portal, so its top can differ from the tabs'. */
+export function alignHistoryToModuleTabs(tabs: HTMLElement, historyHeader: HTMLElement): () => void {
+  const property = '--dsh-taichi-imagegen-history-header-height'
+  const sync = (): void => {
+    if (tabs.getClientRects().length === 0 || historyHeader.getClientRects().length === 0) {
+      historyHeader.style.removeProperty(property)
+      return
+    }
+    const height = `${Math.max(0, tabs.getBoundingClientRect().bottom - historyHeader.getBoundingClientRect().top)}px`
+    if (historyHeader.style.getPropertyValue(property) !== height) historyHeader.style.setProperty(property, height)
+  }
+  sync()
+  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(sync) : undefined
+  observer?.observe(tabs)
+  observer?.observe(historyHeader)
+  const region = historyHeader.closest('[data-dsh-taichi-imagegen-sidebar-region]')
+  const scrollport = historyHeader.closest('[data-sidebar-scrollport]')
+  if (region !== null) observer?.observe(region)
+  if (scrollport !== null) observer?.observe(scrollport)
+  scrollport?.addEventListener('scroll', sync, { passive: true })
+  window.addEventListener('resize', sync)
+  return () => {
+    observer?.disconnect()
+    scrollport?.removeEventListener('scroll', sync)
+    window.removeEventListener('resize', sync)
+    historyHeader.style.removeProperty(property)
+  }
+}
+
 export function ModuleTabs(props: {
   items: ModuleTabItem[]
   activeIndex: number

@@ -7,7 +7,7 @@ import type {
   ShortcutSaveResult
 } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import type { DesktopFileSource, FileDragHandle, FileDragRequestId } from '@deepseek-ai/dsh-util-file-drag'
-import type { AccountPurchaseResult, AccountStatus } from '../shared/account-gateway'
+import type { AccountPurchaseResult, AccountRechargeCatalog, AccountStatus } from '../shared/account-gateway'
 import { DESKTOP_IPC, PLATFORM_IPC, SCHEME } from '../main/shell/window/ipc'
 import { setupDesktopStoragePersistence } from './desktop-storage'
 import { createSidebarBrowserBridge } from './sidebar-browser'
@@ -98,6 +98,7 @@ const desktopBridge: {
     confirmReset: (token: string, password: string) => Promise<AccountStatus>
     checkIn: () => Promise<AccountStatus>
     refresh: () => Promise<AccountStatus>
+    packages: () => Promise<AccountRechargeCatalog>
     purchase: (yuan: number) => Promise<AccountPurchaseResult>
     order: (orderId: string) => Promise<AccountPurchaseResult>
   }
@@ -182,6 +183,7 @@ if (appDocument) {
     confirmReset: (token, password) => accountStatus(DESKTOP_IPC.accountResetConfirm, token, password),
     checkIn: () => accountStatus(DESKTOP_IPC.accountCheckIn),
     refresh: () => accountStatus(DESKTOP_IPC.accountRefresh),
+    packages: () => ipcRenderer.invoke(DESKTOP_IPC.accountPackages) as Promise<AccountRechargeCatalog>,
     purchase: yuan => ipcRenderer.invoke(DESKTOP_IPC.accountPurchase, yuan) as Promise<AccountPurchaseResult>,
     order: orderId => ipcRenderer.invoke(DESKTOP_IPC.accountOrder, orderId) as Promise<AccountPurchaseResult>
   }

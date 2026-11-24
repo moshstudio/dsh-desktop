@@ -1,13 +1,13 @@
 import {
   isRechargeYuan,
-  rechargeCredits,
   type AccountCreditDay,
   type AccountCredits,
   type AccountLongContextPrice,
   type AccountMediaModel,
   type AccountModelPrice,
   type AccountOrder,
-  type AccountPeakPrice
+  type AccountPeakPrice,
+  type AccountRechargeCatalog
 } from '../../shared/account-gateway'
 import { alipayQrPayload } from './payment-link'
 
@@ -48,6 +48,10 @@ export class GatewayClient {
 
   checkIn(accessToken: string): Promise<GatewayResult> {
     return this.send('/v1/credits/check-in', { method: 'POST', token: accessToken })
+  }
+
+  packages(accessToken: string): Promise<GatewayResult> {
+    return this.send('/v1/credits/packages', { method: 'GET', token: accessToken })
   }
 
   createOrder(accessToken: string, yuan: number): Promise<GatewayResult> {
@@ -138,14 +142,36 @@ export function readTokenPair(body: unknown): { accessToken: string; refreshToke
 
 const ORDER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
 
+const PAYMENT_CODES = ['payment_unconfigured', 'payment_provider_unavailable'] as const
+
+/** Gateway packages are the only prices the cashier may render. A bad row rejects the whole list. */
+export function readRechargeCatalog(body: unknown): AccountRechargeCatalog | undefined {
+  if (!isRecord(body) || !Array.isArray(body.packages) || typeof body.paymentAvailable !== 'boolean') return undefined
+  const packages: AccountRechargeCatalog['packages'] = []
+  const seen = new Set<number>()
+  for (const item of body.packages) {
+    if (!isRecord(item)) return undefined
+    const yuan = positiveSafeInteger(item.yuan)
+    const credits = positiveSafeInteger(item.credits)
+    if (yuan === undefined || credits === undefined || seen.has(yuan)) return undefined
+    seen.add(yuan)
+    packages.push({ yuan, credits })
+  }
+  return { packages, paymentAvailable: body.paymentAvailable, message: '' }
+}
+
+export function readPaymentError(body: unknown): string | undefined {
+  const code = readError(body)
+  return PAYMENT_CODES.includes(code as typeof PAYMENT_CODES[number]) ? code : undefined
+}
+
 export function readPurchaseOrder(body: unknown): AccountOrder | undefined {
   if (!isRecord(body)) return undefined
-  const yuan = body.yuan
-  const credits = body.credits
+  const yuan = positiveSafeInteger(body.yuan)
+  const credits = positiveSafeInteger(body.credits)
   const orderId = body.orderId
   const status = body.status
-  if (typeof yuan !== 'number' || !isRechargeYuan(yuan)) return undefined
-  if (credits !== rechargeCredits(yuan)) return undefined
+  if (yuan === undefined || credits === undefined) return undefined
   if (typeof orderId !== 'string' || !ORDER_ID.test(orderId)) return undefined
   if (status !== 'pending' && status !== 'paid') return undefined
   const qrCode = body.qrCode
@@ -432,6 +458,10 @@ function timestampText(value: unknown): string | undefined {
 
 function positiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+function positiveSafeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && isRechargeYuan(value) ? value : undefined
 }
 
 function clockText(value: unknown): string | undefined {

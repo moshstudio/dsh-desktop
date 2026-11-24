@@ -2,7 +2,7 @@
  * Market lists and install: the derived Discover/Favorites/Themes lists with pagination, file download and the install flow.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import {
   type ActivationInfo,
   api,
@@ -21,9 +21,9 @@ import {
   visiblePlugins,
 } from './market-data.ts'
 import { drop, enqueue, type OperationRecord, patch as patchRecord } from './operations.ts'
-import { blockedSessions, readRecentFlag, withoutHostProjection, writeRecentFlag } from './market-helpers.ts'
-import { discoverHomeView, recommendedToInstall } from './discover-teasers.ts'
-import { DEFAULT_PAGE_SIZE, HIGHLIGHTS_HIDDEN_KEY, HIGHLIGHTS_OPEN_KEY, RECENT_STRIP_LIMIT } from './market-constants.ts'
+import { blockedSessions, withoutHostProjection } from './market-helpers.ts'
+import { catalogCategory, isRecommendedView, recommendedToInstall } from './discover-teasers.ts'
+import { DEFAULT_PAGE_SIZE, RECENT_STRIP_LIMIT } from './market-constants.ts'
 import { usePagination, useShownCount } from './MarketListControls.tsx'
 import { discoveryScan } from './MarketImages.tsx'
 import type { CompatibilityNotice, ConflictNotice, MarketSectionProps } from './market-types.ts'
@@ -65,16 +65,17 @@ export function useMarketInstall(c: MarketInstallIn) {
   // scan below. Measured against a 9.7k-entry catalog: 433 ms of main thread
   // per arrival, 227–433 ms per scroll step (#1097). Screening by host is a
   // map lookup per row, so it runs after that scan instead of feeding it.
+  const recommendedView = isRecommendedView(cat, q, timeRange)
   const pluginsAll = useMemo(() => {
-    if (data === null) return [] as RegistryPlugin[]
+    if (data === null || recommendedView) return [] as RegistryPlugin[]
     const query = {
-      category: cat, query: q, lang, categories: data.categories,
+      category: catalogCategory(cat), query: q, lang, categories: data.categories,
       sort: `${sortField}-${sortDir}` as `${typeof sortField}-${typeof sortDir}`,
       sinceDays: timeRange === 'all' ? undefined : TIME_RANGE_DAYS[timeRange],
     }
     return visiblePlugins(data.plugins, { ...query, compatibleWithHost: false })
   },
-    [data, q, cat, lang, sortField, sortDir, timeRange])
+    [data, q, cat, lang, sortField, sortDir, timeRange, recommendedView])
   // One plugin can be stored under the installed name or the catalog name.
   // Both have to hide the card and skip Update all (#657).
   // With nothing blocked — the default — the answer is false for every entry,
@@ -116,18 +117,10 @@ export function useMarketInstall(c: MarketInstallIn) {
     // pluginBlocked closes over the installed map and the catalog match.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [pluginsAll, blockedNameSet, installed, repoIdentities, data, repoHints])
-  // A sort the user chose is a request to see the list in THAT order, and
-  // these blocks ignore the sort by design (recent is "added in the last
-  // seven days", recommend is "not installed, most downloaded"). Left in
-  // place they sit between the control and the list it just reordered: on a
-  // 1166px window they fill the screen, so switching to Stars looked like it
-  // did nothing (#1016). Both are front-page teasers for the unfiltered
-  // default view — one more narrowing, alongside query, category and time range.
+  // The recommendation category ranks these groups independently of the catalog sort.
   const discoverTeasers = useMemo(() => {
     const empty = { recent: [] as RegistryPlugin[], recommend: [] as RegistryPlugin[] }
-    if (data === null || tab !== 'discover' || !discoverHomeView({
-      query: q, category: cat, timeRange, sortField, sortDir,
-    })) return empty
+    if (data === null || tab !== 'discover' || !recommendedView) return empty
     const recent = visiblePlugins(data.plugins, {
       category: 'all', query: '', lang, sort: 'downloads-desc', sinceDays: 7,
     }).filter(plugin => !pluginBlocked(plugin))
@@ -144,31 +137,7 @@ export function useMarketInstall(c: MarketInstallIn) {
     return { recent, recommend }
     // pluginBlocked closes over the installed map and the catalog match.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, tab, q, cat, timeRange, sortField, sortDir, lang, blockedNameSet, installed, repoIdentities, repoHints])
-  // A missing key is collapsed and still listed. Opening writes "1"; hiding
-  // writes the other key. Neither reads the old per-strip preferences.
-  const [highlightsOpen, setHighlightsOpen] = useState(() => readRecentFlag(HIGHLIGHTS_OPEN_KEY))
-  const [highlightsHidden, setHighlightsHidden] = useState(() => readRecentFlag(HIGHLIGHTS_HIDDEN_KEY))
-  const toggleHighlights = useCallback(() => {
-    setHighlightsOpen(open => {
-      const next = !open
-      writeRecentFlag(HIGHLIGHTS_OPEN_KEY, next)
-      return next
-    })
-  }, [])
-  const hideHighlights = useCallback(() => {
-    setHighlightsHidden(true)
-    writeRecentFlag(HIGHLIGHTS_HIDDEN_KEY, true)
-    setHighlightsOpen(false)
-    writeRecentFlag(HIGHLIGHTS_OPEN_KEY, false)
-  }, [])
-  const showHighlights = useCallback(() => {
-    setHighlightsHidden(false)
-    writeRecentFlag(HIGHLIGHTS_HIDDEN_KEY, false)
-    // Showing the entry is "let me see them", not "restore the fold".
-    setHighlightsOpen(true)
-    writeRecentFlag(HIGHLIGHTS_OPEN_KEY, true)
-  }, [])
+  }, [data, tab, recommendedView, lang, blockedNameSet, installed, repoIdentities, repoHints])
   // Fix the slice before compatibility resolves. Hiding a card must not
   // pull in an unchecked replacement and start another batch.
   const discoverResetDeps = [q, cat, sortField, sortDir, timeRange]
@@ -194,16 +163,9 @@ export function useMarketInstall(c: MarketInstallIn) {
   const pagePlugins = useMemo(() => basePage.filter(compatible), [basePage, compatible])
   const recentPlugins = useMemo(() => baseRecent.filter(compatible), [baseRecent, compatible])
   const recommendPlugins = useMemo(() => baseRecommend.filter(compatible), [baseRecommend, compatible])
-  const hasRecent = recentPlugins.length > 0
-  const hasRecommend = recommendPlugins.length > 0
-  // A catalog card can appear in the grid and in a teaser strip.
-  // Keep distinct cards in counts even when they share the same lookup key.
-  const teaserScan = highlightsOpen && !highlightsHidden
-  const discoverCandidates = [...new Set([
-    ...basePage,
-    ...(teaserScan ? baseRecent : []),
-    ...(teaserScan ? baseRecommend : []),
-  ])]
+  const discoverCandidates = recommendedView
+    ? [...baseRecent, ...baseRecommend]
+    : basePage
   const pageHostPackages = [...new Set(discoverCandidates.map(hostCompatibilityKey).filter(key => key !== null))]
   const pageVerdicts = discoverCandidates.map(hostVerdict)
   const loadedHostPackages = pageHostPackages.filter(key => hostCompatibility[key] !== undefined).length
@@ -684,11 +646,11 @@ export function useMarketInstall(c: MarketInstallIn) {
     currentPage, discoverMore, doInstall, doReplace, doRollback, downloadFile, favoriteListed,
     favoritePagePlugins, favoritePageThemes, favoritePluginMore, favoritePluginPagination,
     favoritePlugins, favoriteStale, favoriteTabCount, favoriteThemeMore, favoriteThemePagination,
-    favoriteThemes, favoritesAllStale, goToPage, hasRecent, hasRecommend, hideHighlights, hostHiddenCount,
-    hostUnavailableCount, highlightsHidden, highlightsOpen, installedBlocked, loadedHostPackages, pageHostPackages, pagePlugins,
-    pageSize, pluginsAll, pluginsUnblocked, recentPlugins, recommendPlugins,
-    shadowSummary, showHighlights, themeMore, themePagePlugins, themePagination, themePlugins,
-    themePluginsAll, toggleHighlights, totalPages,
+    favoriteThemes, favoritesAllStale, goToPage, hostHiddenCount,
+    hostUnavailableCount, installedBlocked, loadedHostPackages, pageHostPackages, pagePlugins,
+    pageSize, pluginsAll, pluginsUnblocked, recentPlugins, recommendedView, recommendPlugins,
+    shadowSummary, themeMore, themePagePlugins, themePagination, themePlugins,
+    themePluginsAll, totalPages,
   } as const
 }
 

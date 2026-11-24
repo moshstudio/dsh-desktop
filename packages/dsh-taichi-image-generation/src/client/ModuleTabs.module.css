@@ -1,26 +1,21 @@
-/*
- * Same visual grammar as DSH's settings tabs: a quiet 13px row, primary text
- * for the active item, and a 2px bottom rule. The row scrolls instead of
- * compressing labels, so nine modules remain legible in the centre column.
- */
-
 .root {
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .tabs {
+  position: relative;
   display: flex;
-  align-items: flex-end;
-  gap: 22px;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
   max-width: 100%;
+  padding-block: 3px 5px;
   overflow-x: auto;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
   scrollbar-width: none;
-  -ms-overflow-style: none;
 }
 
 .tabs::-webkit-scrollbar {
@@ -31,42 +26,56 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   flex: none;
-  height: 37px;
-  padding: 7px 1px 9px;
+  height: 34px;
+  padding: 0 12px;
   border: 0;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font: inherit;
   font-size: 13px;
+  font-weight: 500;
   line-height: 20px;
   white-space: nowrap;
   cursor: pointer;
 }
 
-.tab:hover,
-.tab[aria-selected='true'] {
+.tab:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
 
 .tab[aria-selected='true'] {
-  box-shadow: inset 0 -2px 0 var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.tab[aria-selected='true']::after {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 2px;
+  width: 16px;
+  height: 2px;
+  margin-inline: auto;
+  border-radius: 999px;
+  background: currentColor;
+  content: '';
+  pointer-events: none;
 }
 
 .tab:focus-visible {
   color: var(--dsw-alias-label-primary);
   outline: 2px solid var(--dsw-alias-state-business-primary);
-  outline-offset: 2px;
-  border-radius: var(--dsw-radius-xs);
+  outline-offset: -2px;
 }
 
 @media (max-width: 760px) {
-  .root {
-    justify-content: flex-start;
-  }
-
-  .tabs {
-    gap: 18px;
+  .tab {
+    height: 38px;
+    padding-inline: 10px;
   }
 }

@@ -29,6 +29,7 @@ interface AccountApi {
   confirmReset: (token: string, password: string) => Promise<AccountStatus>
   checkIn: () => Promise<AccountStatus>
   refresh: () => Promise<AccountStatus>
+  packages?: () => Promise<{ packages: Array<{ yuan: number; credits: number }> | null; paymentAvailable: boolean; message: string }>
   purchase?: (yuan: number) => Promise<{ ok: boolean; message: string; order: { orderId: string; yuan: number; credits: number; status: string } | null }>
   order?: (orderId: string) => Promise<{ ok: boolean; message: string; order: { orderId: string; status: string } | null }>
 }
@@ -171,11 +172,13 @@ function loadPlugin(React: ReturnType<typeof createReact>['React']) {
   vm.runInNewContext(readFileSync(clientPath, 'utf8'), {
     URL,
     document,
+    setInterval,
+    clearInterval,
     window: sandboxWindow
   }, { filename: 'client.js' })
   const definition = registrations.get('')
   if (!definition) throw new Error('account client did not register a plugin definition')
-  const primitiveNames = ['Button', 'Input', 'Modal', 'RiskConfirmation', 'SegmentedControl', 'SegmentedTabs', 'Tooltip', 'IconCloseOutlineRegular', 'IconInfoOutlineRegular', 'IconUserOutlineRegular']
+  const primitiveNames = ['Button', 'Input', 'Modal', 'RiskConfirmation', 'SegmentedControl', 'SegmentedTabs', 'Tooltip', 'IconCheckOutlineRegular', 'IconChevronRightOutlineRegular', 'IconCloseOutlineRegular', 'IconInfoOutlineRegular', 'IconUserOutlineRegular']
   const primitives = Object.fromEntries(primitiveNames.map(name => [name, () => null]))
   const jsx = (type: unknown, props: { children?: unknown } | null, key?: unknown) => {
     const { children, ...rest } = props ?? {}
@@ -440,6 +443,7 @@ describe('desktop account page', () => {
     confirmReset: async () => emptyStatus(),
     checkIn: async () => emptyStatus(),
     refresh: async () => emptyStatus(),
+    packages: async () => ({ packages: [], paymentAvailable: false, message: 'payment_unconfigured' }),
     ...overrides
   })
 
@@ -1062,30 +1066,74 @@ describe('desktop account page', () => {
     expect(nodes(rerender().tree, node => node.props['data-dsh-account-balance'] === 'true')[0]?.children).toEqual(['4'])
   })
 
-  it('opens the listed Alipay packages and starts a purchase', async () => {
+  it('opens gateway Alipay packages and starts one purchase', async () => {
     const qrImage = 'data:image/png;base64,aaaa'
+    const packages = vi.fn(async () => ({
+      packages: [{ yuan: 50, credits: 40_000 }, { yuan: 80, credits: 70_000 }],
+      paymentAvailable: true,
+      message: ''
+    }))
     const purchase = vi.fn(async () => ({
       ok: true,
       message: '',
-      order: { orderId: '11111111-1111-4111-8111-111111111111', yuan: 39, credits: 39000, status: 'pending', qrImage }
+      order: { orderId: '11111111-1111-4111-8111-111111111111', yuan: 50, credits: 40_000, status: 'pending', qrImage }
     }))
     const { rerender } = await mountReady({
       status: async () => emptyStatus({ signedIn: true, email: 'a@example.com', balance: 4 }),
-      purchase
+      packages,
+      purchase,
+      order: async orderId => ({ ok: true, message: '', order: { orderId, status: 'paid' } })
     })
-    expect(nodes(rerender().tree, node => node.props['data-yuan'] === '39')).toHaveLength(0)
+    expect(nodes(rerender().tree, node => node.props['data-yuan'] === '50')).toHaveLength(0)
     click(rerender().tree, 'rechargeAction')
-    const packs = nodes(rerender().tree, node => node.props['data-dsh-account-pack'] === 'true')
-    expect(packs.map(node => node.props['data-yuan'])).toEqual(['39', '99', '199', '299'])
-    expect(packs.map(node => node.props['data-credits'])).toEqual(['39000', '99000', '199000', '299000'])
-    invoke(packs[0], 'onClick')
+    expect(nodes(rerender().tree, node => node.children.includes('rechargeLoading'))).toHaveLength(1)
     await flush()
-    expect(purchase).toHaveBeenCalledWith(39)
-    const waiting = rerender().tree
-    expect(nodes(waiting, node => node.children.includes('rechargeWaiting'))).toHaveLength(1)
-    const image = nodes(waiting, node => node.type === 'img' && node.props['data-dsh-account-qr'] === 'true')[0]
+    const packs = nodes(rerender().tree, node => node.props['data-dsh-account-pack'] === 'true')
+    expect(packs.map(node => node.props['data-yuan'])).toEqual(['50', '80'])
+    expect(packs.map(node => node.props['data-credits'])).toEqual(['40000', '70000'])
+    expect(nodes(packs[0], node => node.type === 'strong').map(node => node.children)).toEqual([['rechargeCredits']])
+    expect(nodes(rerender().tree, node => node.props.description === 'rechargeRate')).toHaveLength(1)
+    invoke(packs[0], 'onClick')
+    invoke(packs[1], 'onClick')
+    const opening = rerender().tree
+    expect(nodes(opening, node => node.props.role === 'status' && node.children.includes('creating'))).toHaveLength(1)
+    expect(nodes(opening, node => node.props['data-dsh-account-pack'] === 'true').every(node => node.props.disabled === true)).toBe(true)
+    invoke(nodes(opening, node => node.props.title === 'rechargeTitle')[0], 'onClose')
+    expect(nodes(rerender().tree, node => node.props.title === 'rechargeTitle')).toHaveLength(1)
+    await flush()
+    expect(purchase).toHaveBeenCalledTimes(1)
+    expect(purchase).toHaveBeenCalledWith(50)
+    const waiting = rerender()
+    expect(nodes(waiting.tree, node => node.props.role === 'status' && node.children.includes('rechargeWaiting'))).toHaveLength(1)
+    expect(nodes(waiting.tree, node => node.props['data-dsh-account-pack'] === 'true')).toHaveLength(0)
+    const image = nodes(waiting.tree, node => node.type === 'img' && node.props['data-dsh-account-qr'] === 'true')[0]
     expect(image?.props.src).toBe(qrImage)
     expect(image?.props.alt).toBe('rechargeScan')
+    for (const effect of waiting.effects) effect()
+    await flush()
+    const paid = rerender()
+    for (const effect of paid.effects) effect()
+    expect(nodes(paid.tree, node => node.props.role === 'status' && node.children.includes('rechargePaid'))).toHaveLength(1)
+    expect(nodes(paid.tree, node => node.props['data-dsh-account-qr'] === 'true')).toHaveLength(0)
+  })
+
+  it('keeps a failed package read retryable and does not show fallback prices', async () => {
+    const packages = vi.fn()
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({ packages: [], paymentAvailable: false, message: 'payment_unconfigured' })
+    const { rerender } = await mountReady({
+      status: async () => emptyStatus({ signedIn: true, email: 'a@example.com', balance: 4 }),
+      packages
+    })
+    click(rerender().tree, 'rechargeAction')
+    await flush()
+    expect(nodes(rerender().tree, node => node.props['data-dsh-account-pack'] === 'true')).toHaveLength(0)
+    expect(nodes(rerender().tree, node => node.children.includes('unavailable'))).toHaveLength(1)
+    invoke(nodes(rerender().tree, node => node.props['data-dsh-account-pack-retry'] === 'true')[0], 'onClick')
+    await flush()
+    expect(packages).toHaveBeenCalledTimes(2)
+    expect(nodes(rerender().tree, node => node.children.includes('rechargeEmptyPackages'))).toHaveLength(1)
+    expect(nodes(rerender().tree, node => node.children.includes('payment_unconfigured'))).toHaveLength(1)
   })
 
   it('retries a failed profile instead of describing the catalog as empty', async () => {

@@ -249,16 +249,19 @@
 .highlightsToggle:hover{color:var(--dsw-alias-label-primary,#1f2328)}
 .highlightsPanel{margin:0 0 8px}
 .highlightsHideRow{display:flex;justify-content:flex-end;margin:-4px 0 8px}
-.discoverCard{gap:8px}
-.discoverBody{display:flex;align-items:flex-start;gap:10px;min-width:0}
-.discoverRead{min-width:0;flex:1}
-.discoverPurpose{margin:2px 0 0;font-size:13px;line-height:18px;color:var(--dsw-alias-label-tertiary,#8b93a1);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.discoverMeta{display:flex;align-items:center;flex-wrap:wrap;gap:2px 6px;min-width:0;margin-top:2px}
+.discoverCard{gap:10px;padding:14px 14px 12px}
+.discoverCard:hover{background:var(--dsw-alias-bg-layer-2,#f8f9fb)}
+.discoverBody{display:flex;align-items:flex-start;gap:12px;min-width:0}
+.discoverRead{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
+.discoverPurpose{margin:0;min-height:36px;font-size:13px;line-height:18px;color:var(--dsw-alias-label-secondary,#5c6570);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.discoverMeta{display:flex;align-items:center;flex-wrap:wrap;gap:2px 6px;min-width:0;margin-top:2px;color:var(--dsw-alias-label-tertiary,#8b93a1)}
 .discoverMeta .cardStats{display:contents;margin-top:0}
 .discoverTools{display:inline-flex;align-items:center;gap:2px;min-width:0}
-.discoverCat{font-size:11px;line-height:18px;color:var(--dsw-alias-label-secondary,#5c6570);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.discoverCat{font-size:11px;line-height:18px;color:var(--dsw-alias-label-tertiary,#8b93a1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .discoverDot{flex:none;color:var(--dsw-alias-label-tertiary,#8b93a1);font-size:11px;line-height:18px}
-.discoverFoot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto;padding-top:4px}
+.discoverFoot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto;padding-top:8px;border-top:1px solid var(--dsw-alias-border-l2,#e5e7eb)}
+.discoverStatus{display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+.discoverCard .nmButton:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4f6ef7);outline-offset:2px;border-radius:4px}
 .pluginMark{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex-shrink:0;object-fit:cover;font-weight:700;font-size:15px;line-height:1;color:var(--dsw-alias-label-primary,#1f2328);background:var(--dsw-alias-bg-layer-2,#f3f4f6)}
 /* One equal-height strip. Full cards used to eat a quarter of the first
    screen and left ragged holes beside any tile with a screenshot. The
@@ -1075,13 +1078,14 @@
 .capCaveat{display:flex;align-items:baseline;gap:12px;color:var(--dsw-alias-label-tertiary,#8b93a1);font-size:11px;line-height:16px;margin:6px 0 0}
 .capCaveatNote{min-width:0}
 .capCaveatAt{margin-left:auto;flex:none;white-space:nowrap}
-.searchField{position:relative;min-width:0;box-sizing:border-box}
-/* The primitives' Input applies className to its padded OUTER span, not the
-   native input, so the reserved space for the clear button belongs here and
-   the button itself is positioned against .searchField. Doubled class for
-   specificity against the sheet's other input rules, and border-box for the
-   grid case in #305: 34px of padding on a 100%-wide box is 34px more than the
-   grid cell otherwise. */
+.searchField{min-width:0;box-sizing:border-box}
+.searchField[data-ai],.searchBox{position:relative}
+.searchFieldSplit{display:flex;align-items:center;gap:8px}
+.searchFieldSplit > .searchBox{flex:1;min-width:0}
+/* Input applies className to its padded outer span. Reserve space there for
+   the clear button, which is positioned against the search box. Doubled
+   class for specificity against other input rules, and border-box so padding
+   stays within the grid cell (#305). */
 .searchInput.searchInput{width:100%;min-width:0;box-sizing:border-box;padding-right:34px}
 .searchClear{position:absolute;right:5px;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-secondary,#59636e);font:inherit;font-size:20px;line-height:1;cursor:pointer}
 .searchClear:hover{background:var(--dsw-alias-bg-layer-2,#f3f4f6);color:var(--dsw-alias-label-primary,#1f2328)}
@@ -1550,6 +1554,7 @@
 .aiLabel{font-weight:500}
 .searchField[data-ai] .searchInput.searchInput{padding-right:150px}
 .searchField[data-ai] .searchClear{right:128px}
+.aiGroupBeside{position:static;transform:none;flex:none;height:32px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2,#e5e7eb);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff)}
 .fpModal{width:min(760px,92vw);max-width:min(760px,92vw)}
 .fpConsent{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#8b93a1)}
 .fpConsent [data-tone="error"]{color:var(--dsw-alias-state-error-primary,#d92d20)}
@@ -1573,10 +1578,14 @@
 .railItem,.chipItem{display:flex;align-items:center;justify-content:space-between;gap:6px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;padding:6px 8px;border-radius:8px;cursor:pointer;white-space:nowrap}
 /* The rail sits in the scroller's left padding. Pull it to the edge and
    drop the item's own left padding so the labels start with the page. */
-.railItem{padding:4px 2px 4px 0;border-radius:6px}
+.railItem{padding:5px 8px;border-radius:8px}
 .railItem > span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.railOn{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.railItem:hover,.chipItem:hover{background:var(--dsw-alias-interactive-bg-hover,#2631480f);color:var(--dsw-alias-label-primary)}
+.railItem.railOn,.chipItem.railOn{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4f6ef7) 14%,transparent);color:var(--dsw-alias-label-primary)}
+.railItem.railOn:hover,.chipItem.railOn:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4f6ef7) 22%,transparent)}
+.railOn .railCount{color:var(--dsw-alias-label-secondary)}
 .railCount{color:var(--dsw-alias-label-tertiary);font-size:12px}
+.railItem:focus-visible,.chipItem:focus-visible,.highlightsToggle:focus-visible,.recentShow:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4f6ef7);outline-offset:1px}
 .discoverFilters{display:none}
 .discoverFiltersOpen{display:flex}
 .discoverFilterToggle{display:inline-flex}
@@ -1608,7 +1617,12 @@
    own line and let it use a second line before ellipsizing. */
 .discoverCard .nmRow{flex-wrap:wrap;row-gap:4px;white-space:normal;align-items:flex-start}
 .discoverCard .nmButton{flex:1 0 100%;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.discoverCard .depBadge{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.discoverCard .depBadge{max-width:100%;margin-left:0;overflow:hidden;text-overflow:ellipsis}
+@container (max-width: 479px) {
+  .discoverMain .tabSearchRow{align-items:stretch;flex-wrap:wrap}
+  .discoverMain .tabSearch{flex:1 0 100%}
+  .discoverMain .discoverFilters,.discoverMain .discoverFiltersOpen{margin-left:auto}
+}
 @container (min-width: 480px) {
   .discoverFilterToggle{display:none}
   .discoverFilters{display:flex}

@@ -1,4 +1,4 @@
-import { isRechargeYuan, type AccountCredits, type AccountMediaModel, type AccountModel, type AccountPurchaseResult, type AccountStatus } from '../../shared/account-gateway'
+import { isRechargeYuan, type AccountCredits, type AccountMediaModel, type AccountModel, type AccountPurchaseResult, type AccountRechargeCatalog, type AccountStatus } from '../../shared/account-gateway'
 import { validModelEndpoint } from '../recovery/startup-config-recovery'
 import {
   GatewayClient,
@@ -7,7 +7,9 @@ import {
   readError,
   readGatewayModels,
   readMediaModels,
+  readPaymentError,
   readPurchaseOrder,
+  readRechargeCatalog,
   readTokenPair
 } from './gateway-client'
 import { restoreBuiltinAccount } from './provider-config'
@@ -208,16 +210,39 @@ export class DesktopAccountService {
     return this.status()
   }
 
+  async packages(): Promise<AccountRechargeCatalog> {
+    const client = this.requireClient()
+    if (!client || !this.accessToken) return { packages: null, paymentAvailable: false, message: this.accessToken ? 'unavailable' : 'unauthorized' }
+    try {
+      const result = await client.packages(this.accessToken)
+      const paymentError = readPaymentError(result.body)
+      if (paymentError) return { packages: null, paymentAvailable: false, message: paymentError }
+      const catalog = readRechargeCatalog(result.body)
+      if (result.status !== 200 || !catalog) return { packages: null, paymentAvailable: false, message: 'order_response_invalid' }
+      return catalog
+    } catch (error) {
+      console.error('[account] recharge packages could not be read', safeDiagnostic(error))
+      return { packages: null, paymentAvailable: false, message: 'unavailable' }
+    }
+  }
+
   async purchase(yuan: unknown): Promise<AccountPurchaseResult> {
-    const amount = typeof yuan === 'number' ? yuan : typeof yuan === 'string' && /^\d+$/u.test(yuan) ? Number(yuan) : undefined
-    if (amount === undefined || !isRechargeYuan(amount)) return { ok: false, message: 'invalid_amount', order: null }
+    const amount = typeof yuan === 'number' && isRechargeYuan(yuan) ? yuan : undefined
+    if (amount === undefined) return { ok: false, message: 'invalid_amount', order: null }
     const client = this.requireClient()
     if (!client || !this.accessToken) return { ok: false, message: this.accessToken ? 'unavailable' : 'unauthorized', order: null }
-    const result = await client.createOrder(this.accessToken, amount)
-    if (result.status !== 200) return { ok: false, message: readError(result.body), order: null }
-    const order = readPurchaseOrder(result.body)
-    if (!order?.qrCode || order.yuan !== amount) return { ok: false, message: 'unavailable', order: null }
-    return { ok: true, message: '', order }
+    try {
+      const result = await client.createOrder(this.accessToken, amount)
+      const paymentError = readPaymentError(result.body)
+      if (paymentError) return { ok: false, message: paymentError, order: null }
+      if (result.status !== 200) return { ok: false, message: readError(result.body), order: null }
+      const order = readPurchaseOrder(result.body)
+      if (!order?.qrCode || order.yuan !== amount) return { ok: false, message: 'order_response_invalid', order: null }
+      return { ok: true, message: '', order }
+    } catch (error) {
+      console.error('[account] recharge order could not be created', safeDiagnostic(error))
+      return { ok: false, message: 'unavailable', order: null }
+    }
   }
 
   async purchaseStatus(orderId: unknown): Promise<AccountPurchaseResult> {
@@ -226,10 +251,16 @@ export class DesktopAccountService {
     }
     const client = this.requireClient()
     if (!client || !this.accessToken) return { ok: false, message: this.accessToken ? 'unavailable' : 'unauthorized', order: null }
-    const result = await client.order(this.accessToken, orderId)
+    let result: { status: number; body: unknown }
+    try {
+      result = await client.order(this.accessToken, orderId)
+    } catch (error) {
+      console.error('[account] recharge order could not be read', safeDiagnostic(error))
+      return { ok: false, message: 'unavailable', order: null }
+    }
     if (result.status !== 200) return { ok: false, message: readError(result.body), order: null }
     const order = readPurchaseOrder(result.body)
-    if (!order || order.orderId !== orderId) return { ok: false, message: 'unavailable', order: null }
+    if (!order || order.orderId !== orderId) return { ok: false, message: 'order_response_invalid', order: null }
     return { ok: true, message: '', order: { orderId: order.orderId, yuan: order.yuan, credits: order.credits, status: order.status } }
   }
 

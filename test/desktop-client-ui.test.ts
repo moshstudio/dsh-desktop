@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import vm from 'node:vm'
@@ -111,6 +112,39 @@ describe('DSH Desktop client slot occupants', () => {
     expect(appended[0]?.textContent).toContain("[data-dsh-market-nav-icon] span[class*=\"navIcon\"]")
     expect(appended[0]?.textContent).not.toContain("[data-taichi-dshmarket-nav-icon]")
     expect(appended[0]?.textContent).toContain("[data-dsh-better-sidebar-settings-nav] span[class*=\"navIcon\"]")
+
+    const fixture = new DOMParser().parseFromString(`
+      <html data-windows-titlebar><body>
+        <div data-dsh-sidebar-root data-dsh-sidebar-wide="true">
+          <div data-window-drag>
+            <button data-brand-control><span data-dsh-sidebar-brand-identity></span></button>
+            <button data-sidebar-toggle></button>
+          </div>
+          <button data-dsh-sidebar-new-session></button>
+        </div>
+      </body></html>
+    `, 'text/html')
+    const style = window.document.createElement('style')
+    style.textContent = appended[0]?.textContent ?? ''
+    window.document.head.append(style)
+    window.document.documentElement.setAttribute('data-windows-titlebar', '')
+    const sidebarFixture = window.document.body.appendChild(fixture.body.firstElementChild as HTMLElement)
+    try {
+      const row = sidebarFixture.querySelector('[data-window-drag]')
+      const brand = sidebarFixture.querySelector('[data-brand-control]')
+      const toggle = sidebarFixture.querySelector('[data-sidebar-toggle]')
+      if (!row || !brand || !toggle) throw new Error('Missing sidebar controls')
+      expect(window.getComputedStyle(row).height).toBe('0px')
+      expect(window.getComputedStyle(brand).display).toBe('none')
+      expect(window.getComputedStyle(toggle).display).not.toBe('none')
+      sidebarFixture.setAttribute('data-dsh-sidebar-wide', 'false')
+      expect(window.getComputedStyle(row).height).not.toBe('0px')
+    } finally {
+      sidebarFixture.remove()
+      style.remove()
+      window.document.documentElement.removeAttribute('data-windows-titlebar')
+    }
+
     disposeStyle?.()
     expect(removeStyle).toHaveBeenCalledOnce()
 

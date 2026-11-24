@@ -113,22 +113,27 @@ export interface AccountStatus {
   checkedIn: boolean
 }
 
-/** One yuan buys this many credits. The cashier only sells the listed amounts. */
-export const CREDIT_PER_YUAN = 1000
-export const RECHARGE_PACKAGES = [39, 99, 199, 299] as const
-export type RechargeYuan = typeof RECHARGE_PACKAGES[number]
-
-export function isRechargeYuan(value: number): value is RechargeYuan {
-  return (RECHARGE_PACKAGES as readonly number[]).includes(value)
+/** A package the gateway currently sells. The gateway owns both numbers. */
+export interface AccountRechargePackage {
+  yuan: number
+  credits: number
 }
 
-export function rechargeCredits(yuan: RechargeYuan): number {
-  return yuan * CREDIT_PER_YUAN
+/** Packages and whether a purchase can be started. Null packages mean the list could not be read. */
+export interface AccountRechargeCatalog {
+  packages: AccountRechargePackage[] | null
+  paymentAvailable: boolean
+  message: string
+}
+
+/** Positive safe integer. The gateway, not a local price list, decides which amounts can be sold. */
+export function isRechargeYuan(value: number): value is number {
+  return Number.isSafeInteger(value) && value > 0
 }
 
 export interface AccountOrder {
   orderId: string
-  yuan: RechargeYuan
+  yuan: number
   credits: number
   status: 'pending' | 'paid'
   /** Raw Alipay code. The renderer receives qrImage instead. */
@@ -157,6 +162,7 @@ export const ACCOUNT_IPC = {
   resetConfirm: 'dsh-desktop:account-reset-confirm',
   checkIn: 'dsh-desktop:account-check-in',
   refresh: 'dsh-desktop:account-refresh',
+  packages: 'dsh-desktop:account-packages',
   purchase: 'dsh-desktop:account-purchase',
   order: 'dsh-desktop:account-order'
 } as const

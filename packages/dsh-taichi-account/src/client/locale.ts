@@ -1,4 +1,5 @@
 const INFO_CODES: ReadonlySet<string> = new Set(['accepted', 'checked_in', 'restart_to_sign_out', 'verified', 'passwordReset', 'profile_unavailable'])
+const RAW_CODES: ReadonlySet<string> = new Set(['payment_unconfigured', 'payment_provider_unavailable', 'invalid_amount', 'order_response_invalid', 'unauthorized', 'rate_limited', 'unavailable'])
 export const zh = {
   open: '账号',
   signedInName: '账号，已登录 {email}',
@@ -146,13 +147,17 @@ export const zh = {
   profile_unavailable: '已登录，但部分账号资料没有读到。可以重试。',
   rechargeAction: '充值',
   rechargeTitle: '充值积分',
-  rechargeRate: '1 元 = 1,000 积分。请使用支付宝扫描二维码。',
+  rechargeRate: '选择充值套餐，然后使用支付宝扫码付款。',
+  rechargeLoading: '正在读取可购买的套餐。',
+  rechargeEmptyPackages: '当前没有可购买的套餐。',
   rechargeYuan: '{yuan} 元',
   rechargeCredits: '{credits} 积分',
   rechargeWaiting: '请使用支付宝扫描二维码。到账后这里会更新。',
   rechargeScan: '支付宝付款二维码',
   rechargePaid: '充值已到账。',
   payment_unconfigured: '支付宝还没有配置，暂时不能充值。',
+  payment_provider_unavailable: '支付宝暂时不可用，请稍后再试。',
+  order_response_invalid: '充值服务返回了无法识别的结果，请重试。',
   invalid_amount: '请选择列出的金额。',
   unavailable: '暂时无法连接账号服务'
 }
@@ -307,13 +312,17 @@ const en: Record<AccountKey, string> = {
   profile_unavailable: 'Signed in, but some account details could not be read. You can retry.',
   rechargeAction: 'Add credits',
   rechargeTitle: 'Add credits',
-  rechargeRate: '1 yuan = 1,000 credits. Scan the code with Alipay.',
+  rechargeRate: 'Choose a package, then scan the payment code with Alipay.',
+  rechargeLoading: 'Loading the available packages.',
+  rechargeEmptyPackages: 'No packages are available right now.',
   rechargeYuan: '{yuan} yuan',
   rechargeCredits: '{credits} credits',
   rechargeWaiting: 'Scan this code with Alipay. This page updates when the credits arrive.',
   rechargeScan: 'Alipay payment code',
   rechargePaid: 'Credits added.',
   payment_unconfigured: 'Alipay is not configured yet, so credits cannot be purchased.',
+  payment_provider_unavailable: 'Alipay is temporarily unavailable. Try again later.',
+  order_response_invalid: 'The recharge service returned a result that could not be used. Try again.',
   invalid_amount: 'Choose one of the listed amounts.',
   unavailable: 'The account service is unavailable'
 }
@@ -464,13 +473,17 @@ const ja: Record<AccountKey, string> = {
   profile_unavailable: 'ログイン済みですが、一部のアカウント情報を読み取れませんでした。再試行できます。',
   rechargeAction: 'チャージ',
   rechargeTitle: 'クレジットをチャージ',
-  rechargeRate: '1元 = 1,000クレジット。AlipayでQRコードをスキャンしてください。',
+  rechargeRate: 'パッケージを選び、Alipayで支払い用のQRコードをスキャンしてください。',
+  rechargeLoading: '購入できるパッケージを読み込んでいます。',
+  rechargeEmptyPackages: '現在購入できるパッケージはありません。',
   rechargeYuan: '{yuan} 元',
   rechargeCredits: '{credits} クレジット',
   rechargeWaiting: 'AlipayでこのQRコードをスキャンしてください。反映されるとここに表示されます。',
   rechargeScan: 'Alipayの支払いコード',
   rechargePaid: 'チャージが反映されました。',
   payment_unconfigured: 'Alipayが未設定のため、チャージできません。',
+  payment_provider_unavailable: 'Alipayは一時的に利用できません。しばらくしてから再試行してください。',
+  order_response_invalid: 'チャージサービスが利用できない結果を返しました。再試行してください。',
   invalid_amount: '表示されている金額を選んでください。',
   unavailable: 'アカウントサービスに接続できません'
 }
@@ -621,13 +634,17 @@ const es: Record<AccountKey, string> = {
   profile_unavailable: 'Has iniciado sesión, pero no se pudieron leer algunos datos de la cuenta. Puedes reintentarlo.',
   rechargeAction: 'Recargar',
   rechargeTitle: 'Recargar créditos',
-  rechargeRate: '1 yuan = 1.000 créditos. Escanea el código con Alipay.',
+  rechargeRate: 'Elige un paquete y escanea el código de pago con Alipay.',
+  rechargeLoading: 'Cargando los paquetes disponibles.',
+  rechargeEmptyPackages: 'No hay paquetes disponibles ahora.',
   rechargeYuan: '{yuan} yuan',
   rechargeCredits: '{credits} créditos',
   rechargeWaiting: 'Escanea este código con Alipay. Esta página se actualiza cuando lleguen los créditos.',
   rechargeScan: 'Código de pago de Alipay',
   rechargePaid: 'Créditos añadidos.',
   payment_unconfigured: 'Alipay aún no está configurado, así que no se puede recargar.',
+  payment_provider_unavailable: 'Alipay no está disponible temporalmente. Inténtalo más tarde.',
+  order_response_invalid: 'El servicio de recarga devolvió un resultado que no se puede usar. Inténtalo de nuevo.',
   invalid_amount: 'Elige uno de los importes mostrados.',
   unavailable: 'El servicio de cuenta no está disponible'
 }
@@ -778,13 +795,17 @@ const fr: Record<AccountKey, string> = {
   profile_unavailable: 'Vous êtes connecté, mais certaines informations du compte n’ont pas pu être lues. Vous pouvez réessayer.',
   rechargeAction: 'Recharger',
   rechargeTitle: 'Recharger des crédits',
-  rechargeRate: '1 yuan = 1 000 crédits. Scannez le code avec Alipay.',
+  rechargeRate: 'Choisissez un forfait, puis scannez le code de paiement avec Alipay.',
+  rechargeLoading: 'Chargement des offres disponibles.',
+  rechargeEmptyPackages: 'Aucune offre n’est disponible pour le moment.',
   rechargeYuan: '{yuan} yuans',
   rechargeCredits: '{credits} crédits',
   rechargeWaiting: 'Scannez ce code avec Alipay. Cette page se met à jour à l’arrivée des crédits.',
   rechargeScan: 'Code de paiement Alipay',
   rechargePaid: 'Crédits ajoutés.',
   payment_unconfigured: 'Alipay n’est pas encore configuré, le rechargement est impossible.',
+  payment_provider_unavailable: 'Alipay est temporairement indisponible. Réessayez plus tard.',
+  order_response_invalid: 'Le service de recharge a renvoyé un résultat inutilisable. Réessayez.',
   invalid_amount: 'Choisissez l’un des montants affichés.',
   unavailable: 'Le service de compte est indisponible'
 }
@@ -935,13 +956,17 @@ const de: Record<AccountKey, string> = {
   profile_unavailable: 'Sie sind angemeldet, aber einige Kontodaten konnten nicht gelesen werden. Sie können es erneut versuchen.',
   rechargeAction: 'Aufladen',
   rechargeTitle: 'Guthaben aufladen',
-  rechargeRate: '1 Yuan = 1.000 Credits. Scannen Sie den Code mit Alipay.',
+  rechargeRate: 'Wählen Sie ein Paket und scannen Sie den Zahlungscode mit Alipay.',
+  rechargeLoading: 'Verfügbare Pakete werden geladen.',
+  rechargeEmptyPackages: 'Derzeit sind keine Pakete verfügbar.',
   rechargeYuan: '{yuan} Yuan',
   rechargeCredits: '{credits} Credits',
   rechargeWaiting: 'Scannen Sie diesen Code mit Alipay. Diese Seite aktualisiert sich, sobald das Guthaben ankommt.',
   rechargeScan: 'Alipay-Zahlungscode',
   rechargePaid: 'Guthaben gutgeschrieben.',
   payment_unconfigured: 'Alipay ist noch nicht eingerichtet, deshalb ist keine Aufladung möglich.',
+  payment_provider_unavailable: 'Alipay ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut.',
+  order_response_invalid: 'Der Aufladedienst hat ein unbrauchbares Ergebnis zurückgegeben. Versuchen Sie es erneut.',
   invalid_amount: 'Wählen Sie einen der angezeigten Beträge.',
   unavailable: 'Der Kontodienst ist nicht erreichbar'
 }
@@ -1092,13 +1117,17 @@ const ru: Record<AccountKey, string> = {
   profile_unavailable: 'Вход выполнен, но часть данных аккаунта не удалось прочитать. Можно повторить попытку.',
   rechargeAction: 'Пополнить',
   rechargeTitle: 'Пополнение баллов',
-  rechargeRate: '1 юань = 1 000 баллов. Отсканируйте код в Alipay.',
+  rechargeRate: 'Выберите пакет и отсканируйте платёжный код в Alipay.',
+  rechargeLoading: 'Загрузка доступных пакетов.',
+  rechargeEmptyPackages: 'Сейчас нет доступных пакетов.',
   rechargeYuan: '{yuan} юаней',
   rechargeCredits: '{credits} баллов',
   rechargeWaiting: 'Отсканируйте этот код в Alipay. Страница обновится, когда баллы поступят.',
   rechargeScan: 'Код оплаты Alipay',
   rechargePaid: 'Баллы зачислены.',
   payment_unconfigured: 'Alipay ещё не настроен, пополнение недоступно.',
+  payment_provider_unavailable: 'Alipay временно недоступен. Повторите попытку позже.',
+  order_response_invalid: 'Служба пополнения вернула непригодный результат. Повторите попытку.',
   invalid_amount: 'Выберите одну из указанных сумм.',
   unavailable: 'Служба аккаунта недоступна'
 }
@@ -1249,13 +1278,17 @@ const pt: Record<AccountKey, string> = {
   profile_unavailable: 'Sessão iniciada, mas alguns dados da conta não puderam ser lidos. Você pode tentar novamente.',
   rechargeAction: 'Recarregar',
   rechargeTitle: 'Recarregar créditos',
-  rechargeRate: '1 yuan = 1.000 créditos. Leia o código com o Alipay.',
+  rechargeRate: 'Escolha um pacote e leia o código de pagamento com o Alipay.',
+  rechargeLoading: 'Carregando os pacotes disponíveis.',
+  rechargeEmptyPackages: 'Nenhum pacote está disponível agora.',
   rechargeYuan: '{yuan} yuan',
   rechargeCredits: '{credits} créditos',
   rechargeWaiting: 'Leia este código com o Alipay. Esta página atualiza quando os créditos chegarem.',
   rechargeScan: 'Código de pagamento Alipay',
   rechargePaid: 'Créditos adicionados.',
   payment_unconfigured: 'O Alipay ainda não está configurado, então não é possível recarregar.',
+  payment_provider_unavailable: 'O Alipay está temporariamente indisponível. Tente novamente mais tarde.',
+  order_response_invalid: 'O serviço de recarga retornou um resultado que não pode ser usado. Tente novamente.',
   invalid_amount: 'Escolha um dos valores listados.',
   unavailable: 'O serviço de conta está indisponível'
 }
@@ -1263,6 +1296,7 @@ const pt: Record<AccountKey, string> = {
 export function messageText(t: Translate, code: string): string {
   if (!code) return ''
   const translated = t(code)
+  if (translated === code && RAW_CODES.has(code)) return code
   return translated === code ? t('unavailable') : translated
 }
 

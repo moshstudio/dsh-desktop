@@ -21,22 +21,15 @@ export function primaryCategoryId(plugin: { category: string | string[] }): stri
   return null
 }
 
-/**
- * The unfiltered Discover home: empty query, every category, all time, and
- * the default download sort. Recommendations only belong on that view.
- */
-export function discoverHomeView(view: {
-  query: string
-  category: string
-  timeRange: string
-  sortField: string
-  sortDir: string
-}): boolean {
-  return view.query.trim() === ''
-    && view.category === 'all'
-    && view.timeRange === 'all'
-    && view.sortField === 'downloads'
-    && view.sortDir === 'desc'
+export const RECOMMENDED_CATEGORY = 'recommended'
+
+export function catalogCategory(category: string): string {
+  return category === RECOMMENDED_CATEGORY ? 'all' : category
+}
+
+/** The recommendation groups use their own ranking, independent of catalog sort. */
+export function isRecommendedView(category: string, query: string, timeRange: string): boolean {
+  return category === RECOMMENDED_CATEGORY && query.trim() === '' && timeRange === 'all'
 }
 
 /** The fields the recommend-install filter reads. Catalog entries satisfy this. */

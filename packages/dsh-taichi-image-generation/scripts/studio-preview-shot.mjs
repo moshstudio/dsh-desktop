@@ -306,6 +306,47 @@ try {
   await waitFor('document.getAnimations().every(animation => animation.playState !== "running")',
     'the mount transitions to settle')
 
+  // Exercise the mounted editor before taking screenshots, then restore its model.
+  await page.evaluate(`(async () => {
+    const check = (condition, message) => { if (!condition) throw new Error(message) }
+    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const prompt = document.querySelector('[data-dsh-taichi-imagegen-view] aside textarea')
+    check(prompt && [...prompt.labels].some(label => label.innerText.trim() && label.checkVisibility()), 'prompt needs a visible associated label')
+    let scroll = prompt.parentElement
+    while (scroll && !['auto', 'scroll'].includes(getComputedStyle(scroll).overflowY)) scroll = scroll.parentElement
+    const model = scroll?.querySelector('button[aria-label*="gpt-image-2"]')
+    const count = scroll?.querySelector('[aria-label="生成数量"], [aria-label="Count"]')
+    check(model && count && !model.closest('details') && !count.closest('details'), 'model and count must be in the main scrolling form')
+    const advanced = scroll.querySelector('details')
+    const toggle = advanced?.querySelector('summary')
+    check(toggle?.innerText.trim() && !advanced.open, 'advanced settings need a collapsed native disclosure')
+    toggle.click()
+    await settle()
+    check(advanced.open, 'advanced settings did not open')
+    for (const selector of ['[aria-label="清晰度"], [aria-label="Quality"]', '[aria-label="输出格式"], [aria-label="Output"]', 'input[type="checkbox"]']) {
+      check(advanced.querySelector(selector)?.checkVisibility(), 'advanced control missing: ' + selector)
+    }
+    toggle.click()
+    await settle()
+    check(!advanced.open, 'advanced settings did not collapse')
+    const aside = prompt.closest('aside')
+    const generate = [...aside.querySelectorAll('button')].find(button => ['开始生成', 'Generate'].includes(button.innerText.trim()))
+    check(generate && !scroll.contains(generate) && generate.checkVisibility(), 'generate must stay visible outside the scroll region')
+    let footer = generate.parentElement
+    while (footer && !footer.contains(scroll) && !footer.innerText.includes('gpt-image-2')) footer = footer.parentElement
+    check(footer && !footer.contains(scroll), 'footer must summarize the active model beside the action')
+    for (const alias of ['gpt-image-2-alt', 'gpt-image-2']) {
+      model.click()
+      await settle()
+      const choice = [...document.querySelectorAll('[role="menu"] button')].find(button => button.innerText.trim() === alias)
+      check(choice, 'model menu is missing ' + alias)
+      choice.click()
+      await settle()
+      check(footer.innerText.includes(alias) && (alias.endsWith('-alt') || !footer.innerText.includes('gpt-image-2-alt')), 'footer did not follow model selection')
+    }
+  })()`)
+  console.log('Normal editor: labelled prompt, scrollable controls, native advanced settings and live footer verified')
+
   const shoot = async name => {
     const shot = await page.send('Page.captureScreenshot', { format: 'png', fromSurface: true })
     const data = shot.result?.data

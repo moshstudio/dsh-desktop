@@ -24,7 +24,9 @@ import {
   type TimeRange,
   type UpdateStatus,
 } from './market-data.ts'
+import { nextInstalledMap } from './installed-map.ts'
 import { discoveryScan, OwnerAvatar } from './MarketImages.tsx'
+import { sameBridgedNotification } from './notification-equality.ts'
 import {
   notifyUpdatePreferencesChanged,
   refreshUpdateNotificationsAfterChange,
@@ -228,7 +230,7 @@ const t = props.t
     sync()
     return sidebar.subscribe(sync)
   }, [sidebar])
-  // Wait for load(): until then enabled is the default off, not a known choice.
+  // Wait for load(): until then enabled is the default on, not a known choice.
   const showSidebarTip = surface === 'settings'
     && sidebarSnap.ready
     && sidebarSnap.supported
@@ -1185,7 +1187,7 @@ const t = props.t
           cachedInstalled = installed
           installedCheckCommitted = request
         }
-        setInstalledState(installed)
+        setInstalledState(prev => nextInstalledMap(prev, installed))
         if (notification !== undefined) {
           cachedInstalledReady = true
           setInstalledReady(true)
@@ -1299,8 +1301,7 @@ const t = props.t
       || refreshInFlight.current || pendingUpdateNotificationReads.size > 0
       || (updateCheckBoot !== null && notificationSnapshot.boot !== updateCheckBoot)) return
     const previous = bridgedNotification.current
-    if (previous?.updates === notificationSnapshot.updates && previous.checkedAt === notificationSnapshot.checkedAt
-      && previous.error === notificationSnapshot.error && previous.boot === notificationSnapshot.boot) return
+    if (previous !== null && sameBridgedNotification(previous, notificationSnapshot)) return
     bridgedNotification.current = notificationSnapshot
     refreshInstalled(undefined, notificationSnapshot)
   }, [notificationSnapshot, checkingUpdates, updateCheck, refreshInstalled])

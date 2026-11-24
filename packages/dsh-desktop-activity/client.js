@@ -9,9 +9,12 @@ window.__ModuleLoader__.load({
     const {
       IconSettingsOutlineMedium,
     } = require("@deepseek-ai/dsh-client-ui-primitives");
-    const CLOSED = false;
     const STYLE_ID = "dsh-desktop-activity-style";
-    const STYLE_VERSION = "tip-4";
+    const STYLE_VERSION = "seat-6";
+    // One conversation-sidebar policy for every activity-rail seat. A seat
+    // announces what its page needs; only the rail turns that into the single
+    // shared toggle. Seats must not call toggleSidebar themselves.
+    const SIDEBAR_EVENT = "dsh-activity-sidebar";
     // Shared skin and entrance fade for desktop icon tooltips. The account
     // button passes the same class to Tooltip. Placement stays with each
     // caller, so the fade does not set transform.
@@ -21,32 +24,14 @@ window.__ModuleLoader__.load({
     const NS = "desktop-activity";
 
     const copy = {
-      zh: { home: "主页", image: "图片", settings: "设置" },
-      en: { home: "Home", image: "Image", settings: "Settings" },
-      ja: { home: "ホーム", image: "画像", settings: "設定" },
-      es: { home: "Inicio", image: "Imagen", settings: "Ajustes" },
-      fr: { home: "Accueil", image: "Image", settings: "Réglages" },
-      de: { home: "Start", image: "Bild", settings: "Einstellungen" },
-      ru: { home: "Главная", image: "Изображение", settings: "Настройки" },
-      pt: { home: "Início", image: "Imagem", settings: "Configurações" },
-    };
-
-    const studioGate = {
-      current: null,
-      listeners: new Set(),
-      getSnapshot() {
-        return this.current;
-      },
-      subscribe(listener) {
-        this.listeners.add(listener);
-        return () => {
-          this.listeners.delete(listener);
-        };
-      },
-      set(studio) {
-        this.current = studio ?? null;
-        for (const listener of this.listeners) listener();
-      },
+      zh: { home: "主页", settings: "设置" },
+      en: { home: "Home", settings: "Settings" },
+      ja: { home: "ホーム", settings: "設定" },
+      es: { home: "Inicio", settings: "Ajustes" },
+      fr: { home: "Accueil", settings: "Réglages" },
+      de: { home: "Start", settings: "Einstellungen" },
+      ru: { home: "Главная", settings: "Настройки" },
+      pt: { home: "Início", settings: "Configurações" },
     };
 
     function installStyles() {
@@ -70,9 +55,9 @@ window.__ModuleLoader__.load({
       style.textContent = `
         [data-dsh-activity-rail]{box-sizing:border-box;position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;width:48px;height:100%;padding:8px 0;background:var(--dsw-specific-sidebar-fill)}
         [data-dsh-activity-rail]::after{content:"";position:absolute;inset-block:0;inset-inline-end:0;width:1px;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--dsw-alias-border-l2) 20px,var(--dsw-alias-border-l2) calc(100% - 20px),transparent)}
-        [data-dsh-activity-rail] button{position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:0;border-radius:10px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background-color .2s ease,color .2s ease}
+        [data-dsh-activity-rail] button{position:relative;display:flex;flex:none;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:0;border-radius:10px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background-color .2s ease,color .2s ease}
         [data-dsh-activity-rail] button svg{display:block;width:18px;height:18px}
-        [data-dsh-activity-rail] button > span{display:flex;align-items:center;justify-content:center;width:18px;height:18px}
+        [data-dsh-activity-rail] button > [data-dsh-activity-glyph]{display:flex;align-items:center;justify-content:center;width:18px;height:18px}
         [data-dsh-activity-rail] button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
         [data-dsh-activity-rail] button:active{background:var(--dsw-alias-interactive-bg-active)}
         [data-dsh-activity-rail] :is(button[aria-current="page"],button[aria-expanded="true"],button[data-selected="true"]){background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
@@ -83,8 +68,9 @@ window.__ModuleLoader__.load({
         .${DESKTOP_TOOLTIP}[role="tooltip"]{position:fixed;z-index:1100;padding:6px 16px;border-radius:var(--dsw-radius-lg,16px);background:var(--dsw-alias-tooltip-bg);color:var(--dsw-static-neutral-bluish-00);font-size:13px;line-height:20px;pointer-events:none;animation:dsh-desktop-tooltip-in .16s cubic-bezier(.22,1,.36,1)}
         @keyframes dsh-desktop-tooltip-in{from{opacity:0}to{opacity:1}}
         [data-dsh-activity-tip]{position:fixed;z-index:1100;white-space:nowrap;pointer-events:none;transform:translateY(-50%)}
-        [data-dsh-activity-footer]{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:8px}
-        [data-dsh-activity-footer] [data-dsh-taichi-account-entry]{padding:0}
+        [data-dsh-activity-main],[data-dsh-activity-footer]{display:flex;flex-direction:column;align-items:center;gap:4px}
+        [data-dsh-activity-rail] [data-slot="shell.activity.main"],[data-dsh-activity-rail] [data-slot="shell.activity.action"]{display:contents}
+        [data-dsh-activity-footer]{margin-top:auto;gap:8px}
         [data-dsh-activity-rail] button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
         html[data-platform=darwin]:not([data-fullscreen=true]) [data-dsh-activity-rail]{padding-top:var(--dsh-frame-top-clearance,48px)}
         @media (prefers-reduced-motion:reduce){[data-dsh-activity-rail] button,[data-dsh-activity-mark],[data-dsh-activity-glyph],.${DESKTOP_TOOLTIP}[role="tooltip"]{transition:none;animation:none}}
@@ -107,7 +93,7 @@ window.__ModuleLoader__.load({
       let glyph;
       if (kind === "settings")
         glyph = React.createElement(IconSettingsOutlineMedium, { size: 18 });
-      else if (kind === "home") {
+      else {
         // Filled house only while Home is the current place. The door is a hole,
         // so the glyph stays a house instead of a solid pin.
         glyph = selected
@@ -132,40 +118,6 @@ window.__ModuleLoader__.load({
               }),
               React.createElement("path", {
                 d: "M6.9 12.9V9.35h2.2v3.55",
-                fill: "none",
-              }),
-            );
-      } else {
-        // Filled frame with the sun and skyline cut out, same idea as the house.
-        glyph = selected
-          ? React.createElement(
-              "svg",
-              { ...GLYPH, fill: "currentColor", stroke: "none" },
-              React.createElement("path", {
-                fillRule: "evenodd",
-                d: "M3.85 3.15h8.3a1.7 1.7 0 0 1 1.7 1.7v6.3a1.7 1.7 0 0 1-1.7 1.7h-8.3a1.7 1.7 0 0 1-1.7-1.7v-6.3a1.7 1.7 0 0 1 1.7-1.7ZM5.45 5.15a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8ZM3.05 12.2V11.55L5.85 8.8l1.8 1.6 2.25-2.15 3.05 2.95V12.2H3.05Z",
-              }),
-            )
-          : React.createElement(
-              "svg",
-              GLYPH,
-              React.createElement("rect", {
-                x: 2.15,
-                y: 3.15,
-                width: 11.7,
-                height: 9.7,
-                rx: 1.7,
-                fill: "none",
-              }),
-              React.createElement("circle", {
-                cx: 5.45,
-                cy: 6.05,
-                r: 0.9,
-                fill: "currentColor",
-                stroke: "none",
-              }),
-              React.createElement("path", {
-                d: "M3.05 11.55 5.85 8.8l1.8 1.6 2.25-2.15 3.05 2.95",
                 fill: "none",
               }),
             );
@@ -378,42 +330,196 @@ window.__ModuleLoader__.load({
       return [tip, bind];
     }
 
+    // One button shape for the rail's own icons and every plugin seat.
+    // Callers pass the accessible name, the glyph, and the current state.
+    // The rail owns hover, press, the sliding mark, the glyph fade, and the
+    // shared tooltip, so a plugin does not restyle or reimplement them.
+    // `current` is a place in the rail (aria-current=page). `pressed` is an
+    // open dialog (aria-expanded). Either one, or data-selected, seats the mark.
+    function ActivityButton({ label, glyph, glyphKey, current, pressed, shortcut, onClick, bindTip, home }) {
+      return React.createElement(
+        "button",
+        bindTip({
+          type: "button",
+          "data-dsh-activity": "",
+          "data-dsh-activity-home": home ? "true" : undefined,
+          "aria-label": label,
+          "aria-current": current ? "page" : undefined,
+          "aria-expanded": pressed === true ? true : undefined,
+          "aria-keyshortcuts": shortcut,
+          onClick,
+        }),
+        React.createElement(
+          "span",
+          { "data-dsh-activity-glyph": "", key: glyphKey ?? "glyph" },
+          glyph,
+        ),
+      );
+    }
+
+    // Both plugin seats render through this. A contribution describes a button
+    // with data-dsh-activity-item instead of painting its own: data-label is
+    // the accessible name, data-selected is the current place, the first child
+    // is the glyph, and onClick is the action. The rail turns that into
+    // ActivityButton, so hover, the sliding mark, and the tooltip stay here.
+    // The slot outlet is display:contents, so each description is wrapped in the
+    // rail button before it can collapse onto the previous icon. A description
+    // without a name or an action renders nothing. Anything else is left
+    // untouched, so an older contribution that already paints a button still
+    // appears.
+    function ActivityContributions({ region, children, bindTip }) {
+      const items = Array.isArray(children) ? children : [children];
+      return items.map((node) => {
+        if (!node || typeof node !== "object" || !node.props) return node;
+        if (node.props["data-dsh-activity-item"] === undefined) return node;
+        const label = typeof node.props["data-label"] === "string" ? node.props["data-label"].trim() : "";
+        const onClick = node.props.onClick;
+        if (!label || typeof onClick !== "function") return null;
+        const selected = node.props["data-selected"] === "true";
+        const described = React.createElement(node.type, {
+          ...node.props,
+          onClick: undefined,
+          style: { display: "contents" },
+        });
+        return React.createElement(ActivityButton, {
+          key: node.key ?? label,
+          label,
+          glyph: described,
+          glyphKey: selected ? "on" : "off",
+          current: region === "main" && selected,
+          pressed: region !== "main" && selected,
+          shortcut: node.props["data-shortcut"],
+          onClick,
+          bindTip,
+        });
+      });
+    }
+    // The user's own collapse choice. A seat presentation (hidden/expanded)
+    // never writes this; only a toggle that no seat requested does.
+    function createSidebarPreference(layout, root = document) {
+      let collapsed = root.querySelector("[data-sidebar-collapsed]") !== null;
+      let preference = collapsed ? "collapsed" : "expanded";
+      let presentation = "keep";
+      const wantsCollapsed = () =>
+        presentation === "hidden"
+          ? true
+          : presentation === "expanded"
+            ? false
+            : preference === "collapsed";
+      const apply = () => {
+        if (typeof layout?.toggleSidebar !== "function") return;
+        if (collapsed === wantsCollapsed()) return;
+        layout.toggleSidebar();
+        collapsed = !collapsed;
+      };
+      const onRequest = (event) => {
+        const mode = event?.detail?.mode;
+        if (mode !== "keep" && mode !== "expanded" && mode !== "hidden") return;
+        presentation = mode;
+        apply();
+      };
+      // The host owns the visible marker. A change the rail did not just
+      // apply is the sidebar's own button, and that is the saved preference.
+      const observer = new MutationObserver(() => {
+        const now = root.querySelector("[data-sidebar-collapsed]") !== null;
+        if (now === collapsed) return;
+        collapsed = now;
+        preference = now ? "collapsed" : "expanded";
+      });
+      observer.observe(root.body ?? root, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["data-sidebar-collapsed"],
+      });
+      root.addEventListener(SIDEBAR_EVENT, onRequest);
+      return {
+        request(mode) {
+          onRequest({ detail: { mode } });
+        },
+        dispose() {
+          observer.disconnect();
+          root.removeEventListener(SIDEBAR_EVENT, onRequest);
+        },
+      };
+    }
+
+    // Home is the current page only while the main column has no other page.
+    // A plugin seat (the image studio) sets aria-current or data-selected on
+    // its own button. The account dialog lives in the footer and does not
+    // count: it is an open dialog, not a place that replaces Home.
+    function pluginPageOpen(rail) {
+      const main = rail.querySelector("[data-dsh-activity-main]");
+      if (!main) return false;
+      for (const button of main.querySelectorAll("[data-dsh-activity]")) {
+        if (button.hasAttribute("data-dsh-activity-home")) continue;
+        if (
+          button.getAttribute("aria-current") === "page" ||
+          button.getAttribute("data-selected") === "true"
+        )
+          return true;
+      }
+      return false;
+    }
+
     function ActivityRail({ t, layout, renderSlot }) {
       const railRef = React.useRef(null);
       const markMemory = React.useRef({ target: null, selected: [] });
       const [tip, bindTip] = useActivityTip();
+      const [pageTaken, setPageTaken] = React.useState(false);
       React.useLayoutEffect(installStyles);
-      const studio = React.useSyncExternalStore(
-        studioGate.subscribe.bind(studioGate),
-        studioGate.getSnapshot.bind(studioGate),
-      );
       const settings = React.useSyncExternalStore(
         settingsGate.subscribe.bind(settingsGate),
         settingsGate.getSnapshot.bind(settingsGate),
       );
-      const panelOpen = React.useSyncExternalStore(
-        (listener) => (studio ? studio.subscribe(listener) : () => {}),
-        () => (studio ? studio.getSnapshot().panelOpen === true : CLOSED),
-      );
-      const homeCurrent = !panelOpen;
       React.useLayoutEffect(() => {
         const rail = railRef.current;
         if (!rail) return undefined;
-        const sync = () => placeActivityMark(rail, markMemory.current);
+        const sync = () => {
+          const taken = pluginPageOpen(rail);
+          const home = rail.querySelector("[data-dsh-activity-home]");
+          // The wash and the mark follow the attribute immediately. The glyph
+          // waits for the render below, which writes the same attribute.
+          // Write only on change: an unchanged setAttribute still notifies
+          // the observer and would sync forever.
+          const homeCurrent = home?.getAttribute("aria-current") === "page";
+          if (home && taken && homeCurrent) home.removeAttribute("aria-current");
+          else if (home && !taken && !homeCurrent) home.setAttribute("aria-current", "page");
+          placeActivityMark(rail, markMemory.current);
+          setPageTaken(taken);
+        };
         sync();
-        let observer;
+        let resizeObserver;
         if (typeof ResizeObserver === "function") {
-          observer = new ResizeObserver(sync);
-          observer.observe(rail);
+          resizeObserver = new ResizeObserver(sync);
+          resizeObserver.observe(rail);
           for (const button of rail.querySelectorAll("[data-dsh-activity]"))
-            observer.observe(button);
+            resizeObserver.observe(button);
         }
-        return () => observer?.disconnect();
-      }, [homeCurrent, panelOpen, settings, studio]);
-      const showSidebar = () => {
-        studio?.close();
-        if (document.querySelector("[data-sidebar-collapsed]"))
-          layout.toggleSidebar();
+        // A plugin button can become current without the rail rendering again.
+        // Attribute changes are the mark's only signal for that seat.
+        const attributeObserver = new MutationObserver(sync);
+        attributeObserver.observe(rail, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ["aria-current", "aria-expanded", "data-selected"],
+        });
+        return () => {
+          resizeObserver?.disconnect();
+          attributeObserver.disconnect();
+        };
+      }, [settings]);
+      const sidebar = React.useRef(null);
+      if (sidebar.current === null)
+        sidebar.current = createSidebarPreference(layout);
+      React.useEffect(() => () => sidebar.current?.dispose(), []);
+      const goHome = () => {
+        // Plugin pages close themselves. The rail does not know which seat is
+        // open; Home only announces that the conversation is wanted again and
+        // that the sidebar should return to the user's own preference.
+        document.dispatchEvent(new Event("dsh-activity-home"));
+        sidebar.current?.request("keep");
       };
       return React.createElement(
         "nav",
@@ -438,52 +544,52 @@ window.__ModuleLoader__.load({
             tip.label,
           ),
         React.createElement(
-          "button",
-          bindTip({
-            type: "button",
-            "data-dsh-activity": "home",
-            "aria-label": t("home"),
-            "aria-current": homeCurrent ? "page" : undefined,
-            onClick: showSidebar,
+          "div",
+          { "data-dsh-activity-main": "" },
+          React.createElement(ActivityButton, {
+            label: t("home"),
+            glyph: icon("home", !pageTaken),
+            glyphKey: pageTaken ? "off" : "on",
+            current: !pageTaken,
+            home: true,
+            onClick: goHome,
+            bindTip,
           }),
-          icon("home", homeCurrent),
+          typeof renderSlot === "function"
+            ? renderSlot("shell.activity.main", {
+                wide: false,
+                region: "main",
+                // The slot outlet places each entry. It is display:contents,
+                // so the contribution's own button is this column's flex item.
+                // `component` is for a host that still wraps a description.
+                component: ActivityContributions,
+                bindTip,
+              })
+            : null,
         ),
-        studio &&
-          React.createElement(
-            "button",
-            bindTip({
-              type: "button",
-              "data-dsh-activity": "image",
-              "aria-label": t("image"),
-              "aria-current": panelOpen ? "page" : undefined,
-              onClick: () => {
-                studio.open();
-              },
-            }),
-            icon("image", panelOpen),
-          ),
         React.createElement(
           "div",
           { "data-dsh-activity-footer": "" },
           typeof renderSlot === "function"
-            ? renderSlot("shell.activity.action", { wide: false })
+            ? renderSlot("shell.activity.action", {
+                wide: false,
+                region: "footer",
+                component: ActivityContributions,
+                bindTip,
+              })
             : null,
           settings &&
-            React.createElement(
-              "button",
-              bindTip({
-                type: "button",
-                "data-dsh-activity": "settings",
-                "aria-label": t("settings"),
-                "aria-haspopup": "dialog",
-                "aria-expanded": settings.settingsOpen,
-                "aria-keyshortcuts": settings.aria,
-                onClick: () => {
-                  settings.open();
-                },
-              }),
-              icon("settings"),
-            ),
+            React.createElement(ActivityButton, {
+              label: t("settings"),
+              glyph: icon("settings"),
+              glyphKey: "settings",
+              pressed: settings.settingsOpen,
+              shortcut: settings.aria,
+              onClick: () => {
+                settings.open();
+              },
+              bindTip,
+            }),
         ),
       );
     }
@@ -492,22 +598,20 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, copy));
       const t = ctx.locale.bind(NS);
-      if (typeof ctx.inject === "function") {
-        ctx.inject(["taichiImageStudio"], (scoped) => {
-          studioGate.set(scoped.taichiImageStudio);
-          return () => {
-            studioGate.set(null);
-          };
-        });
-      }
       ctx.slots.inject("shell.activity", () =>
         ctx.slots.register(
           {
             name: "shell.activity",
             locale: NS,
             children: {
-              // Icon actions pinned to the bottom of the rail. List, root scope, only receives wide.
-              // No occupants by default; settings stays a rail-owned button beside this seat.
+              // Plugin icons in the main column, after Home. List, root scope.
+              // Each contribution describes one button with data-dsh-activity-item,
+              // data-label, data-selected, and onClick. The rail paints the button,
+              // so hover, the mark, and the tooltip stay shared. Order is the
+              // registration order field.
+              "shell.activity.main": { kind: "list", scope: "root" },
+              // Plugin icons pinned above Settings. Same description, footer
+              // region. Existing shell.activity.action occupants keep this seat.
               "shell.activity.action": { kind: "list", scope: "root" },
             },
             inject: () => ({ t, layout: ctx.layout }),
@@ -527,7 +631,9 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = inject;
-    exports.studioGate = studioGate;
+    exports.ActivityButton = ActivityButton;
+    exports.ActivityContributions = ActivityContributions;
+    exports.placeActivityMark = placeActivityMark;
     return module.exports;
   },
 });

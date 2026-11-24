@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   addedAgoLabel,
+  discoverHomeView,
   parseSavedAiRecommend,
+  primaryCategoryId,
   recommendedToInstall,
   type RecommendCandidate,
 } from '../packages/taichi-dshmarket/src/client/discover-teasers'
@@ -41,6 +43,27 @@ describe('addedAgoLabel', () => {
     expect(addedAgoLabel('', now, label)).toBeNull()
     expect(addedAgoLabel('not-a-date', now, label)).toBeNull()
     expect(addedAgoLabel(new Date(now + DAY).toISOString(), now, label)).toBeNull()
+  })
+})
+
+describe('discoverHomeView', () => {
+  it('is only the unfiltered download sort', () => {
+    const home = { query: '', category: 'all', timeRange: 'all', sortField: 'downloads', sortDir: 'desc' }
+    expect(discoverHomeView(home)).toBe(true)
+    expect(discoverHomeView({ ...home, query: '  word  ' })).toBe(false)
+    expect(discoverHomeView({ ...home, category: 'office' })).toBe(false)
+    expect(discoverHomeView({ ...home, timeRange: 'week' })).toBe(false)
+    expect(discoverHomeView({ ...home, sortField: 'stars' })).toBe(false)
+    expect(discoverHomeView({ ...home, sortDir: 'asc' })).toBe(false)
+  })
+})
+
+describe('primaryCategoryId', () => {
+  it('uses the first category that is not the themes tab', () => {
+    expect(primaryCategoryId({ category: 'office' })).toBe('office')
+    expect(primaryCategoryId({ category: ['theme', 'office', 'dev'] })).toBe('office')
+    expect(primaryCategoryId({ category: 'theme' })).toBeNull()
+    expect(primaryCategoryId({ category: [] })).toBeNull()
   })
 })
 

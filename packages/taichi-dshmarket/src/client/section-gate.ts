@@ -30,8 +30,7 @@ export interface SectionGate {
  * @param initiallyVisible - the answer before anyone has given one. The
  *   settings entry defaults to shown: hiding it is an opt-in (the host, or
  *   the user's card switch, #1015), so no opinion means "as it always was".
- *   The sidebar entry (#846) defaults to hidden: showing it is an opt-in the
- *   user makes.
+ *   The activity-rail icon defaults to shown: hiding it is the user's choice.
  * @returns the gate.
  */
 export function createSectionGate(register: () => () => void, initiallyVisible = true): SectionGate {

@@ -497,14 +497,12 @@ export interface MarketState {
   /** User-supplied HTTPS prefix used when the built-in GitHub routes fail. */
   githubProxy?: string
   /**
-   * Whether the market also opens from its own row in the sidebar (#846).
+   * Whether the market also opens from the leftmost activity-rail icon.
    *
-   * Off unless the user turned it on: the sidebar's global rows are the
-   * host's own pages, and installing plugins is occasional, so a row nobody
-   * asked for would be a permanent fixture for an occasional task. The
-   * Plugins page tab is the default, and the last-door rule (#1015) — enforced by
-   * the route — is what keeps turning this off from leaving the market
-   * unreachable.
+   * Shown unless the user turned it off. Omission is that default, not a
+   * hidden icon. The last-door rule (#1015) — enforced by the route — keeps
+   * turning this off from leaving the market unreachable. The preference key
+   * keeps the historical name `sidebarEntry`.
    *
    * Omission preserves, an explicit value wins — the githubProxy contract,
    * because turning it off has to be expressible.

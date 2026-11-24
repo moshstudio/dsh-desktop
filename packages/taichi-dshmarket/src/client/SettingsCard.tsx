@@ -59,7 +59,7 @@ export interface SettingsCardProps {
    * that has disposed its routes.
    */
   onRemoved?: () => void
-  /** The opt-in sidebar row (#846); absent, the card offers no switch. */
+  /** The sidebar icon entry (#846); absent, the card offers no switch. */
   sidebar?: SidebarEntry
   /**
    * The Plugins page entry (#1015); absent only when the card is rendered

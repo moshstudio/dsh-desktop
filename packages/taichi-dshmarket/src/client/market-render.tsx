@@ -2,11 +2,12 @@
  * Market render helpers: derived display values and the card/row render closures the tabs share.
  */
 
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo } from 'react'
+import { Fragment, useCallback, useEffect, useMemo } from 'react'
 import { Button, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   blockAliases,
   catalogEntryForInstalled,
+  categoryLabel,
   compareInstalledRows,
   formatCount,
   hostCompatibilityKey,
@@ -20,9 +21,11 @@ import {
 import css from './Market.module.css'
 import { HostCheckbox, HostSwitch, HostTag } from './optional-primitives.ts'
 import { IconLoadingOutline16, IconWarningOutline16 } from './icons.ts'
-import { recordForUrl } from './operations.ts'
+import { recordForUrl, type OperationRecord } from './operations.ts'
+import { hasCardUrgent } from './capability-flags.ts'
+import { installedProblemRank, installedQueryHits, installedStatusKind } from './installed-status.ts'
 import { isLocalDev, isPluginUpdatable } from './market-helpers.ts'
-import { addedAgoLabel } from './discover-teasers.ts'
+import { addedAgoLabel, primaryCategoryId } from './discover-teasers.ts'
 import { downloadStatistic, downloadStatsText } from './download-stats.ts'
 import { hostRequirementChip, phaseLabel } from './MarketStatusParts.tsx'
 import {
@@ -39,8 +42,7 @@ import {
   redLineNamesAddress,
   UNCOMMON_CAPABILITIES,
 } from './MarketCardParts.tsx'
-import { OwnerAvatar, ThemeCover } from './MarketImages.tsx'
-import { GithubRepoMark } from './MarketLogo.tsx'
+import { OwnerAvatar, PluginMark, ThemeCover } from './MarketImages.tsx'
 import { CardDesc } from './MarketLayout.tsx'
 import type { MarketStateCtx } from './market-state.tsx'
 import type { MarketGroupsBackupCtx } from './market-groups-backup.ts'
@@ -61,7 +63,7 @@ type MarketRenderIn = { props: MarketSectionProps }
     'progressLine' | 'progressPct' | 'progressPhase' | 'qInstalled' | 'records' | 'refreshNames' |
     'removedCount' | 'removingName' | 'repoHints' | 'repoIdentities' | 'restartNames' |
     'restartNoticeDismissed' | 'setAddPanel' | 'setCapsOpen' | 'setCatsStuck' | 'setCommentsFor' |
-    'setConfirming' | 'setDeletingGroup' | 'setGroupMenuFor' | 'setInstallError' |
+    'openOperations' | 'pendingBackup' | 'pendingDependencies' | 'pluginMenuUrl' | 'progressCurrent' | 'progressDone' |
     'setInstalledMenuName' | 'setPluginMenuUrl' | 'setRemoveConfirm' | 'setRenamingGroup' |
     'setStuckExpanded' | 'setTab' | 'setThemePanel' | 'setThemePick' | 'setVisibleCats' | 'skins' |
     'stuckExpanded' | 'surface' | 't' | 'tab' | 'themeSnap' | 'toggleRestart' | 'togglingName' |
@@ -139,11 +141,33 @@ export function useMarketRender(c: MarketRenderIn) {
    */
   const isInstalledListActive = tab === 'installed' && installedView === 'list'
   const updatesLoaded = Object.keys(updates).length > 0
+  const problemKey = useMemo(() => {
+    const names: string[] = []
+    for (const name of Object.keys(displayedInstalled)) {
+      const kind = installedStatusKind({
+        disabled: effectiveDisabledSet.has(name),
+        checkFailed: updateCheck.failed?.has(name) === true,
+        library: activations[name]?.library === true,
+        activation: activations[name]?.state,
+      })
+      if (installedProblemRank(kind) === 0) names.push(name)
+    }
+    names.sort()
+    return names.join('\n')
+  }, [activations, displayedInstalled, effectiveDisabledSet, updateCheck.failed])
   const orderedInstalledEntries = useMemo(() => {
     return Object.entries(displayedInstalled)
       .filter(([name]) => name !== selfName)
       .filter(([name]) => !dependencyOnlyNames.has(name))
       .sort(([nameA, specA], [nameB, specB]) => {
+        const rank = (name: string) => installedProblemRank(installedStatusKind({
+          disabled: effectiveDisabledSet.has(name),
+          checkFailed: updateCheck.failed?.has(name) === true,
+          library: activations[name]?.library === true,
+          activation: activations[name]?.state,
+        }))
+        const problem = rank(nameA) - rank(nameB)
+        if (problem !== 0) return problem
         // The list reads as "what is running", so a plugin that is off sinks
         // below every one that is on (#745) — even a disabled row with a
         // pending update, which only sorts inside the group it lands in.
@@ -163,7 +187,7 @@ export function useMarketRender(c: MarketRenderIn) {
         )
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `updatesLoaded` stands in for `updates`/`updatedNames`: reorder when the check lands, then hold (#631). `effectiveDisabledSet` only re-runs this when a disable state actually changed; the toggled row is the only one that moves.
-  }, [isInstalledListActive, displayedInstalled, selfName, updatesLoaded, effectiveDisabledSet, dependencyOnlyNames, installedSort, installTimes])
+  }, [isInstalledListActive, displayedInstalled, selfName, updatesLoaded, effectiveDisabledSet, dependencyOnlyNames, installedSort, installTimes, problemKey])
   const missingRestoreCount = Object.keys(pendingDependencies).filter(name => !installedFiles.includes(name)).length
   // Self-update lives in the page header (or the Plugins tab's own tab row)
   // and the settings card, not this tab's row list (the market itself is
@@ -183,7 +207,7 @@ export function useMarketRender(c: MarketRenderIn) {
    * from `themePlugins.length === 0` above (which also fires the instant a
    * search/sort/time filter matches nothing) so the two empty states read
    * differently: "there's nothing here yet" vs "nothing matches your filter". */
-  const anyThemePlugins = data === null ? [] : themePluginsOf(data.plugins)
+  const anyThemePlugins = useMemo(() => (data === null ? [] : themePluginsOf(data.plugins)), [data])
 
   /** The catalog entry a deprecated plugin's `replacement` names, if any. */
   const replacementOf = (p: RegistryPlugin): RegistryPlugin | undefined =>
@@ -227,12 +251,33 @@ export function useMarketRender(c: MarketRenderIn) {
     </div>
   )
 
+  const recordByUrl = useMemo(() => {
+    const map = new Map<string, OperationRecord>()
+    for (const record of records) {
+      if (record.url !== undefined) map.set(record.url, record)
+    }
+    return map
+  }, [records])
+  const doneUrlSet = useMemo(() => new Set(doneUrls), [doneUrls])
+  const hotUrlSet = useMemo(() => new Set(hotUrls), [hotUrls])
+
   const renderPluginMenu = (plugin: RegistryPlugin, key = plugin.url) => {
+    const open = pluginMenuUrl === key
+    const anchor = (
+      <button
+        type="button"
+        className={css.cardMore}
+        aria-label={`${t('groupMore')} ${plugin.name}`}
+        aria-expanded={open}
+        onClick={() => setPluginMenuUrl(current => current === key ? null : key)}
+      >···</button>
+    )
+    if (!open) return anchor
     const aliases = blockAliases(plugin, matchInstalledName(plugin, installed, repoIdentities, data?.plugins, repoHints))
     const hidden = aliases.some(name => blockedNameSet.has(name))
     return (
       <Menu
-        open={pluginMenuUrl === key}
+        open
         onClose={() => setPluginMenuUrl(null)}
         onSelect={(id) => {
           setPluginMenuUrl(null)
@@ -243,15 +288,7 @@ export function useMarketRender(c: MarketRenderIn) {
         }}
         align="end"
         portal
-        anchor={(
-          <button
-            type="button"
-            className={css.cardMore}
-            aria-label={t('groupMore')}
-            aria-expanded={pluginMenuUrl === key}
-            onClick={() => setPluginMenuUrl(open => open === key ? null : key)}
-          >···</button>
-        )}
+        anchor={anchor}
         items={[
           { id: 'favorite', label: favoriteUrlSet.has(plugin.url) ? t('favoriteRemove') : t('favoriteAdd') },
           { id: 'comments', label: t('comments') },
@@ -334,7 +371,7 @@ export function useMarketRender(c: MarketRenderIn) {
           <Button
             variant="ghost"
             size="sm"
-            aria-label={t('groupMore')}
+            aria-label={`${t('groupMore')} ${name}`}
             onClick={() => setInstalledMenuName(open => open === name ? null : name)}
           >···</Button>
         )}
@@ -562,10 +599,10 @@ export function useMarketRender(c: MarketRenderIn) {
       ))
 
   const installAction = (p: RegistryPlugin) => {
-    const done = doneUrls.includes(p.url) || hotUrls.includes(p.url)
+    const done = doneUrlSet.has(p.url) || hotUrlSet.has(p.url)
     const already = isInstalled(p, catalogInstalled, repoIdentities, data?.plugins, repoHints)
     const busy = busyUrl === p.url
-    const record = recordForUrl(records, p.url)
+    const record = recordByUrl.get(p.url) ?? null
     const blocked = record !== null && (record.state === 'input' || record.state === 'failed')
     const queued = record !== null && record.state === 'queued'
     return done
@@ -583,7 +620,12 @@ export function useMarketRender(c: MarketRenderIn) {
               )
             : blocked
               ? (
-                  <button type="button" className={css.cardBlockedMark} onClick={openOperations}>
+                  <button
+                    type="button"
+                    className={css.cardBlockedMark}
+                    title={record?.reason === undefined || record.reason === '' ? t('opBlockedCard') : record.reason.slice(0, 240)}
+                    onClick={openOperations}
+                  >
                     <IconWarningOutline16 size={13} />
                     {t('opBlockedCard')}
                   </button>
@@ -594,7 +636,7 @@ export function useMarketRender(c: MarketRenderIn) {
                     size="sm"
                     className={css.installBtn}
                     disabled={busyUrl !== null || !envReady}
-                    onClick={() => setConfirming(p)}
+                    onClick={() => { const hit = data?.plugins.find(entry => entry.url === p.url); if (hit !== undefined) setConfirming(hit) }}
                   >{t('install')}</Button>
                 )
   }
@@ -625,25 +667,24 @@ export function useMarketRender(c: MarketRenderIn) {
           )
         : <span className={css.recentMeta}>{meta}</span>
     return (
-      <div key={p.url} className={blocked ? `${css.recentTile} ${css.cardBlocked}` : css.recentTile}>
-        <div className={css.recentTitle}>
-          <OwnerAvatar name={p.name} owner={p.owner || ''} icon={p.icon ?? undefined} className={css.recentAv} />
-          <div className={css.recentName}>
-            <Tooltip label={p.name} side="bottom" maxWidth={320} delayMs={HOVER_TIP_DELAY_MS}>
-              <a className={`${css.nm} ${css.nmLink}`} href={p.url} target="_blank" rel="noreferrer" aria-label={`${p.name} — ${t('repoLink')}`}>
-                {pluginName(p.name, p.npm)}
-              </a>
-            </Tooltip>
-          </div>
+      <div
+        key={p.url}
+        className={blocked ? `${css.recentTile} ${css.cardBlocked}` : css.recentTile}
+        onClick={event => {
+          const target = event.target
+          if (!(target instanceof Element) || target.closest('button, a')) return
+          setConfirming(p)
+        }}
+      >
+        <div className={css.recentName}>
+          <a className={`${css.nm} ${css.nmLink}`} href={p.url} target="_blank" rel="noreferrer" title={p.name} aria-label={`${p.name} — ${t('repoLink')}`}>
+            {pluginName(p.name, p.npm)}
+          </a>
+        </div>
+        <p className={css.recentDesc} title={desc}>{desc}</p>
+        <div className={css.recentBottom}>
           {metaNode}
           {installAction(p)}
-        </div>
-        <div className={css.recentBottom}>
-          {desc !== '' && (
-            <Tooltip label={desc} side="bottom" maxWidth={320} delayMs={HOVER_TIP_DELAY_MS}>
-              <p className={css.recentDesc} tabIndex={0}>{desc}</p>
-            </Tooltip>
-          )}
           {renderPluginMenu(p, `recent:${p.url}`)}
         </div>
       </div>
@@ -730,6 +771,96 @@ export function useMarketRender(c: MarketRenderIn) {
     )
   }
 
+  /**
+   * Discover catalog card. The name and the empty area open the detail page.
+   * Version and downloads sit on the meta line; stars stay in the detail page.
+   */
+  const discoverCard = (p: RegistryPlugin) => {
+    const desc = (p.description && (p.description[lang] || p.description.en)) || ''
+    const busy = busyUrl === p.url
+    const record = recordByUrl.get(p.url) ?? null
+    const blocked = record !== null && (record.state === 'input' || record.state === 'failed')
+    const compatibilityKey = hostCompatibilityKey(p)
+    const compatibility = compatibilityKey === null ? undefined : hostCompatibility[compatibilityKey]
+    const hostChip = hostRequirementChip(compatibility, compatibilityKey, t)
+    const categoryId = primaryCategoryId(p)
+    const category = categoryId === null || data === null ? '' : categoryLabel(data.categories, categoryId, lang)
+    const owner = p.owner ?? ''
+    const title = pluginName(p.name, p.npm)
+    const installedAlready = isInstalled(p, catalogInstalled, repoIdentities, data?.plugins, repoHints)
+    const urgent = hasCardUrgent(p)
+    const metaParts = [category, owner].filter(part => part !== '')
+    const hasFigures = (typeof p.version === 'string' && p.version !== '') || downloadStatistic(p) !== null
+    return (
+      <div
+        key={p.url}
+        className={blocked ? `${css.card} ${css.discoverCard} ${css.cardBlocked}` : `${css.card} ${css.discoverCard}`}
+        onClick={event => {
+          const target = event.target
+          if (!(target instanceof Element) || target.closest('button, a')) return
+          setConfirming(p)
+        }}
+      >
+        <div className={css.discoverBody}>
+          <PluginMark name={title} icon={p.icon} className={css.discoverMark} />
+          <div className={css.discoverRead}>
+            <div className={`${css.nm} ${css.nmRow}`}>
+              <button type="button" className={css.nmButton} title={p.name} onClick={() => setConfirming(p)}>
+                {title}
+              </button>
+              {p.deprecated === true && <span className={css.depBadge}>{t('deprecatedBadge')}</span>}
+              {installedAlready && <span className={css.depBadge}>{t('alreadyInstalled')}</span>}
+              {urgent && (
+                <CardTip label={t('cardUrgent')} maxWidth={280}>
+                  <span className={css.depBadge} tabIndex={0}>{t('cardUrgent')}</span>
+                </CardTip>
+              )}
+            </div>
+            {desc !== '' && <p className={css.discoverPurpose} title={desc}>{desc}</p>}
+            {(metaParts.length > 0 || hasFigures || hostChip.bad) && (
+              <div className={css.discoverMeta}>
+                {metaParts.length > 0 && <span className={css.discoverCat}>{metaParts.join(' · ')}</span>}
+                <CardStats plugin={p} t={t} versionTip={catalogVersionTip} lead={metaParts.length > 0} stars={false} />
+                {hostChip.bad && (
+                  <CardTip label={hostChip.title} maxWidth={320}>
+                    <span
+                      className={`${css.hostRequirement} ${css.hostRequirementBad}`}
+                      data-status={hostChip.status}
+                      tabIndex={0}
+                    >{hostChip.label}</span>
+                  </CardTip>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        {busy && (
+          <div className={css.progress}>
+            <span className={css.spin}><IconLoadingOutline16 size={14} /></span>
+            <code className={css.grow}>{progressText}</code>
+            {progressPct !== null && <span className={css.pct}>{progressPct}%</span>}
+            <Button variant="outline" size="sm" disabled={cancelling} onClick={() => doCancel()}>
+              {cancelling ? t('cancelling') : t('cancelOp')}
+            </Button>
+            <div className={css.bar}>
+              <div
+                className={progressPct !== null ? css.barFill : `${css.barFill} ${css.barWave}`}
+                style={progressPct !== null ? { width: `${progressPct}%` } : undefined}
+              />
+            </div>
+          </div>
+        )}
+        <div className={css.discoverFoot}>
+          <span className={css.discoverTools}>
+            {renderFavoriteControl(p.url)}
+            {renderPluginMenu(p)}
+          </span>
+          {installAction(p)}
+        </div>
+      </div>
+    )
+  }
+
   const installedNameOf = (p: RegistryPlugin) => matchInstalledName(p, installed, repoIdentities, data?.plugins, repoHints)
 
   // Plugins loaded at boot (bundle-layer skins) aren't in the shim list but
@@ -745,9 +876,9 @@ export function useMarketRender(c: MarketRenderIn) {
     const instName = installedNameOf(p)
     const desc = (p.description && (p.description[lang] || p.description.en)) || ''
     const replacement = replacementOf(p)
-    const done = doneUrls.includes(p.url) || hotUrls.includes(p.url)
+    const done = doneUrlSet.has(p.url) || hotUrlSet.has(p.url)
     const busy = busyUrl === p.url
-    const record = recordForUrl(records, p.url)
+    const record = recordByUrl.get(p.url) ?? null
     const blocked = record !== null && (record.state === 'input' || record.state === 'failed')
     const themeQueued = record !== null && record.state === 'queued'
     // A theme switched off via the Installed-tab toggle (or a group switch)
@@ -762,15 +893,24 @@ export function useMarketRender(c: MarketRenderIn) {
         <div className={css.themeCardBody}>
           <div className={css.themeCardHead}>
             <div className={css.themeIdentity}>
-              <a className={`${css.nm} ${css.nmLink}`} href={p.url} target="_blank" rel="noreferrer" title={p.name} aria-label={`${p.name} — ${t('repoLink')}`}>
+              <button type="button" className={`${css.nm} ${css.nmButton}`} title={p.name} onClick={() => setConfirming(p)}>
                 {pluginName(p.name, p.npm)}
-                <GithubRepoMark className={css.repoMark} />
-              </a>
+              </button>
               <div className={css.byline}>
                 <OwnerAvatar name={p.name} owner={p.owner || ''} icon={p.icon ?? undefined} />
                 <span className={css.owner} title={p.owner}>{p.owner}</span>
               </div>
               <CardStats plugin={p} t={t} versionTip={catalogVersionTip} />
+              {(() => {
+                const key = hostCompatibilityKey(p)
+                const chip = hostRequirementChip(key === null ? undefined : hostCompatibility[key], key, t)
+                if (!chip.bad) return null
+                return (
+                  <CardTip label={chip.title} maxWidth={320}>
+                    <span className={`${css.hostRequirement} ${css.hostRequirementBad}`} tabIndex={0}>{chip.label}</span>
+                  </CardTip>
+                )
+              })()}
             </div>
             {p.deprecated === true && <span className={css.depBadge}>{t('deprecatedBadge')}</span>}
             {mounted && <span className={css.themeStatus}>{t('themeActive')}</span>}
@@ -896,43 +1036,7 @@ export function useMarketRender(c: MarketRenderIn) {
     )
   }
 
-  const categories = data === null ? [] : Object.keys(data.categories)
-
-  useLayoutEffect(() => { setVisibleCats(null) }, [lang, categories.length])
-  // The sidebar page is often much wider than the settings dialog. A budget
-  // measured once at the first (sometimes still-zero) width left a half-empty
-  // category row on the wide panel — remeasure whenever the wrap's width
-  // actually changes.
-  useLayoutEffect(() => {
-    const el = catsWrapRef.current
-    if (el === null || typeof ResizeObserver === 'undefined') return
-    let width = el.clientWidth
-    const observer = new ResizeObserver(entries => {
-      const next = entries[0]?.contentRect.width ?? el.clientWidth
-      // jsdom (and a pre-layout frame in the host) reports 0 — treating that
-      // as a real shrink cleared the budget and left every chip painted.
-      if (next < 80 || Math.abs(next - width) < 8) return
-      width = next
-      setVisibleCats(null)
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [data])
-  useLayoutEffect(() => {
-    if (visibleCats !== null) return
-    const el = catsWrapRef.current
-    if (el === null) return
-    const chips = [...el.children].filter((c): c is HTMLElement => (c as HTMLElement).dataset?.chip === '1')
-    if (chips.length === 0) return
-    // How many pills sit in the first row — the collapsed state is exactly one
-    // row, so this is the whole budget. It counts 「全部」 too, which is why the
-    // slice below gives the category list one slot fewer.
-    const first = chips[0]!
-    const rowTwoTop = first.offsetTop + first.offsetHeight + 6 - 3
-    let fits = 0
-    for (const chip of chips) { if (chip.offsetTop < rowTwoTop) fits += 1 }
-    setVisibleCats(Math.max(1, fits))
-  }, [visibleCats, data])
+  const categories = useMemo(() => (data === null ? [] : Object.keys(data.categories)), [data])
 
   useEffect(() => {
     // The Plugins tab scrolls with the host page. Collapse-on-scroll against
@@ -983,26 +1087,6 @@ export function useMarketRender(c: MarketRenderIn) {
   const catsExpanded = catsStuck ? stuckExpanded : catsOpen
 
   /**
-   * The collapsed row must be exactly one row.
-   *
-   * Whatever the measuring pass predicts, the answer is only right once the
-   * chips are painted with the host's real font — an early pass measures
-   * narrower pills and lands one too many, which wraps the last one onto a
-   * second row. So: after a collapsed render, look at what actually happened
-   * and step the budget down until the row holds. A layout effect, so the
-   * correction lands before paint and the user never sees the two-row state.
-   */
-  useLayoutEffect(() => {
-    const el = catsWrapRef.current
-    if (el === null || visibleCats === null || catsExpanded) return
-    const chips = [...el.children].filter((c): c is HTMLElement => (c as HTMLElement).dataset?.chip === '1')
-    if (chips.length < 2) return
-    const top = Math.round(chips[0]!.getBoundingClientRect().top)
-    if (chips.every(chip => Math.round(chip.getBoundingClientRect().top) === top)) return
-    setVisibleCats(Math.max(1, chips.length - 1))
-  }, [visibleCats, catsExpanded, catsStuck])
-
-  /**
    * A fresh install (hotUrls/hotNames) and a toggle/group action
    * (refreshNames) both end in the same place — "reload the page" — and
    * used to render as two near-identical banners stacked on top of each
@@ -1017,32 +1101,39 @@ export function useMarketRender(c: MarketRenderIn) {
   )
 
   /** Installed plugins the market itself cannot group (#60). */
-  const groupableNames = Object.keys(installed)
-    .filter(name => name !== 'taichi-dshmarket' && !dependencyOnlyNames.has(name))
+  const groupableNames = useMemo(() => Object.keys(installed)
+    .filter(name => name !== 'taichi-dshmarket' && !dependencyOnlyNames.has(name)),
+  [installed, dependencyOnlyNames])
   /** Names already inside some group; everything else shows under "ungrouped". */
   const groupedNames = useMemo(() => new Set(Object.values(groups).flat()), [groups])
-  const ungroupedNames = groupableNames.filter(name => !groupedNames.has(name))
+  const ungroupedNames = useMemo(
+    () => groupableNames.filter(name => !groupedNames.has(name)),
+    [groupableNames, groupedNames],
+  )
   const groupQuery = qInstalled.trim().toLowerCase()
   const matchesInstalledQuery = useCallback((name: string) => {
-    if (groupQuery === '') return true
-    if (name.toLowerCase().includes(groupQuery)) return true
-    const note = notes[name]
-    if (note !== undefined && note.toLowerCase().includes(groupQuery)) return true
     const spec = installed[name]
-    if (spec !== undefined && String(spec).toLowerCase().includes(groupQuery)) return true
-    if (data !== null && spec !== undefined) {
-      const entry = catalogEntryForInstalled(data.plugins, name, String(spec), repoIdentities[name], repoHints[name])
-      const desc = (entry?.description && (entry.description[lang] || entry.description.en)) || ''
-      if (desc.toLowerCase().includes(groupQuery)) return true
-    }
-    return false
+    const entry = data === null || spec === undefined
+      ? undefined
+      : catalogEntryForInstalled(data.plugins, name, String(spec), repoIdentities[name], repoHints[name])
+    const description = (entry?.description && (entry.description[lang] || entry.description.en)) || ''
+    return installedQueryHits(groupQuery, {
+      name,
+      spec: spec === undefined ? undefined : String(spec),
+      note: notes[name],
+      description,
+      owner: entry?.owner,
+    })
   }, [data, groupQuery, installed, lang, notes, repoHints, repoIdentities])
-  const visibleUngrouped = ungroupedNames.filter(matchesInstalledQuery)
-  const visibleGroupIds = groupOrder.filter(gid => {
+  const visibleUngrouped = useMemo(
+    () => ungroupedNames.filter(matchesInstalledQuery),
+    [ungroupedNames, matchesInstalledQuery],
+  )
+  const visibleGroupIds = useMemo(() => groupOrder.filter(gid => {
     if (groupQuery === '') return true
     if (gid.toLowerCase().includes(groupQuery)) return true
     return (groups[gid] ?? []).some(matchesInstalledQuery)
-  })
+  }), [groupOrder, groupQuery, groups, matchesInstalledQuery])
   /** Installed package names the catalog classifies as themes (client-side
    * mirror of the server's classification; themes are exclusive per group). */
   const installedThemeNames = useMemo(() => {
@@ -1131,7 +1222,7 @@ export function useMarketRender(c: MarketRenderIn) {
     categories, catsExpanded, eligibleMarketVersion, groupQuery, hasUpdates,
     heldMarketVersion, installedBlurb, installedThemeNames, labelledCheckbox, matchesInstalledQuery,
     missingRestoreCount, onOffSwitch, openThemePanel, orderedInstalledEntries, pendingRefreshNames,
-    pendingRestart, pluginCard, progressText, recentTile, renderInstalledBlockMenu,
+    pendingRestart, pluginCard, discoverCard, progressText, recentTile, renderInstalledBlockMenu,
     renderStaleFavorites, replacementOf, showHostPending, showMarketWait, themeCard, themePluginCard,
     ungroupedNames, updateCheckFailed, visibleGroupIds, visibleUngrouped, marketOffer, takeMarketOffer,
   } as const

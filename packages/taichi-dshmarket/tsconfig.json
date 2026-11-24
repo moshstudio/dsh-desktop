@@ -6,6 +6,9 @@
     ],
     "module": "esnext",
     "moduleResolution": "bundler",
+    // tsdown bundles src/client with this setting. That directory is excluded
+    // from this tsc project; tsconfig.client.json typechecks it.
+    "jsx": "react-jsx",
     "outDir": "lib",
     "rootDir": "src",
     "declaration": true,

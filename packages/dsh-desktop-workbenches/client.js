@@ -1168,7 +1168,6 @@ Start by asking for the first piece of information still missing.`,
         catch { /* Storage may be unavailable; retain dismissal for this instance. */ }
         if (this.switcherHintDismissed) return
         this.switcherHint = true
-        if (document.querySelector('[data-sidebar-collapsed]') && typeof this.ctx.layout?.toggleSidebar === 'function') this.ctx.layout.toggleSidebar()
         this.publish()
       }
       dismissSwitcherHint() {

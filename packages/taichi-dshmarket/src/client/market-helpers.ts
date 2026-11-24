@@ -2,6 +2,7 @@
  * Pure helpers for the Market section: backup/installed parsing, local-path and update-eligibility checks, migration copy, small storage flags.
  */
 
+import { sameStringMap } from './installed-map.ts'
 import { SIDEBAR_TIP_KEY, WEBDAV_STORAGE_KEY } from './market-constants.ts'
 import {
   displayLatest,
@@ -112,8 +113,7 @@ export function readUpdateStatuses(body: unknown): Record<string, UpdateStatus> 
 }
 
 export function sameInstalledMap(left: InstalledMap, right: InstalledMap): boolean {
-  const names = Object.keys(left)
-  return names.length === Object.keys(right).length && names.every(name => left[name] === right[name])
+  return sameStringMap(left, right)
 }
 
 /** Describe the pending release separately from any version the update button can install. */
@@ -280,21 +280,6 @@ export function readRecentFlag(key: string): boolean {
   try { return localStorage.getItem(key) === '1' } catch { return false }
 }
 
-/** The recent strip repeats plugins already in the catalog. No saved choice
- * stays folded to one line; an explicit `0` means the reader opened it. */
-export function readRecentCollapsed(key: string): boolean {
-  try {
-    const value = localStorage.getItem(key)
-    return value === null ? true : value === '1'
-  } catch {
-    return true
-  }
-}
-
-/** Recommend-install starts expanded. Only an explicit fold is remembered. */
-export function readRecommendCollapsed(key: string): boolean {
-  try { return localStorage.getItem(key) === '1' } catch { return false }
-}
 export function writeRecentFlag(key: string, next: boolean): void {
   try { localStorage.setItem(key, next ? '1' : '0') } catch { /* storage unavailable — the choice just won't survive a reload */ }
 }

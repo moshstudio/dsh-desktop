@@ -19,6 +19,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the LocaleNamespaceMap merge table.
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import { ImageActivityButton } from './activity-entry.tsx'
 import { ImageGenApi } from './api.ts'
 import { ImageGenController, type ImageGenControllerSnapshot } from './controller.ts'
 import { tt, applyHostLocale } from './helpers.ts'
@@ -192,6 +193,17 @@ export function apply(ctx: ClientContext): void {
       }
       disposers.push(mountSidebarEntry())
       disposers.push(mountPanel(controller, api, scope, { sessions, conversation, pickDirectory }))
+      // Placed by the shell.activity.main slot, after Home, in registration
+      // order. The outlet is display:contents, so this button is one icon in
+      // that column. This registration lives only while the studio is mounted.
+      // A shell without shell.activity.main never runs the callback.
+      disposers.push(ctx.slots.inject('shell.activity.main', () => ctx.slots.register({
+        name: 'shell.activity.main',
+        id: 'taichi-image',
+        order: 10,
+        locale: NS,
+        inject: () => ({ controller })
+      }, ImageActivityButton)))
       const disposeStudio = (ctx as ClientContext & StudioReflect).reflect?.provide('taichiImageStudio', studio)
       if (disposeStudio !== undefined) disposers.push(disposeStudio)
     } catch (error) {

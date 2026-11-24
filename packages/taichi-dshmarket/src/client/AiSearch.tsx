@@ -21,7 +21,12 @@ type AiState =
   | { phase: 'done'; query: string; result: FindResult }
   | { phase: 'error'; query: string; code: string; message: string }
 
-export function useAiSearch(t: Translate): { mode: SearchAiMode; status: ReactElement | null; picks: FindPick[] | null } {
+export function useAiSearch(t: Translate): {
+  mode: SearchAiMode
+  status: ReactElement | null
+  picks: FindPick[] | null
+  clear: () => void
+} {
   const [on, setOn] = useState(() => { try { return localStorage.getItem(STORAGE_KEY) === '1' } catch { return false } })
   const [state, setState] = useState<AiState>({ phase: 'idle' })
   const seq = useRef(0)
@@ -82,5 +87,9 @@ export function useAiSearch(t: Translate): { mode: SearchAiMode; status: ReactEl
     )
   }
   const picks: FindPick[] | null = on && state.phase === 'done' ? state.result.picks : null
-  return { mode: { on, toggle, submit, placeholder: t('aiSearchOn') }, status, picks }
+  const clear = useCallback(() => {
+    seq.current += 1
+    setState({ phase: 'idle' })
+  }, [])
+  return { mode: { on, toggle, submit, placeholder: t('aiSearchOn') }, status, picks, clear }
 }

@@ -41,23 +41,15 @@ export const TIME_OPTIONS: ReadonlyArray<{ key: TimeRange; label: string }> = [
 ]
 
 /**
- * 最近收录 display preferences: collapsed / hidden (#940).
+ * Discover "推荐与上新" display preferences.
  *
- * The block only appears on the discover tab with an empty search and both
- * filters on "all", so it cannot be avoided without changing what the user is
- * looking at. It is a one-row teaser, not a second catalog. Both states
- * are display preferences, not profile settings: since 0.1.7 the settings
- * surface is deliberately just `allowRestart`.
- *
- * When localStorage is unavailable, the preference falls
- * back to the default, and the default is "expanded and shown".
+ * One entry covers recommended installs, recently added, and AI picks. It
+ * only appears on the unfiltered home view. A missing store means collapsed
+ * and still offered — older per-strip keys are not read, so a previous
+ * "expanded" choice cannot put the teasers back in front of the catalog.
  */
-export const RECENT_COLLAPSED_KEY = 'taichi-dshm-recent-collapsed'
-export const RECENT_HIDDEN_KEY = 'taichi-dshm-recent-hidden'
-/** 推荐安装 display preferences. Same shape as the recent strip, but the
- * default is expanded: this row is the install action, so it starts open. */
-export const RECOMMEND_COLLAPSED_KEY = 'taichi-dshm-recommend-collapsed'
-export const RECOMMEND_HIDDEN_KEY = 'taichi-dshm-recommend-hidden'
+export const HIGHLIGHTS_OPEN_KEY = 'taichi-dshm-highlights-open'
+export const HIGHLIGHTS_HIDDEN_KEY = 'taichi-dshm-highlights-hidden'
 /** Cap for the Discover teaser. Extra tiles live in a quiet horizontal
  * scroll so the block stays one row tall. */
 export const RECENT_STRIP_LIMIT = 8

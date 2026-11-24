@@ -2,9 +2,9 @@
  * The market's Plugins-page entrance and whether the user keeps it (#1015).
  *
  * The Settings section used to be a second door. It is no longer registered:
- * the market lives on the Plugins page, with an opt-in sidebar row
- * (sidebar-entry.ts). This module owns the Plugins tab and asks the sidebar
- * controller whether that other door remains.
+ * the market lives on the Plugins page, with an activity-rail icon
+ * (sidebar-entry.ts). This module owns the Plugins tab and asks that
+ * controller whether the other door remains.
  *
  * Absent means the tab is shown. The host decides whether the slot exists;
  * availability is answered live from the slot, never from the stored value.
@@ -50,11 +50,11 @@ interface Deps {
   /** The Plugins page tab gate, created by the caller with its register(). */
   pluginsTabGate: SectionGate
   fetch: typeof globalThis.fetch
-  /** The host declares sidebar panels (#846). */
+  /** The host declares the activity-rail seat. */
   sidebarSupported: () => boolean
   /**
-   * The row is visible right now, not just the saved choice: on a host
-   * where it is the only door it is shown before anyone answers (#846).
+   * The activity-rail icon is visible right now, not just the saved choice:
+   * on a host where it is the only door it is shown before anyone answers.
    */
   sidebarShown: () => boolean
 }

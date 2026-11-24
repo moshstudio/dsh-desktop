@@ -65,7 +65,7 @@ export function UpdateNotificationsPanel({ snapshot, t, busy, onCheck, onEnabled
         onClick={() => { void run(onCheck) }}>{t('updateChecksNow')}</Button>
     </div>
     <p className={css.updateChecksHint}>{t(snapshot.intervalHours === null ? 'updateChecksLegacyHint' : 'updateChecksHint')}</p>
-    {(failedNotice || changedNotice) && <p role="status" className={css.updateChecksHint}>{t(failedNotice ? 'updateChecksFailedHint' : 'updateChecksChangedHint')}</p>}
+    {(failedNotice || changedNotice) && <p role="status" className={css.updateChecksHint}>{t(failedNotice ? 'updateChecksFailedHint' : 'updateChecksChangedHint')}{snapshot.error !== null && snapshot.error !== '' ? ` ${snapshot.error}` : ''}</p>}
     {snapshot.lastSuccessAt !== null && <p className={css.updateChecksHint}>
       {t('updateChecksLastSuccess').replace('{0}', new Date(snapshot.lastSuccessAt).toLocaleString())}
     </p>}

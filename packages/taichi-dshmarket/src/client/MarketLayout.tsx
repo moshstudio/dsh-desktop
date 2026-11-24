@@ -5,12 +5,10 @@
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
-  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { githubRouteCandidates, masonryColumnCount, rememberGithubRoute, type Translate } from './market-data.ts'
@@ -22,6 +20,26 @@ import {
   IconChevronUpOutline14,
 } from './icons.ts'
 import { useAutoCarousel } from './MarketImages.tsx'
+
+/**
+ * Discover catalog: one CSS grid, read left to right then down.
+ *
+ * Column count lives in the stylesheet's container queries on the market,
+ * not on this element's own width. Measuring the grid itself and writing an
+ * inline `grid-template-columns` won over those queries, so once the category
+ * rail took its 180px the remaining track fell under the 300px floor and the
+ * wide layout collapsed to a single column.
+ */
+export function CatalogGrid<T>({ items, render }: {
+  items: T[]
+  render: (item: T) => ReactNode
+}) {
+  return (
+    <div className={css.catalogGrid}>
+      {items.map(render)}
+    </div>
+  )
+}
 
 /**
  * Masonry columns holding items in their input order.
@@ -47,21 +65,22 @@ export function Masonry<T>({ items, render, maxColumns = 3, minColumns = 2, clas
   minColumns?: number
   className?: string
 }) {
-  const wide = useMediaWide()
   const ref = useRef<HTMLDivElement>(null)
-  const [columns, setColumns] = useState(2)
+  const [columns, setColumns] = useState(minColumns)
   useLayoutEffect(() => {
     const el = ref.current
     if (el === null || typeof ResizeObserver === 'undefined') return
+    const apply = (width: number) => setColumns(masonryColumnCount(width, maxColumns, 290, minColumns))
+    apply(el.clientWidth)
     const observer = new ResizeObserver(([entry]) => {
-      if (entry !== undefined) setColumns(masonryColumnCount(entry.contentRect.width, maxColumns, 290, minColumns))
+      if (entry !== undefined) apply(entry.contentRect.width)
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [wide, maxColumns, minColumns])
+  }, [maxColumns, minColumns])
   const masonryClass = [css.masonry, className].filter(Boolean).join(' ')
-  if (!wide) {
-    return <div className={masonryClass}><div className={css.masonryCol}>{items.map(render)}</div></div>
+  if (columns <= 1) {
+    return <div ref={ref} className={masonryClass}><div className={css.masonryCol}>{items.map(render)}</div></div>
   }
   const buckets: T[][] = Array.from({ length: columns }, () => [])
   items.forEach((item, index) => { buckets[index % columns]!.push(item) })
@@ -74,28 +93,6 @@ export function Masonry<T>({ items, render, maxColumns = 3, minColumns = 2, clas
   )
 }
 
-/**
- * Whether the layout is at its two-up width. Matches the CSS breakpoint
- * exactly: the column split is decided in JS but rendered by CSS, and the
- * two disagreeing would deal cards into columns the stylesheet has already
- * stacked.
- */
-function useMediaWide(): boolean {
-  const query = '(min-width: 681px)'
-  const subscribe = useCallback((notify: () => void) => {
-    if (typeof matchMedia !== 'function') return () => {}
-    const list = matchMedia(query)
-    list.addEventListener('change', notify)
-    return () => list.removeEventListener('change', notify)
-  }, [])
-  return useSyncExternalStore(
-    subscribe,
-    () => (typeof matchMedia === 'function' ? matchMedia(query).matches : true),
-    // Server/jsdom without matchMedia: assume the two-up layout, which is
-    // what the stylesheet defaults to before any media query applies.
-    () => true,
-  )
-}
 
 /**
  * A card's description, clamped to 5 lines so one wordy entry doesn't blow

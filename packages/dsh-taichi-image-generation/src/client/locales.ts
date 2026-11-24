@@ -3,6 +3,7 @@
  */
 
 export const zh = {
+  "activity.image": "图片",
   "ppt.activityPreparing": "正在准备输入图片",
   "ppt.activityTextHints": "正在处理页面文字提示",
   "ppt.activityAssets": "正在重建页面图片素材",
@@ -2324,6 +2325,7 @@ export const zh = {
 } as const
 
 export const en: Record<keyof typeof zh, string> = {
+  "activity.image": "Image",
   "ppt.activityPreparing": "Preparing input images",
   "ppt.activityTextHints": "Processing page text hints",
   "ppt.activityAssets": "Rebuilding page image assets",
@@ -4627,6 +4629,7 @@ export type ImageGenKey = keyof typeof zh
 
 /** Russian mirror of every key (полный словарь интерфейса). */
 export const ru: Record<keyof typeof zh, string> = {
+  "activity.image": "Изображение",
   "ppt.activityPreparing": "Подготовка исходных изображений",
   "ppt.activityTextHints": "Обработка текстовых подсказок",
   "ppt.activityAssets": "Воссоздание изображений",

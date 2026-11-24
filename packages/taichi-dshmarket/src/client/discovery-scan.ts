@@ -198,7 +198,16 @@ export class DiscoveryScan {
   }
 
   private setCatalog(catalog: Registry, hostVersion: Snapshot['hostVersion']) {
-    if (catalog.updated !== this.catalog?.updated) this.onCatalogGenerationChange()
+    const previous = this.catalog
+    if (previous != null && previous.updated === catalog.updated && previous.plugins.length === catalog.plugins.length) {
+      const hostChanged = hostVersion !== undefined && hostVersion !== this.hostVersion
+      if (!hostChanged) return
+      this.hostVersion = hostVersion
+      this.invalidate()
+      this.update()
+      return
+    }
+    if (catalog.updated !== previous?.updated) this.onCatalogGenerationChange()
     this.catalog = catalog
     this.active = true
     this.gone = false

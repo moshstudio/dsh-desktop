@@ -19,6 +19,7 @@ import {
   IconWarningOutline16,
 } from './icons.ts'
 import { HostRecoveryBanner } from './HostRecoveryBanner.tsx'
+import { Notice, NoticeStack } from './NoticeStack.tsx'
 import { UpdateNotificationsPanel } from './UpdateNotificationsPanel.tsx'
 import {
   checkUpdateNotifications,
@@ -26,7 +27,7 @@ import {
   setUpdateNotificationsIntervalHours,
 } from './update-notifications.ts'
 import { MarketLogo } from './MarketLogo.tsx'
-import { marketWaitTip, writeSidebarTipDismissed } from './market-helpers.ts'
+import { writeSidebarTipDismissed } from './market-helpers.ts'
 import { HOVER_TIP_DELAY_MS } from './MarketCardParts.tsx'
 import { activationMeta, HostDependencyDiagnostics } from './MarketStatusParts.tsx'
 import type { MarketStateCtx } from './market-state.tsx'
@@ -108,23 +109,6 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
           <h2 className={css.title}>{t('nav')}</h2>
           <p className={css.sub}>{t('subtitle')}</p>
           </div>
-          <div className={css.titleActions}>
-          {/* A quiet pointer back to the project — most visitors reach the
-              market through a client that embeds it, with no other way to
-              find the repo it came from. */}
-          <a className={css.repoLink} href="https://github.com/dsh-market/dsh-market" target="_blank" rel="noreferrer" title="dsh-market · GitHub">dsh-market</a>
-          {version !== null && (
-            <span className={css.marketVersionGroup}>
-              <span className={css.version} title={t('versionHint')}>v{version}</span>
-              {showMarketWait && (
-                <Tooltip label={() => marketWaitTip(heldMarketVersion!, eligibleMarketVersion, uiLocale, t)} side="bottom" delayMs={HOVER_TIP_DELAY_MS} portal maxWidth={320}>
-                  <span className={css.marketVersionWait} tabIndex={0}>{t('marketVersionWaiting')}</span>
-                </Tooltip>
-              )}
-            </span>
-          )}
-          <a className={css.submitLink} href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md" target="_blank" rel="noreferrer">{t('submitPlugin')}</a>
-          </div>
         </div>
         )}
         {showSidebarAdded && (
@@ -167,7 +151,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
             className={tab === 'favorites' ? `${css.tab} ${css.on}` : css.tab}
             onClick={() => setTab('favorites')}
           >{t('tabFavorites') + (favoriteTabCount > 0 ? ' (' + favoriteTabCount + ')' : '')}</button>
-          <button className={tab === 'installed' ? `${css.tab} ${css.on}` : css.tab} onClick={() => { setTab('installed'); refreshInstalled(true) }}>
+          <button className={tab === 'installed' ? `${css.tab} ${css.on}` : css.tab} onClick={() => { setTab('installed'); refreshInstalled() }}>
             {t('tabInstalled') + (installedOtherCount > 0 ? ' (' + installedOtherCount + ')' : '')}
             {(hasUpdates || showMarketOffer || (tab !== 'installed' && pendingRestart > restartClosedAt)) && <StateDot state="error" size={7} className={css.dot} />}
           </button>
@@ -195,6 +179,8 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
               if (id === 'advanced') setTab('backup')
               if (id === 'tasks') setOperationsOpen(true)
               if (id === 'export') doExportLog()
+              if (id === 'repo') window.open('https://github.com/dsh-market/dsh-market', '_blank', 'noopener')
+              if (id === 'submit') window.open('https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md', '_blank', 'noopener')
             }}
             align="start"
             portal
@@ -214,6 +200,10 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
               { type: 'separator', id: 'sep' },
               { id: 'tasks', label: t('opTitle') },
               { id: 'export', label: exportState === 'busy' ? t('exportingLog') : t('exportLog'), disabled: exportState === 'busy' },
+              { type: 'separator', id: 'sep-about' },
+              ...(version !== null ? [{ id: 'version', label: 'v' + version + (showMarketWait ? ' · ' + t('marketVersionWaiting') : ''), disabled: true }] : []),
+              { id: 'repo', label: 'dsh-market' },
+              { id: 'submit', label: t('submitPlugin') },
             ]}
           />
           {/* In the tab row, not above the grid: paginating, searching and
@@ -272,8 +262,16 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
           />
           <span className={css.grow} />
         </div>
+        {(tab === 'backup' || tab === 'diagnostics') && (
+          <div className={css.subTabs}>
+            <button className={tab === 'backup' ? `${css.tab} ${css.on}` : css.tab} onClick={() => setTab('backup')}>{t('tabBackup')}</button>
+            <button className={tab === 'diagnostics' ? `${css.tab} ${css.on}` : css.tab} onClick={() => setTab('diagnostics')}>{t('tabDiagnostics')}</button>
+            <span className={css.grow} />
+          </div>
+        )}
+        <NoticeStack tab={tab} t={t}>
         {!marketGone && updateCheckFailed && (
-          <div className={css.updateCheckNotice}>
+          <Notice id="update-check" severity="error" scope="installed"><div className={css.updateCheckNotice}>
             <span role="status">{t('updateCheckFailed')}</span>
             <Button
               variant="ghost"
@@ -282,7 +280,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
               disabled={checkingUpdates}
               onClick={() => refreshInstalled(true)}
             >{t('loadRetry')}</Button>
-          </div>
+          </div></Notice>
         )}
         {!marketGone && restartHold !== null && restartHold.boot === bootId && (
           <div className={css.updateCheckNotice}>
@@ -294,18 +292,8 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
             <span role="status">{profileBlockedText(profileBlocked, t)}</span>
           </div>
         )}
-        {/* Backup & Restore and Diagnostics sit under Advanced rather than as
-            their own top-level tabs — most users never need either, and having
-            five peers up top buried the ones people actually reach for. */}
-        {(tab === 'backup' || tab === 'diagnostics') && (
-          <div className={css.subTabs}>
-            <button className={tab === 'backup' ? `${css.tab} ${css.on}` : css.tab} onClick={() => setTab('backup')}>{t('tabBackup')}</button>
-            <button className={tab === 'diagnostics' ? `${css.tab} ${css.on}` : css.tab} onClick={() => setTab('diagnostics')}>{t('tabDiagnostics')}</button>
-            <span className={css.grow} />
-          </div>
-        )}
         {!envReady && (
-          <div className={css.banner}>
+          <Notice id="env" severity="blocking" scope="global"><div className={css.banner}>
             <IconCordisPluginOutline14 size={14} className={css.bannerIcon} />
             <span className={css.grow}>{envFailed ? t('envFixFail') : t('envMissing')}</span>
             {!envFailed && (
@@ -313,7 +301,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
                 {envFixing ? t('envFixing') : t('envFix')}
               </Button>
             )}
-          </div>
+          </div></Notice>
         )}
         {backupMessage !== null && <div className={css.backupMessage}>{backupMessage}</div>}
         {restoreErrors.length > 0 && (
@@ -388,7 +376,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
         {pendingRestart > restartClosedAt && tab === 'installed' && (
           <div className={css.banner}>
             <IconRefreshOutline14 size={14} className={css.bannerIcon} />
-            <span className={css.grow}><b>{pendingRestart}</b> {t('restartBanner')}</span>
+            <span className={css.grow} role="status"><b>{pendingRestart}</b> {t('restartBanner')}</span>
             <Tooltip
               label={t(restartHintKey({ debuggerLatch, restartReachable, supervisor })).replace('{0}', supervisor ?? '')}
               side="bottom"
@@ -500,7 +488,9 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
             )}
           </div>
         )}
+        </NoticeStack>
       </div>
+      <NoticeStack tab={tab} t={t}>
       {buildsSkipped !== null && (
         <div className={css.banner}>
           <IconWarningOutline16 size={14} className={css.bannerIcon} />
@@ -559,7 +549,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
         </div>
       )}
       {installError !== null && (
-        <div className={css.err}>
+        <Notice id="install-error" severity="error" scope="global"><div className={css.err}>
           {localizeBilingual(installError, lang)}
           <div className={css.staleAction}>
             {/* The new option beside the failure: when the restart this page
@@ -592,8 +582,9 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
               {exportState === 'busy' ? t('exportingLog') : t('exportLog')}
             </Button>
           </div>
-        </div>
+        </div></Notice>
       )}
+      </NoticeStack>
     </>
   )
 }

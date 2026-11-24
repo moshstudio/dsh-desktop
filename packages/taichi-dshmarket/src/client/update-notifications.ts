@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react'
 import type { UpdateNotificationSnapshot as ServerUpdateNotificationSnapshot } from '../update-notifications.ts'
 import { DEFAULT_UPDATE_CHECK_INTERVAL_HOURS, isUpdateCheckIntervalHours, type UpdateCheckIntervalHours } from '../update-notification-settings.ts'
 import { api, readSession } from './market-data.ts'
+import { shouldPublishNotification } from './notification-equality.ts'
 
 // Older hot-loaded servers have no configurable interval. Keep their results
 // without presenting a setting they cannot save.
@@ -213,7 +214,8 @@ export function createUpdateNotificationsStore(request: typeof fetch = (...args)
   let requestSequence = 0
   const controllers = new Set<AbortController>()
 
-  const publish = (next: UpdateNotificationsState): void => {
+  const publish = (next: UpdateNotificationsState, force = false): void => {
+    if (!shouldPublishNotification(state, next, force)) return
     state = next
     for (const listener of [...listeners]) listener()
   }
@@ -283,7 +285,7 @@ export function createUpdateNotificationsStore(request: typeof fetch = (...args)
     void pending.finally(() => { if (afterChange === pending) afterChange = undefined })
     return pending
   }
-  const preferencesChanged = (): void => { publish({ ...state }) }
+  const preferencesChanged = (): void => { publish({ ...state }, true) }
   const storageChanged = (event: StorageEvent): void => {
     if (event.key === null) {
       seenInMemory.clear()

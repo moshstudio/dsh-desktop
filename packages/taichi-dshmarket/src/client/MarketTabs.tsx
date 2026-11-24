@@ -3,22 +3,24 @@
  */
 
 import { Button, Input, Menu, Pill, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import css from './Market.module.css'
 import { IconCloseOutline16 } from './icons.ts'
 import {
   IconChevronDownOutline14,
+  IconChevronRightOutline14,
   IconChevronUpOutline14,
   IconDownloadOutline16,
   IconFolderOpen16,
   IconFullscreenOutline16,
   IconLinkOutline14,
 } from './icons.ts'
-import { api, formatCount, orderedCategories, themeSwatch } from './market-data.ts'
+import { api, categoryLabel, formatCount, orderedCategories, themeSwatch } from './market-data.ts'
+import { discoverHomeView } from './discover-teasers.ts'
 import { SearchInput } from './SearchInput.tsx'
 import { MarketLogo } from './MarketLogo.tsx'
 import { EmptyResults, FilterMenu, LoadMore, Pager } from './MarketListControls.tsx'
-import { Masonry } from './MarketLayout.tsx'
+import { CatalogGrid, Masonry } from './MarketLayout.tsx'
 import type { MarketStateCtx } from './market-state.tsx'
 import type { MarketInstallCtx } from './market-install.ts'
 import type { MarketGroupsBackupCtx } from './market-groups-backup.ts'
@@ -29,6 +31,7 @@ import type { MarketSectionProps } from './market-types.ts'
 import { useAiSearch } from './AiSearch.tsx'
 import { AiRecommend } from './AiRecommend.tsx'
 import { DiscoverStrip } from './DiscoverStrip.tsx'
+import { ActiveFilters, CategoryRail } from './CategoryRail.tsx'
 
 type MarketGoneNoticeCtx = { props: MarketSectionProps }
   & Pick<MarketStateCtx, 'reconnecting' | 'setReconnectRound' | 't'>
@@ -266,8 +269,11 @@ function CatalogStatus({ c }: { c: CatalogStatusCtx }) {
   }
   return (
     <div className={css.empty}>
-      <div>{t('loadFail')}</div>
-      <div className={css.err}>{loadError}</div>
+      <div>{t('catalogFailSummary')}</div>
+      <details className={css.catalogFailDetail}>
+        <summary>{t('loadFail')}</summary>
+        <div className={css.err}>{loadError}</div>
+      </details>
       <Button variant="outline" size="sm" className={css.retryBtn} onClick={() => { void loadCatalog() }}>
         {t('loadRetry')}
       </Button>
@@ -277,33 +283,31 @@ function CatalogStatus({ c }: { c: CatalogStatusCtx }) {
 
 type DiscoverTabCtx = { props: MarketSectionProps } & CatalogStatusCtx
   & Pick<MarketStateCtx,
-    'bodyRef' | 'cat' | 'catsStuck' | 'catsWrapRef' | 'compatibleWithHost' | 'data' |
+    'bodyRef' | 'cat' | 'catsWrapRef' | 'compatibleWithHost' | 'data' |
     'discoverSearchReset' | 'hostVersion' | 'lang' | 'q' | 'resetDiscoverSearch' |
-    'setCat' | 'setCatsOpen' | 'setCatsSentinel' | 'setCompatibleWithHost' | 'setQ' | 'setSortDir' |
-    'setSortField' | 'setStuckExpanded' | 'setTimeRange' | 'sortDir' | 'sortField' | 'surface' |
+    'setCat' | 'setCatsSentinel' | 'setCompatibleWithHost' | 'setQ' | 'setSortDir' |
+    'setSortField' | 'setTimeRange' | 'sortDir' | 'sortField' | 'surface' |
     'timeRange' | 'visibleCats'>
   & Pick<MarketInstallCtx,
     'basePage' | 'changePageSize' | 'currentPage' | 'discoverMore' | 'goToPage' | 'hasRecent' |
-    'hideRecent' | 'hostHiddenCount' | 'hostUnavailableCount' | 'loadedHostPackages' |
-    'pageHostPackages' | 'pagePlugins' | 'pageSize' | 'pluginsAll' | 'pluginsUnblocked' |
-    'recentCollapsed' | 'recentHidden' | 'recentPlugins' | 'recommendCollapsed' | 'recommendHidden' |
-    'recommendPlugins' | 'showRecent' | 'showRecommend' | 'toggleRecentCollapsed' | 'toggleRecommendCollapsed' |
-    'hasRecommend' | 'hideRecommend' | 'totalPages'>
-  & Pick<MarketRenderCtx, 'categories' | 'catsExpanded' | 'pluginCard' | 'recentTile'>
+    'hasRecommend' | 'hideHighlights' | 'highlightsHidden' | 'highlightsOpen' | 'hostHiddenCount' |
+    'hostUnavailableCount' | 'loadedHostPackages' | 'pageHostPackages' | 'pagePlugins' | 'pageSize' |
+    'pluginsAll' | 'pluginsUnblocked' | 'recentPlugins' | 'recommendPlugins' | 'showHighlights' |
+    'toggleHighlights' | 'totalPages'>
+  & Pick<MarketRenderCtx, 'categories' | 'discoverCard' | 'recentTile'>
 
 export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
   const {
-    basePage, bodyRef, cat, categories, catsExpanded, catsStuck, catsWrapRef, changePageSize,
-    compatibleWithHost, currentPage, data, discoverMore, discoverSearchReset, goToPage, hasRecent,
-    hideRecent, hostHiddenCount, hostUnavailableCount, hostVersion, lang, loadError,
-    loadedHostPackages, pageHostPackages, pagePlugins, pageSize, pluginCard, pluginsAll,
-    pluginsUnblocked, q, recentCollapsed, recentHidden, recentPlugins, recentTile,
-    recommendCollapsed, recommendHidden, recommendPlugins,
-    resetDiscoverSearch, setCat, setCatsOpen, setCatsSentinel, setCompatibleWithHost, setQ,
-    setSortDir, setSortField, setStuckExpanded, setTimeRange, showRecent, showRecommend, sortDir, sortField,
-    surface, t, timeRange, toggleRecentCollapsed, toggleRecommendCollapsed, totalPages, visibleCats,
-    hasRecommend, hideRecommend,
+    basePage, bodyRef, cat, categories, catsWrapRef, changePageSize,
+    compatibleWithHost, currentPage, data, discoverCard, discoverMore, discoverSearchReset, goToPage, hasRecent,
+    hasRecommend, hideHighlights, highlightsHidden, highlightsOpen, hostHiddenCount, hostUnavailableCount, hostVersion, lang, loadError,
+    loadedHostPackages, pageHostPackages, pagePlugins, pageSize, pluginsAll,
+    pluginsUnblocked, q, recentPlugins, recentTile, recommendPlugins,
+    resetDiscoverSearch, setCat, setCatsSentinel, setCompatibleWithHost, setQ,
+    setSortDir, setSortField, setTimeRange, showHighlights, sortDir, sortField,
+    surface, t, timeRange, toggleHighlights, totalPages, visibleCats,
   } = c
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const aiSearch = useAiSearch(t)
   // AI picks resolved to the catalog's own entries (by repository URL: names
   // are not unique), in the model's order, drawn exactly like ordinary results.
@@ -319,11 +323,13 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
     loadError !== null || data === null
       ? <CatalogStatus c={c} />
       : (
-            <>
-              <div ref={setCatsSentinel} />
+              <div className={css.discoverLayout}>
+              <CategoryRail mode="rail" data={data} categories={categories} cat={cat} lang={lang} onSelect={setCat} t={t} />
+              <div className={css.discoverMain}>
               <div className={css.stickyHead}>
               <div className={css.tabSearchRow}>
                 <SearchInput key="discover" resetToken={discoverSearchReset} className={css.tabSearch} placeholder={t('searchPh')} value={q} onCommit={setQ} t={t} ai={aiSearch.mode} />
+                <div className={filtersOpen ? `${css.discoverFilters} ${css.discoverFiltersOpen}` : css.discoverFilters}>
                 <FilterMenu
                   sortField={sortField}
                   sortDir={sortDir}
@@ -336,61 +342,31 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
                   onCompatibleWithHost={setCompatibleWithHost}
                   t={t}
                 />
+                </div>
+                <Button variant="ghost" size="sm" className={css.discoverFilterToggle} aria-expanded={filtersOpen} onClick={() => setFiltersOpen(open => !open)}>{t('filtersButton')}</Button>
               </div>
-              <div className={css.cats}>
-                <div className={css.catsRow}>
-                {/* The height cap belongs to the MEASURING pass only: that pass
-                    renders every chip so their offsets can be counted, and
-                    clipping hides the tall row from the user for the frame it
-                    exists. Applying it while OPEN clipped the very rows the
-                    user had just asked to see — with 20 categories, expanding
-                    revealed two rows out of six and read as "nothing
-                    happened". Collapsed after measuring needs no cap: the list
-                    is already sliced to what fits. */}
-                <div ref={catsWrapRef} className={visibleCats === null && !catsExpanded ? `${css.catsWrap} ${css.catsCollapsed}` : css.catsWrap}>
-                  {(() => {
-                    // Collapsed, the selected category is pulled to the front so it
-                    // never hides: the one row in view always contains the choice.
-                    const budget = visibleCats
-                    const ordered = orderedCategories(categories, cat, catsExpanded, budget)
-                    // Collapsed is a single row; expanded shows every category —
-                    // including while the header is pinned, where the chevron has
-                    // to keep working (a pinned list that ignores the click read as
-                    // broken). Pinning an already-open list collapses it because
-                    // catsExpanded follows stuckExpanded, not catsOpen.
-                    const shown = catsExpanded
-                      ? ordered
-                      : budget === null ? ordered : ordered.slice(0, Math.max(0, budget - 1))
-                    return (
-                      <>
-                        <Pill data-chip="1" active={cat === 'all'} onClick={() => setCat('all')}>{t('all') + ' (' + formatCount(data!.count) + ')'}</Pill>
-                        {shown.map(id => (
-                          <Pill
-                            key={id}
-                            data-chip="1"
-                            active={cat === id}
-                            onClick={() => setCat(id)}
-                          >{(data.categories[id] && (data.categories[id]![lang] || data.categories[id]!.en)) || id}</Pill>
-                        ))}
-                      </>
-                    )
-                  })()}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={css.catsToggle}
-                  icon={catsExpanded ? <IconChevronUpOutline14 size={14} /> : <IconChevronDownOutline14 size={14} />}
-                  aria-label={catsExpanded ? t('catsLess') : t('catsMore')}
-                  onClick={() => {
-                    const next = !catsExpanded
-                    if (catsStuck) setStuckExpanded(next)
-                    setCatsOpen(next)
-                  }}
-                />
-                </div>
-                {/* Quiet unless something is actually hidden or unchecked: a line that
-                    says "hid 0" on every visit trains people to skip it. */}
+              <CategoryRail mode="chips" data={data} categories={categories} cat={cat} lang={lang} onSelect={setCat} t={t} />
+              <ActiveFilters
+                query={q}
+                category={cat}
+                categoryLabelText={cat === 'all' ? t('all') : categoryLabel(data.categories, cat, lang)}
+                timeRange={timeRange}
+                timeLabel={timeRange === 'week' ? t('timeWeek') : timeRange === 'month' ? t('timeMonth') : timeRange === 'year' ? t('timeYear') : t('timeAll')}
+                sortField={sortField}
+                sortDir={sortDir}
+                sortLabel={sortField === 'stars' ? t('sortStars') : sortField === 'added' ? t('sortAdded') : t('sortDownloads')}
+                compatible={compatibleWithHost}
+                onClearQuery={() => { setQ(''); resetDiscoverSearch(value => value + 1) }}
+                onClearCategory={() => setCat('all')}
+                onClearTime={() => setTimeRange('all')}
+                onClearSort={() => { setSortField('downloads'); setSortDir('desc') }}
+                onClearCompat={() => setCompatibleWithHost(false)}
+                onClearAll={() => {
+                  setQ(''); resetDiscoverSearch(value => value + 1)
+                  setCat('all'); setTimeRange('all'); setSortField('downloads'); setSortDir('desc'); setCompatibleWithHost(false)
+                }}
+                t={t}
+              />
                 {compatibleWithHost && typeof hostVersion === 'string' && pageHostPackages.length > 0
                   && loadedHostPackages >= pageHostPackages.length && (hostHiddenCount > 0 || hostUnavailableCount > 0) && (
                   <HostFilterNote
@@ -402,55 +378,71 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
                   />
                 )}
               </div>
-              </div>
               {aiSearch.status}
-              {aiPlugins === null && hasRecommend && (
-                <DiscoverStrip
-                  titleId="taichi-dshm-recommend-install"
-                  gridId="taichi-dshm-recommend-grid"
-                  title={t('recommendInstall')}
-                  help={t('recommendInstallHelp')}
-                  plugins={recommendPlugins}
-                  collapsed={recommendCollapsed}
-                  hidden={recommendHidden}
-                  showLabel={t('recommendShow')}
-                  hideLabel={t('recommendHide')}
-                  onToggle={toggleRecommendCollapsed}
-                  onHide={hideRecommend}
-                  onShow={showRecommend}
-                  tile={plugin => recentTile(plugin, { meta: 'downloads' })}
-                  t={t}
-                />
-              )}
-              {aiPlugins === null && hasRecent && (
-                <DiscoverStrip
-                  titleId="taichi-dshm-recently-added"
-                  gridId="taichi-dshm-recent-grid"
-                  title={t('recentlyAdded')}
-                  plugins={recentPlugins}
-                  collapsed={recentCollapsed}
-                  hidden={recentHidden}
-                  showLabel={t('recentShow')}
-                  hideLabel={t('recentHide')}
-                  onToggle={toggleRecentCollapsed}
-                  onHide={hideRecent}
-                  onShow={showRecent}
-                  tile={plugin => recentTile(plugin)}
-                  t={t}
-                />
-              )}
               {aiPlugins === null && (
-                <AiRecommend
-                  t={t}
-                  lang={lang}
-                  plugins={data.plugins}
-                  renderTile={(plugin, why) => recentTile(plugin, { meta: 'none', blurb: why })}
-                />
+                <div className={css.catalogHead}>
+                  <h2 className={css.catalogHeading}>{t('catalogHeading')}</h2>
+                  {discoverHomeView({ query: q, category: cat, timeRange, sortField, sortDir }) && (
+                    highlightsHidden
+                      ? (
+                          <button type="button" className={css.recentShow} onClick={showHighlights}>
+                            <IconChevronRightOutline14 size={14} />{t('highlightsShow')}
+                          </button>
+                        )
+                      : (
+                          <button
+                            type="button"
+                            className={css.highlightsToggle}
+                            aria-expanded={highlightsOpen}
+                            aria-controls="taichi-dshm-highlights"
+                            onClick={toggleHighlights}
+                          >
+                            {highlightsOpen ? <IconChevronDownOutline14 size={14} /> : <IconChevronRightOutline14 size={14} />}
+                            {highlightsOpen ? t('highlightsClose') : t('highlightsOpen')}
+                          </button>
+                        )
+                  )}
+                </div>
+              )}
+              {aiPlugins === null && highlightsOpen && !highlightsHidden
+                && discoverHomeView({ query: q, category: cat, timeRange, sortField, sortDir }) && (
+                <div id="taichi-dshm-highlights" className={css.highlightsPanel}>
+                  {hasRecommend && (
+                    <DiscoverStrip
+                      titleId="taichi-dshm-recommend-install"
+                      gridId="taichi-dshm-recommend-grid"
+                      title={t('recommendInstall')}
+                      help={t('recommendInstallHelp')}
+                      plugins={recommendPlugins}
+                      tile={plugin => recentTile(plugin, { meta: 'downloads' })}
+                      t={t}
+                    />
+                  )}
+                  {hasRecent && (
+                    <DiscoverStrip
+                      titleId="taichi-dshm-recently-added"
+                      gridId="taichi-dshm-recent-grid"
+                      title={t('recentlyAdded')}
+                      plugins={recentPlugins}
+                      tile={plugin => recentTile(plugin)}
+                      t={t}
+                    />
+                  )}
+                  <AiRecommend
+                    t={t}
+                    lang={lang}
+                    plugins={data.plugins}
+                    renderTile={(plugin, why) => recentTile(plugin, { meta: 'none', blurb: why })}
+                  />
+                  <div className={css.highlightsHideRow}>
+                    <Button variant="ghost" size="sm" className={css.recentHide} onClick={hideHighlights}>{t('highlightsHide')}</Button>
+                  </div>
+                </div>
               )}
               {aiPlugins !== null
                 ? (aiPlugins.length === 0
-                    ? <EmptyResults message="aiSearchEmpty" t={t} />
-                    : <Masonry items={aiPlugins} render={plugin => pluginCard(plugin)} />)
+                    ? <EmptyResults message="aiSearchEmpty" t={t} onClear={() => aiSearch.clear()} />
+                    : <CatalogGrid items={aiPlugins} render={plugin => discoverCard(plugin)} />)
                 : pagePlugins.length === 0
                 ? <EmptyResults message={basePage.length > 0 ? 'hostFilterEmpty' : pluginsAll.length > 0 ? 'blockedFilteredEmpty' : 'empty'} t={t}
                     onClear={data.plugins.length > 0 && (q !== '' || cat !== 'all' || timeRange !== 'all' || compatibleWithHost) ? () => {
@@ -459,12 +451,15 @@ export function DiscoverTab({ c }: { c: DiscoverTabCtx }) {
                       bodyRef.current?.querySelector('input')?.focus()
                     } : undefined}
                   />
-                : <Masonry items={pagePlugins} render={plugin => pluginCard(plugin)} />}
+                : <CatalogGrid items={pagePlugins} render={plugin => discoverCard(plugin)} />}
               {aiPlugins === null && pluginsUnblocked.length > 0 && (surface === 'plugins'
-                ? <LoadMore more={discoverMore.more} onLoad={discoverMore.loadMore} t={t} />
+                ? discoverMore.atCap
+                  ? <Button variant="ghost" size="sm" onClick={() => { bodyRef.current?.scrollTo({ top: 0 }) }}>{t('backToTop')}</Button>
+                  : <LoadMore more={discoverMore.more} onLoad={discoverMore.loadMore} t={t} />
                 : <Pager currentPage={currentPage} totalPages={totalPages} pageSize={pageSize}
                     onGoToPage={goToPage} onChangePageSize={changePageSize} t={t} />)}
-            </>
+              </div>
+              </div>
           )
   )
 }

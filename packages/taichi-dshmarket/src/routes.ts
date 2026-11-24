@@ -767,7 +767,7 @@ export function mountMarketRoutes(
    *
    * The HOST decides which doors exist; this only combines the user's
    * preferences, because a request handler cannot see the browser's slots.
-   * `sidebarEntry` defaults off and the Plugins page tab defaults on, so
+   * `sidebarEntry` defaults on and the Plugins page tab defaults on, so
    * "every door closed" is expressible — and has to be refused before it
    * reaches disk. A market with no entry can only be recovered by editing
    * state.json or removing the package, which the card must never cause.
@@ -778,7 +778,7 @@ export function mountMarketRoutes(
   const entryDoors = (state: MarketState = marketState): { settingsSection: boolean; pluginsTab: boolean; sidebarEntry: boolean } => ({
     settingsSection: false,
     pluginsTab: state.pluginsTab !== false,
-    sidebarEntry: state.sidebarEntry === true,
+    sidebarEntry: state.sidebarEntry !== false,
   })
   const closesEveryDoor = (doors: { pluginsTab: boolean; sidebarEntry: boolean }): boolean =>
     !doors.pluginsTab && !doors.sidebarEntry
@@ -5702,7 +5702,7 @@ export function mountMarketRoutes(
           // by the user — the card explains a choice it made on their behalf
           // exactly once, so nobody has to wonder why downloads moved.
           regionAuto,
-          sidebarEntry: marketState.sidebarEntry === true,
+          sidebarEntry: marketState.sidebarEntry !== false,
           restart: restartAllowed(config),
           // Named so the UI can say WHY the button is gone. A blank
           // "no restart button" is the state #229 reported as broken.
@@ -7885,11 +7885,11 @@ export function mountMarketRoutes(
     }),
 
     /**
-     * Whether the market also has its own row in the sidebar (#846).
+     * Whether the market also has its activity-rail icon (#846).
      *
      * GET as well as POST: the browser half decides whether to register the
-     * row on every page load, and `/taichi-dsh-market/status` probes pnpm on each
-     * call — too much to pay before a sidebar row can appear.
+     * icon on every page load, and `/taichi-dsh-market/status` probes pnpm on each
+     * call — too much to pay before the rail icon can appear.
      *
      * Written through the long-lived `marketState` like the region, so a
      * later write from that object cannot put the old answer back (#435).
@@ -7900,10 +7900,8 @@ export function mountMarketRoutes(
       handler: async (request, response) => {
         if (request.method === 'GET') {
           sendJson(response, 200, {
-            enabled: marketState.sidebarEntry === true,
-            // Absent means nobody has ever chosen. On a host with no settings
-            // page the row is then shown by default, because it is the only
-            // way into the market (#846).
+            // Absent means shown. Only an explicit false hides the icon.
+            enabled: marketState.sidebarEntry !== false,
             chosen: typeof marketState.sidebarEntry === 'boolean',
           })
           return

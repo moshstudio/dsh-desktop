@@ -8,6 +8,37 @@
 
 const DAY_MS = 86_400_000
 
+/**
+ * The one category a discover card prints. Themes have their own tab, so a
+ * theme id is not this label. No non-theme category means the card omits it.
+ */
+export function primaryCategoryId(plugin: { category: string | string[] }): string | null {
+  const values = Array.isArray(plugin.category) ? plugin.category : [plugin.category]
+  for (const value of values) {
+    if (typeof value !== 'string' || value === '' || value === 'theme') continue
+    return value
+  }
+  return null
+}
+
+/**
+ * The unfiltered Discover home: empty query, every category, all time, and
+ * the default download sort. Recommendations only belong on that view.
+ */
+export function discoverHomeView(view: {
+  query: string
+  category: string
+  timeRange: string
+  sortField: string
+  sortDir: string
+}): boolean {
+  return view.query.trim() === ''
+    && view.category === 'all'
+    && view.timeRange === 'all'
+    && view.sortField === 'downloads'
+    && view.sortDir === 'desc'
+}
+
 /** The fields the recommend-install filter reads. Catalog entries satisfy this. */
 export interface RecommendCandidate {
   url: string

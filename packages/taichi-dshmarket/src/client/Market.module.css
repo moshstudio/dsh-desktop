@@ -5,8 +5,27 @@
  * only carries layout, cards, and the few bespoke surfaces without a
  * primitive (progress bar, banners, tabs, swatches). */
 
-.root{height:100%;display:flex;flex-direction:column;min-width:0;color:var(--dsw-alias-label-primary,#1f2328);position:relative;container-type:inline-size}
-.head{display:flex;flex-direction:column;gap:8px;padding:0 4px 4px}
+/* Spacing rhythm. Defaults suit the settings dialog; the activity-rail
+   page (.panelHost) and the Plugins tab override these for a roomier
+   long layout and a still-breathing short layout. */
+.root{
+  --dshm-pad-x:16px;
+  --dshm-pad-y:12px;
+  --dshm-pad-bottom:64px;
+  --dshm-head-gap:8px;
+  --dshm-section-gap:12px;
+  --dshm-catalog-row:20px;
+  --dshm-catalog-col:16px;
+  --dshm-masonry-gap:16px;
+  --dshm-card-pad-y:16px;
+  --dshm-card-pad-x:18px;
+  --dshm-card-gap:10px;
+  --dshm-recent-gap:8px;
+  --dshm-rail-gap:8px;
+  --dshm-rail-width:120px;
+  height:100%;display:flex;flex-direction:column;min-width:0;color:var(--dsw-alias-label-primary,#1f2328);position:relative;container-type:inline-size
+}
+.head{display:flex;flex-direction:column;gap:var(--dshm-head-gap);padding:0 4px 4px}
 /* One identity line: the sentence describes the section, the cluster on the
    right says which section — the host's pageHead already carries the name, so
    repeating it as a heading was a third title for the same thing. */
@@ -62,7 +81,7 @@
    bottom-right corner, sat under the button once the list hit the end and
    could not be scrolled out from under it (#765). scroll-padding-bottom
    keeps keyboard focus from parking a control there too. */
-.body{flex:1;overflow-y:auto;padding:12px 16px 64px;scroll-padding-bottom:64px;overflow-x:hidden;overflow-anchor:none}
+.body{flex:1;overflow-y:auto;padding:var(--dshm-pad-y) var(--dshm-pad-x) var(--dshm-pad-bottom);scroll-padding-bottom:var(--dshm-pad-bottom);overflow-x:hidden;overflow-anchor:none;position:relative}
 /* Sticky, so the search box and the category row both stay reachable while
    the grid scrolls — they used to stick separately (only .cats did), which
    left the search row to scroll away under .head's fixed title/tabs strip,
@@ -220,39 +239,57 @@
 .installCautionLink:hover{text-decoration:underline}
 .confirmFineprint{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#6b7280)}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:10px}
+/* Discover catalog. Row stretch is what lines the install control up; the
+   blank under a short card is the row's leftover, held below the footer. */
+.catalogGrid{display:grid;row-gap:var(--dshm-catalog-row);column-gap:var(--dshm-catalog-col);align-items:stretch;grid-template-columns:minmax(0,1fr)}
+.catalogGrid > .discoverCard{align-self:stretch;height:auto;min-width:0;margin:0}
+.catalogHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 var(--dshm-section-gap);padding:0 4px}
+.catalogHeading{margin:0;font-size:14px;font-weight:600;line-height:22px;color:var(--dsw-alias-label-primary,#1f2328)}
+.highlightsToggle{display:inline-flex;align-items:center;gap:4px;margin:0;padding:0 2px;border:0;background:none;font:inherit;font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary,#5c6570);cursor:pointer}
+.highlightsToggle:hover{color:var(--dsw-alias-label-primary,#1f2328)}
+.highlightsPanel{margin:0 0 8px}
+.highlightsHideRow{display:flex;justify-content:flex-end;margin:-4px 0 8px}
+.discoverCard{gap:8px}
+.discoverBody{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.discoverRead{min-width:0;flex:1}
+.discoverPurpose{margin:2px 0 0;font-size:13px;line-height:18px;color:var(--dsw-alias-label-tertiary,#8b93a1);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.discoverMeta{display:flex;align-items:center;flex-wrap:wrap;gap:2px 6px;min-width:0;margin-top:2px}
+.discoverMeta .cardStats{display:contents;margin-top:0}
+.discoverTools{display:inline-flex;align-items:center;gap:2px;min-width:0}
+.discoverCat{font-size:11px;line-height:18px;color:var(--dsw-alias-label-secondary,#5c6570);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.discoverDot{flex:none;color:var(--dsw-alias-label-tertiary,#8b93a1);font-size:11px;line-height:18px}
+.discoverFoot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto;padding-top:4px}
+.pluginMark{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex-shrink:0;object-fit:cover;font-weight:700;font-size:15px;line-height:1;color:var(--dsw-alias-label-primary,#1f2328);background:var(--dsw-alias-bg-layer-2,#f3f4f6)}
 /* One equal-height strip. Full cards used to eat a quarter of the first
    screen and left ragged holes beside any tile with a screenshot. The
    masonry below is the catalog; this is only a teaser. Extra tiles live
    in a quiet horizontal scroll — the next card peeks, so it's obvious
    there's more, without a second row of height. */
-.recentBlock{margin:2px 0 4px;padding:0 0 8px}
-.recentRow{display:flex;align-items:stretch;gap:8px;margin-bottom:0;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l3,#d9dde3) transparent}
+.recentBlock{margin:2px 0 4px;padding:0 0 var(--dshm-section-gap)}
+.recentRow{display:flex;align-items:stretch;gap:var(--dshm-recent-gap);margin-bottom:0;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l3,#d9dde3) transparent}
 .recentRow::-webkit-scrollbar{height:6px}
 .recentRow::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l3,#d9dde3);border-radius:99px}
 .recentRow::-webkit-scrollbar-track{background:transparent}
 /* ~3.25 tiles at the panel width, so ~800px still peeks the next card.
-   24px is three 8px gaps (between 1–2, 2–3, and 3–the-peek). */
-.recentRow > *{box-sizing:border-box;flex:0 0 auto;width:min(320px,calc((100% - 24px) / 3.25));min-width:220px}
+   Three gaps (between 1–2, 2–3, and 3–the-peek) follow --dshm-recent-gap. */
+.recentRow > *{box-sizing:border-box;flex:0 0 auto;width:min(320px,calc((100% - (3 * var(--dshm-recent-gap))) / 3.25));min-width:220px}
 /* #940: collapse clips in place (max-height + visibility, NOT display:none
    and NOT unmounting). visibility keeps the clipped tiles out of the tab
    order and the accessibility tree. Compound selector so overflow:hidden
    beats .recentRow's overflow-x:auto by specificity, not source order. */
-.recentRow.recentCollapsed{max-height:0;overflow:hidden;visibility:hidden;margin-bottom:0;padding-bottom:0}
-.recentTile{display:flex;flex-direction:column;justify-content:space-between;gap:4px;height:80px;box-sizing:border-box;overflow:hidden;padding:8px 12px;background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l4,#00000029));border-radius:var(--dsw-radius-lg,16px);transition:background-image 160ms cubic-bezier(.16,1,.3,1)}
+.recentTile{display:flex;flex-direction:column;gap:4px;height:112px;box-sizing:border-box;overflow:hidden;padding:calc(var(--dshm-card-pad-y) * 0.625) calc(var(--dshm-card-pad-x) * 0.67);background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l4,#00000029));border-radius:var(--dsw-radius-lg,16px);cursor:pointer;transition:background-image 160ms cubic-bezier(.16,1,.3,1)}
 .recentTile .installBtn.installBtn{height:24px;min-height:24px;padding:0 8px}
-.recentAv.recentAv{width:24px;height:24px;font-size:11px;flex-shrink:0}
-.recentTitle{display:flex;align-items:center;gap:8px;min-width:0}
-.recentTitle > :last-child{flex-shrink:0}
-.recentName{min-width:0;flex:1}
-.recentTitle .nm{font-size:14px;line-height:20px}
-.recentBottom{display:flex;align-items:flex-end;gap:8px;min-width:0}
-.recentBottom > :last-child{flex-shrink:0;margin-left:auto}
-.recentBottom > :not(:last-child){min-width:0;flex:1}
-.recentDesc{margin:0;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary,#8b93a1);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.recentBottom .cardMore{padding:0}
-.recentHead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:10px 0 8px;padding:0 4px}
+.recentName{min-width:0}
+/* One line for the name, two for the blurb. The name used to take the
+   second line and leave the blurb a single clipped row. */
+.recentTile .recentName .nm{width:100%;font-size:13px;line-height:18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recentBottom{display:flex;align-items:center;gap:6px;min-width:0;margin-top:auto}
+.recentBottom > :last-child{flex-shrink:0}
+.recentDesc{margin:0;min-height:32px;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary,#8b93a1);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.recentMeta{min-width:0;margin-right:auto;font-size:12px;line-height:16px;white-space:nowrap;color:var(--dsw-alias-label-tertiary,#8b93a1);overflow:hidden;text-overflow:ellipsis}
+.recentBottom .cardMore{padding:0;flex-shrink:0}
+.recentHead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0 6px;padding:0}
 .recentHead .favoritesSectionHead{display:flex;align-items:center;gap:4px;margin:0;padding:0;font-weight:600}
-.recentMeta{flex:none;font-size:12px;line-height:16px;white-space:nowrap;color:var(--dsw-alias-label-tertiary,#8b93a1)}
 .recentToggle{display:inline-flex;align-items:center;gap:4px;margin:0;padding:0;border:0;background:none;font:inherit;color:inherit;cursor:pointer}
 .recentToggle:hover{color:var(--dsw-alias-label-secondary,#6b7280)}
 .recentHide.recentHide{height:26px;min-height:26px;padding:0 6px;color:var(--dsw-alias-label-secondary,#6b7280)}
@@ -267,11 +304,11 @@
    destroys the ranking the sort just produced. Dealing the cards
    alternately into two flex columns keeps rank reading left-to-right,
    top-to-bottom, and lets each column close its own gaps. */
-.masonry{display:flex;align-items:flex-start;gap:16px}
-.masonryCol{flex:1;min-width:0;display:flex;flex-direction:column;gap:16px}
+.masonry{display:flex;align-items:flex-start;gap:var(--dshm-masonry-gap)}
+.masonryCol{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--dshm-masonry-gap)}
 /* Installed density: looser than Discover cards. */
-.masonryInstalled{gap:16px}
-.masonryInstalled .masonryCol{gap:16px}
+.masonryInstalled{gap:var(--dshm-masonry-gap)}
+.masonryInstalled .masonryCol{gap:var(--dshm-masonry-gap)}
 /* `.card` carries `align-self:start`, which under CSS grid means "do not
    stretch VERTICALLY to match a taller row-mate". In a flex COLUMN the same
    declaration addresses the other axis: it stops the card stretching
@@ -386,30 +423,65 @@
   [role="dialog"]:has([data-taichi-dshmarket-root]) > nav{display:none}
   [role="dialog"]:has([data-taichi-dshmarket-root]) > div{width:100%;min-width:0;flex:1 1 100%}
 }
-/* The sidebar page (#846): the market fills the main column so its own
-   scroller (.body) puts the scrollbar on the panel edge — a 960px-wide
-   root left the bar floating in the middle of a wide window. Content
-   stays at the host Plugins page's 960px cap via side padding on .head
-   and .body; the same max() keeps a 16–48px gutter when the panel is
-   narrower than 960. Top padding clears the window chrome the way the
-   Plugins page does. Settings dialog is untouched: it never mounts this
-   host.
-   Containment moves from .root to .body so @container rules still see
-   the ~960px content box, not the full panel width. */
+/* Activity-rail / sidebar page: full-bleed content with a fixed side
+   gutter (not a 960px column). The market owns the main column; its
+   scroller puts the scrollbar on the panel edge. Containment moves from
+   .root to .head/.body so @container rules see the content box width.
+   Settings dialog is untouched: it never mounts this host. */
+/* Activity-rail market page: selectPanel only swaps the centre column, so the
+   home session sidebar stays. open() collapses it; collapse still leaves a
+   56px strip. Zero that track. The frame owns [data-shell-activity]; the next
+   sibling is the conversation sidebar. Keep an open rightbar's track. */
+:global(html[data-taichi-dshmarket-page] div:has(>[data-shell-activity])[data-sidebar-collapsed][data-rightbar-collapsed]){grid-template-columns:48px 0px minmax(0,1fr) 0px!important}
+:global(html[data-taichi-dshmarket-page] div:has(>[data-shell-activity])[data-sidebar-collapsed]:not([data-rightbar-collapsed])){grid-template-columns:48px 0px minmax(400px,1fr) minmax(0px,45vw)!important}
+:global(html[data-taichi-dshmarket-page] [data-shell-activity]+div){width:0!important;min-width:0!important;max-width:0!important;overflow:hidden!important;padding:0!important;border:0!important;visibility:hidden;pointer-events:none}
 .panelHost{box-sizing:border-box;height:100%;display:flex;flex-direction:column;min-height:0;padding:calc(28px + var(--dsh-frame-top-clearance,0px)) 0 0}
-.panelHost > .root{flex:1;min-height:0;width:100%;min-width:0;container-type:normal}
+/* Long layout: near full width, fixed gutters, roomier cards and gaps. */
+.panelHost > .root{
+  --dshm-pad-x:clamp(28px,3vw,40px);
+  --dshm-pad-y:20px;
+  --dshm-pad-bottom:72px;
+  --dshm-head-gap:12px;
+  --dshm-section-gap:20px;
+  --dshm-catalog-row:24px;
+  --dshm-catalog-col:20px;
+  --dshm-masonry-gap:20px;
+  --dshm-card-pad-y:18px;
+  --dshm-card-pad-x:20px;
+  --dshm-card-gap:12px;
+  --dshm-recent-gap:12px;
+  --dshm-rail-gap:20px;
+  --dshm-rail-width:140px;
+  flex:1;min-height:0;width:100%;min-width:0;container-type:normal
+}
 /* Head sits outside .body; give it its own containment so the narrow
    .sub / exportLogBtn rules still fire at the same visual width. */
-.panelHost .head{container-type:inline-size;padding-left:max(clamp(16px,4vw,48px),calc((100% - 960px) / 2));padding-right:max(clamp(16px,4vw,48px),calc((100% - 960px) / 2))}
-.panelHost .body{container-type:inline-size;padding-left:max(clamp(16px,4vw,48px),calc((100% - 960px) / 2));padding-right:max(clamp(16px,4vw,48px),calc((100% - 960px) / 2))}
+.panelHost .head{container-type:inline-size;padding-left:var(--dshm-pad-x);padding-right:var(--dshm-pad-x)}
+.panelHost .body{container-type:inline-size;padding-left:var(--dshm-pad-x);padding-right:var(--dshm-pad-x)}
+/* Short layout (Plugins page tab): keep the host page's column, but open
+   vertical rhythm and card padding so it does not feel packed. */
 /* Plugins page tab: the host page already scrolls. A fixed height and an
    inner scroller would leave a short window under the host's own header.
    Collapse-on-scroll stays on the settings and sidebar mounts (#266).
    Fullscreen is excluded so the theme gallery can still scroll inside the
-   overlay below. */
-/* Defaults for the sticky offsets MarketSection writes on scroll. Named
-   here so host-theme-vars sees a market definition, not a naked var(). */
+   overlay below.
+   Short layout keeps the host column width but opens vertical rhythm.
+   Sticky offset defaults are named here so host-theme-vars sees a market
+   definition, not a naked var(). */
 [data-taichi-dshmarket-plugins-tab="true"]{
+  --dshm-pad-y:16px;
+  --dshm-pad-bottom:56px;
+  --dshm-head-gap:10px;
+  --dshm-section-gap:16px;
+  --dshm-catalog-row:22px;
+  --dshm-catalog-col:18px;
+  --dshm-masonry-gap:18px;
+  --dshm-card-pad-y:16px;
+  --dshm-card-pad-x:18px;
+  --dshm-card-gap:11px;
+  --dshm-recent-gap:10px;
+  --dshm-rail-gap:12px;
+  --dshm-rail-width:128px;
   --dshm-host-sticky-top:0px;
   --dshm-plugins-head-height:0px
 }
@@ -488,7 +560,7 @@
    footer, reading as a layout bug rather than "this one's row-mate had a
    longer description". Un-stretched, any leftover row height sits outside
    the card as ordinary grid gutter instead. */
-.card{background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l4,#00000029));border-radius:var(--dsw-radius-xl,20px);padding:16px 18px;display:flex;flex-direction:column;gap:10px;align-self:start;min-width:0;transition:background-image 160ms cubic-bezier(.16,1,.3,1)}
+.card{background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l4,#00000029));border-radius:var(--dsw-radius-xl,20px);padding:var(--dshm-card-pad-y) var(--dshm-card-pad-x);display:flex;flex-direction:column;gap:var(--dshm-card-gap);align-self:start;min-width:0;transition:background-image 160ms cubic-bezier(.16,1,.3,1)}
 /* Card / recent-tile hover: wash only. Install stays outline until the
    pointer is on the button — black fill means "this is what you press".
    Fenced to `@media (hover: hover)` so a tap cannot latch the wash. */
@@ -803,16 +875,11 @@
    so it never truncates; the name is the variable-length part and is the
    only thing allowed to shrink and ellipsize (#257). Scoped to this row
    rather than added to `.nm`, which six other surfaces share. */
-/* Wraps rather than truncates (#342, #343). A scoped package name is the
-   thing that tells two installed plugins apart — `@deepseek-ai/dsh-client-ui-…`
-   and `@dsh-external/dsh-sessi…` are both just prefixes — and an ellipsis
-   removes exactly the end that distinguishes them. Wrapping costs a line only
-   on the names long enough to need one, and the installed list is a masonry,
-   so a taller row does not push its neighbours around.
-   `anywhere` rather than `break-word`: these names have long unbroken runs
-   between the slash and the dashes, which `break-word` leaves overflowing. */
-.irowName{display:flex;align-items:baseline;gap:6px;min-width:0;overflow:visible;text-overflow:clip;flex-wrap:wrap}
-.irowNameText{min-width:0;overflow-wrap:anywhere;white-space:normal}
+/* Wrap at the separators the row inserts, and only then inside a token.
+   An ellipsis hides the end that distinguishes two scoped names (#342).
+   `anywhere` wrapped in the middle of a word even when a slash was available. */
+.irowName{display:flex;align-items:baseline;gap:6px;min-width:0;overflow:visible;text-overflow:clip;flex-wrap:nowrap}
+.irowNameText{flex:0 1 auto;min-width:0;overflow-wrap:break-word}
 .irowName>.owner{flex:0 0 auto}
 .nameLink:hover{color:var(--dsw-alias-brand-primary,#4f6ef7);text-decoration:underline}
 /* Lift the entry off the tab row's bottom rule — a pill button flush on the
@@ -908,7 +975,7 @@
 .dangerArmed.dangerArmed{background:var(--dsw-alias-state-error-primary,#dc2626);border-color:var(--dsw-alias-state-error-primary,#dc2626);color:var(--dsw-alias-label-primary-foreground,#fff)}
 .retryBtn{margin-top:4px}
 .irow{background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,#fff));border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l4,#00000029));
-      border-radius:var(--dsw-radius-xl,20px);padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+      border-radius:12px;padding:8px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
 /* Clear the version/path line above — head→meta stays tight; body starts a
    new reading block. Column gap keeps desc / editor / foot evenly spaced. */
 .irowDescBand{display:flex;flex-direction:column;gap:10px;min-width:0;margin-top:10px}
@@ -1490,9 +1557,82 @@
 .fpLink:hover{text-decoration:underline}
 .fpLink:disabled{opacity:.5;cursor:default}
 .recTrigger{display:inline-flex;align-items:center;gap:6px;margin:0 0 10px;padding:0 4px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#8b93a1)}
-.recBlock{margin:2px 0 12px}
+.recBlock{margin:2px 0 var(--dshm-section-gap)}
 .recHead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:10px 0 4px;padding:0 4px}
 .recHead .favoritesSectionHead{margin:0;padding:0;font-weight:600}
 .recActions{display:flex;align-items:center;gap:4px}
 .recStatus{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 8px;padding:0 4px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#8b93a1)}
 .recStatus [data-tone="error"]{color:var(--dsw-alias-state-error-primary,#d92d20)}
+
+/* Discover: rail when the market container is wide, chips otherwise. */
+.discoverLayout{display:block;min-width:0}
+.discoverMain{min-width:0}
+.categoryRail{display:none}
+.categoryChips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:thin}
+.categoryChipsFade{mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 24px),transparent)}
+.railItem,.chipItem{display:flex;align-items:center;justify-content:space-between;gap:6px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;padding:6px 8px;border-radius:8px;cursor:pointer;white-space:nowrap}
+/* The rail sits in the scroller's left padding. Pull it to the edge and
+   drop the item's own left padding so the labels start with the page. */
+.railItem{padding:4px 2px 4px 0;border-radius:6px}
+.railItem > span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.railOn{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.railCount{color:var(--dsw-alias-label-tertiary);font-size:12px}
+.discoverFilters{display:none}
+.discoverFiltersOpen{display:flex}
+.discoverFilterToggle{display:inline-flex}
+.activeFilters{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.activeFilter,.activeFilterClear{border:0;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;padding:4px 8px;border-radius:999px;cursor:pointer}
+.noticeStack{display:flex;flex-direction:column;gap:8px}
+.noticeMore{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer;text-align:start}
+.detailPage{display:flex;flex-direction:column;gap:var(--dshm-section-gap);min-width:0}
+.detailBack{border:0;background:none;padding:0;font:inherit;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.detailHead{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.detailIdentity{min-width:0;flex:1}
+.detailTitle{margin:0;font-size:20px}
+.detailActions{display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex:none;max-width:min(280px,100%)}
+.detailConfirm p,.detailBlock p{margin:0}
+.detailSection{display:flex;flex-direction:column;gap:6px}
+.detailReq{margin:0;padding-left:18px}
+.detailInstalled{display:flex;align-items:center;gap:8px}
+.detailConfirm,.detailBlock{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.installedFilters{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.irowDetail{margin-top:8px}
+.irowDetailSummary{cursor:pointer;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.catalogFailDetail{margin-top:8px}
+.highlightsPanel{display:flex;flex-direction:column;gap:4px;min-width:0;max-width:100%;overflow:visible}
+.highlightsPanel .recentBlock,.highlightsPanel .recBlock,.highlightsPanel .recTrigger{min-width:0;max-width:100%}
+.recTrigger{flex-wrap:nowrap}
+.discoverCard{overflow:hidden;position:relative;isolation:isolate}
+/* The shared .nm is nowrap. A badge beside a long name then wraps onto the
+   description and the two paint on top of each other. Keep the name on its
+   own line and let it use a second line before ellipsizing. */
+.discoverCard .nmRow{flex-wrap:wrap;row-gap:4px;white-space:normal;align-items:flex-start}
+.discoverCard .nmButton{flex:1 0 100%;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.discoverCard .depBadge{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+@container (min-width: 480px) {
+  .discoverFilterToggle{display:none}
+  .discoverFilters{display:flex}
+}
+@container (min-width: 640px) {
+  .catalogGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@container (min-width: 760px) {
+  .discoverLayout{display:grid;grid-template-columns:var(--dshm-rail-width,120px) minmax(0,1fr);gap:var(--dshm-rail-gap,8px);align-items:start;margin-left:-12px}
+  .categoryRail{display:flex;flex-direction:column;position:sticky;top:0;gap:2px}
+  .categoryChips{display:none}
+  .catalogGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .irow{flex-direction:row;align-items:center;padding:8px 12px}
+  .irowActions{margin-left:auto;margin-top:0;padding-top:0;border-top:0}
+}
+@container (min-width: 1100px) {
+  .catalogGrid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+/* Long activity-rail pages can fill the window; a fourth column keeps
+   cards from stretching into wide slabs once the content box is ~1480. */
+@container (min-width: 1480px) {
+  .catalogGrid{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@container (max-width: 479px) {
+  .detailPage{position:absolute;inset:0;z-index:4;overflow:auto;padding:12px;background:var(--dsw-alias-bg-base)}
+  .body{position:relative}
+}

@@ -50,8 +50,47 @@ export function GithubRoutedImg({ src, alt, className, key }: { src: string; alt
       src={candidate.url}
       alt={alt}
       loading="lazy"
+      decoding="async"
       onLoad={() => rememberGithubRoute('raw', candidate.proxy)}
       onError={() => { if (routeIndex + 1 < candidates.length) setRouteIndex(routeIndex + 1) }}
+    />
+  )
+}
+
+/**
+ * Discover-card mark. A catalog icon when it loads; otherwise one letter on
+ * a stable color. The author's GitHub portrait is not a stand-in — that
+ * portrait answers "who", and this mark answers "which plugin".
+ */
+export function PluginMark({ name, icon, className }: { name: string; icon?: string | null; className?: string }) {
+  const [failed, setFailed] = useState(false)
+  const [routeIndex, setRouteIndex] = useState(0)
+  const mark = className === undefined ? css.pluginMark : `${css.pluginMark} ${className}`
+  const letter = name.replace(/^dsh[-_]/i, '').charAt(0).toUpperCase() || 'P'
+  const tile = failed ? null : safeIcon(icon)
+  if (tile === null) {
+    return (
+      <div className={mark} style={{ background: avatarColor(name) }} aria-hidden="true">{letter}</div>
+    )
+  }
+  const candidates = githubRouteCandidates('raw', tile)
+  const candidate = candidates[Math.min(routeIndex, candidates.length - 1)]
+  if (candidate === undefined) {
+    return <div className={mark} style={{ background: avatarColor(name) }} aria-hidden="true">{letter}</div>
+  }
+  return (
+    <img
+      className={mark}
+      src={candidate.url}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onLoad={() => rememberGithubRoute('raw', candidate.proxy)}
+      onError={() => {
+        if (routeIndex + 1 < candidates.length) setRouteIndex(routeIndex + 1)
+        else setFailed(true)
+      }}
     />
   )
 }
@@ -105,6 +144,7 @@ export function OwnerAvatar({ name, owner, icon, className }: { name: string; ow
       src={candidate.url}
       alt=""
       loading="lazy"
+      decoding="async"
       onLoad={() => rememberGithubRoute('avatar', candidate.proxy)}
       onError={() => {
         if (routeIndex + 1 < candidates.length) setRouteIndex(routeIndex + 1)

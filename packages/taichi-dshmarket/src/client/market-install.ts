@@ -21,9 +21,9 @@ import {
   visiblePlugins,
 } from './market-data.ts'
 import { drop, enqueue, type OperationRecord, patch as patchRecord } from './operations.ts'
-import { blockedSessions, readRecentCollapsed, readRecentFlag, readRecommendCollapsed, withoutHostProjection, writeRecentFlag } from './market-helpers.ts'
-import { recommendedToInstall } from './discover-teasers.ts'
-import { DEFAULT_PAGE_SIZE, RECENT_COLLAPSED_KEY, RECENT_HIDDEN_KEY, RECOMMEND_COLLAPSED_KEY, RECOMMEND_HIDDEN_KEY, RECENT_STRIP_LIMIT } from './market-constants.ts'
+import { blockedSessions, readRecentFlag, withoutHostProjection, writeRecentFlag } from './market-helpers.ts'
+import { discoverHomeView, recommendedToInstall } from './discover-teasers.ts'
+import { DEFAULT_PAGE_SIZE, HIGHLIGHTS_HIDDEN_KEY, HIGHLIGHTS_OPEN_KEY, RECENT_STRIP_LIMIT } from './market-constants.ts'
 import { usePagination, useShownCount } from './MarketListControls.tsx'
 import { discoveryScan } from './MarketImages.tsx'
 import type { CompatibilityNotice, ConflictNotice, MarketSectionProps } from './market-types.ts'
@@ -125,8 +125,9 @@ export function useMarketInstall(c: MarketInstallIn) {
   // default view — one more narrowing, alongside query, category and time range.
   const discoverTeasers = useMemo(() => {
     const empty = { recent: [] as RegistryPlugin[], recommend: [] as RegistryPlugin[] }
-    if (data === null || tab !== 'discover' || q.trim() !== '' || cat !== 'all' || timeRange !== 'all'
-      || sortField !== 'downloads' || sortDir !== 'desc') return empty
+    if (data === null || tab !== 'discover' || !discoverHomeView({
+      query: q, category: cat, timeRange, sortField, sortDir,
+    })) return empty
     const recent = visiblePlugins(data.plugins, {
       category: 'all', query: '', lang, sort: 'downloads-desc', sinceDays: 7,
     }).filter(plugin => !pluginBlocked(plugin))
@@ -144,42 +145,29 @@ export function useMarketInstall(c: MarketInstallIn) {
     // pluginBlocked closes over the installed map and the catalog match.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, tab, q, cat, timeRange, sortField, sortDir, lang, blockedNameSet, installed, repoIdentities, repoHints])
-  const [recentCollapsed, setRecentCollapsed] = useState(() => readRecentCollapsed(RECENT_COLLAPSED_KEY))
-  const [recentHidden, setRecentHidden] = useState(() => readRecentFlag(RECENT_HIDDEN_KEY))
-  const toggleRecentCollapsed = useCallback(() => {
-    const next = !recentCollapsed
-    setRecentCollapsed(next)
-    writeRecentFlag(RECENT_COLLAPSED_KEY, next)
-  }, [recentCollapsed])
-  const hideRecent = useCallback(() => {
-    setRecentHidden(true)
-    writeRecentFlag(RECENT_HIDDEN_KEY, true)
+  // A missing key is collapsed and still listed. Opening writes "1"; hiding
+  // writes the other key. Neither reads the old per-strip preferences.
+  const [highlightsOpen, setHighlightsOpen] = useState(() => readRecentFlag(HIGHLIGHTS_OPEN_KEY))
+  const [highlightsHidden, setHighlightsHidden] = useState(() => readRecentFlag(HIGHLIGHTS_HIDDEN_KEY))
+  const toggleHighlights = useCallback(() => {
+    setHighlightsOpen(open => {
+      const next = !open
+      writeRecentFlag(HIGHLIGHTS_OPEN_KEY, next)
+      return next
+    })
   }, [])
-  const showRecent = useCallback(() => {
-    setRecentHidden(false)
-    writeRecentFlag(RECENT_HIDDEN_KEY, false)
-    // The one-line control is "show recently added", not "restore the
-    // previous fold". Landing on a collapsed heading would be a second
-    // click to see the tiles.
-    setRecentCollapsed(false)
-    writeRecentFlag(RECENT_COLLAPSED_KEY, false)
+  const hideHighlights = useCallback(() => {
+    setHighlightsHidden(true)
+    writeRecentFlag(HIGHLIGHTS_HIDDEN_KEY, true)
+    setHighlightsOpen(false)
+    writeRecentFlag(HIGHLIGHTS_OPEN_KEY, false)
   }, [])
-  const [recommendCollapsed, setRecommendCollapsed] = useState(() => readRecommendCollapsed(RECOMMEND_COLLAPSED_KEY))
-  const [recommendHidden, setRecommendHidden] = useState(() => readRecentFlag(RECOMMEND_HIDDEN_KEY))
-  const toggleRecommendCollapsed = useCallback(() => {
-    const next = !recommendCollapsed
-    setRecommendCollapsed(next)
-    writeRecentFlag(RECOMMEND_COLLAPSED_KEY, next)
-  }, [recommendCollapsed])
-  const hideRecommend = useCallback(() => {
-    setRecommendHidden(true)
-    writeRecentFlag(RECOMMEND_HIDDEN_KEY, true)
-  }, [])
-  const showRecommend = useCallback(() => {
-    setRecommendHidden(false)
-    writeRecentFlag(RECOMMEND_HIDDEN_KEY, false)
-    setRecommendCollapsed(false)
-    writeRecentFlag(RECOMMEND_COLLAPSED_KEY, false)
+  const showHighlights = useCallback(() => {
+    setHighlightsHidden(false)
+    writeRecentFlag(HIGHLIGHTS_HIDDEN_KEY, false)
+    // Showing the entry is "let me see them", not "restore the fold".
+    setHighlightsOpen(true)
+    writeRecentFlag(HIGHLIGHTS_OPEN_KEY, true)
   }, [])
   // Fix the slice before compatibility resolves. Hiding a card must not
   // pull in an unchecked replacement and start another batch.
@@ -187,28 +175,34 @@ export function useMarketInstall(c: MarketInstallIn) {
   const { currentPage, totalPages, pageSize, goToPage, changePageSize } =
     usePagination(pluginsUnblocked.length, discoverResetDeps, scrollToTop)
   const discoverMore = useShownCount(pluginsUnblocked.length, discoverResetDeps, DEFAULT_PAGE_SIZE)
-  const basePage = surface === 'plugins'
+  const basePage = useMemo(() => (surface === 'plugins'
     ? pluginsUnblocked.slice(0, discoverMore.shown)
-    : pluginsUnblocked.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-  const baseRecent = discoverTeasers.recent.slice(0, RECENT_STRIP_LIMIT)
+    : pluginsUnblocked.slice((currentPage - 1) * pageSize, currentPage * pageSize)),
+  [surface, pluginsUnblocked, discoverMore.shown, currentPage, pageSize])
+  const baseRecent = useMemo(
+    () => discoverTeasers.recent.slice(0, RECENT_STRIP_LIMIT),
+    [discoverTeasers.recent],
+  )
   const baseRecommend = discoverTeasers.recommend
-  const hostVerdict = (plugin: RegistryPlugin) => {
+  const hostVerdict = useCallback((plugin: RegistryPlugin) => {
     const key = hostCompatibilityKey(plugin)
     return key === null ? undefined : hostCompatibility[key]
-  }
-  const compatible = (plugin: RegistryPlugin): boolean =>
-    !compatibleWithHost || hostVerdict(plugin)?.status !== 'incompatible'
-  const pagePlugins = basePage.filter(compatible)
-  const recentPlugins = baseRecent.filter(compatible)
-  const recommendPlugins = baseRecommend.filter(compatible)
+  }, [hostCompatibility])
+  const compatible = useCallback((plugin: RegistryPlugin): boolean =>
+    !compatibleWithHost || hostVerdict(plugin)?.status !== 'incompatible',
+  [compatibleWithHost, hostVerdict])
+  const pagePlugins = useMemo(() => basePage.filter(compatible), [basePage, compatible])
+  const recentPlugins = useMemo(() => baseRecent.filter(compatible), [baseRecent, compatible])
+  const recommendPlugins = useMemo(() => baseRecommend.filter(compatible), [baseRecommend, compatible])
   const hasRecent = recentPlugins.length > 0
   const hasRecommend = recommendPlugins.length > 0
   // A catalog card can appear in the grid and in a teaser strip.
   // Keep distinct cards in counts even when they share the same lookup key.
+  const teaserScan = highlightsOpen && !highlightsHidden
   const discoverCandidates = [...new Set([
     ...basePage,
-    ...(!recentHidden && !recentCollapsed ? baseRecent : []),
-    ...(!recommendHidden && !recommendCollapsed ? baseRecommend : []),
+    ...(teaserScan ? baseRecent : []),
+    ...(teaserScan ? baseRecommend : []),
   ])]
   const pageHostPackages = [...new Set(discoverCandidates.map(hostCompatibilityKey).filter(key => key !== null))]
   const pageVerdicts = discoverCandidates.map(hostVerdict)
@@ -690,12 +684,11 @@ export function useMarketInstall(c: MarketInstallIn) {
     currentPage, discoverMore, doInstall, doReplace, doRollback, downloadFile, favoriteListed,
     favoritePagePlugins, favoritePageThemes, favoritePluginMore, favoritePluginPagination,
     favoritePlugins, favoriteStale, favoriteTabCount, favoriteThemeMore, favoriteThemePagination,
-    favoriteThemes, favoritesAllStale, goToPage, hasRecent, hasRecommend, hideRecent, hideRecommend, hostHiddenCount,
-    hostUnavailableCount, installedBlocked, loadedHostPackages, pageHostPackages, pagePlugins,
-    pageSize, pluginsAll, pluginsUnblocked, recentCollapsed, recentHidden, recentPlugins,
-    recommendCollapsed, recommendHidden, recommendPlugins,
-    shadowSummary, showRecent, showRecommend, themeMore, themePagePlugins, themePagination, themePlugins,
-    themePluginsAll, toggleRecentCollapsed, toggleRecommendCollapsed, totalPages,
+    favoriteThemes, favoritesAllStale, goToPage, hasRecent, hasRecommend, hideHighlights, hostHiddenCount,
+    hostUnavailableCount, highlightsHidden, highlightsOpen, installedBlocked, loadedHostPackages, pageHostPackages, pagePlugins,
+    pageSize, pluginsAll, pluginsUnblocked, recentPlugins, recommendPlugins,
+    shadowSummary, showHighlights, themeMore, themePagePlugins, themePagination, themePlugins,
+    themePluginsAll, toggleHighlights, totalPages,
   } as const
 }
 

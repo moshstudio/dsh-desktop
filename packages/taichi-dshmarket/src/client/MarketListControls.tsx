@@ -4,6 +4,7 @@
 
 import { useMemo, useState } from 'react'
 import { Button, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+import { shownWindow } from './shown-window.ts'
 import {
   DEFAULT_PAGE_SIZE,
   PAGE_SIZES,
@@ -81,13 +82,15 @@ export function usePagination(count: number, resetDeps: readonly unknown[], scro
 export function useShownCount(count: number, resetDeps: readonly unknown[], chunk: number): {
   shown: number
   more: number
+  atCap: boolean
   loadMore: () => void
 } {
   const [limit, setLimit] = useResettableCount(chunk, resetDeps)
-  const shown = Math.min(count, limit)
+  const windowed = shownWindow(count, limit, chunk)
   return {
-    shown,
-    more: Math.max(0, count - shown),
+    shown: windowed.shown,
+    more: windowed.more,
+    atCap: windowed.atCap,
     loadMore: () => { setLimit(current => current + chunk) },
   }
 }

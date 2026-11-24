@@ -1,6 +1,6 @@
 /**
  * dsh-market client: registers the plugin market on the host's Plugins page
- * (and an opt-in sidebar row), plus the post-install toast in the shell
+ * and the desktop activity-rail icon, plus the post-install toast in the shell
  * overlay layer. The market is not a Settings section.
  * Built by tsdown into the __ModuleLoader__ factory bundle at
  * client/client.js; the only externals are the loader module table's react
@@ -21,9 +21,10 @@ import { SourceRepoLink } from './SourceRepoLink.tsx'
 import { createHostNavigation } from './host-navigation.ts'
 import { FindPluginOverlay, FindPluginRow, FindPluginRowBoundary } from './FindPluginCard.tsx'
 import { onFindPluginExecuted } from './find-plugin-overlay.ts'
-import { createSidebarEntry, SIDEBAR_PANEL_ID, SIDEBAR_PANEL_ORDER } from './sidebar-entry.ts'
+import { createSidebarEntry, SIDEBAR_PANEL_ID } from './sidebar-entry.ts'
 import type { SidebarEntry } from './sidebar-entry.ts'
-import { MarketLogo } from './MarketSection.tsx'
+import { createMarketPanelSeat, MARKET_ACTIVITY_ORDER, MarketActivityButton } from './activity-entry.tsx'
+import type { MarketPanelLayout } from './activity-entry.tsx'
 import { updateNotifications } from './update-notifications.ts'
 import { installPluginsUpdateIndicator } from './PluginsUpdateIndicator.tsx'
 import css from './Market.module.css'
@@ -94,15 +95,12 @@ interface LocaleService {
   getSnapshot(): { active: string }
 }
 
-/** The subset of the host layout service the sidebar entry touches. */
-interface LayoutService {
-  selectPanel(id: string | null): void
-  panelInfo: { getSnapshot(): { activePanelId?: string | null } }
-}
+/** The subset of the host layout service the market page and activity rail touch. */
+type LayoutService = MarketPanelLayout
 
 /** The subset of the slots service this plugin touches. */
 interface SlotsService {
-  inject(slot: string, register: () => unknown): void
+  inject(slot: string, register: () => unknown): unknown
   register(meta: Record<string, unknown>, component: () => unknown): unknown
 }
 
@@ -268,46 +266,72 @@ function mountMarket(ctx: MarketClientContext): void {
   })
   void entries.load()
 
-  // The opt-in sidebar row (#846). Registered only while the user has it on
-  // AND the host declares sidebar panels; see sidebar-entry.ts.
+  // The market page opened by the activity-rail icon. `main` is declared by
+  // the host layout, which may load after this package; registering it before
+  // that declaration throws and the mount guard then drops the whole market.
+  // inject waits for the declaration. The old sidebar.panellist row is gone.
   let layout: LayoutService | undefined
-  const sidebarGate = createSectionGate(() => {
-    const offPanel = ctx.slots.register({
+  let retired = false
+  const marketPanel = createMarketPanelSeat(() => layout, SIDEBAR_PANEL_ID)
+  let cancelPanelInject: (() => void) | undefined
+  const releasePanel = (): void => {
+    // Leave the page before its panel goes: a selection pointing at a key
+    // that no longer exists would strand the main column on nothing.
+    marketPanel.close()
+    const cancel = cancelPanelInject
+    cancelPanelInject = undefined
+    cancel?.()
+  }
+  const panelInject = ctx.slots.inject('main', () => {
+    if (retired) return () => {}
+    const off = ctx.slots.register({
       name: 'main',
       key: SIDEBAR_PANEL_ID,
       locale: NS,
       inject: () => ({ t }),
     }, () => h('div', { className: css.panelHost }, buildMarketElement({ surface: 'sidebar' }) as ReactNode))
-    const offRow = ctx.slots.register({
-      name: 'sidebar.panellist',
+    return typeof off === 'function' ? off as () => void : () => {}
+  })
+  if (typeof panelInject === 'function') {
+    const cancel = panelInject
+    cancelPanelInject = () => { cancel() }
+  }
+
+  // The leftmost activity-rail icon. Shown unless the user hid it, and only
+  // where the host declares shell.activity.main; see sidebar-entry.ts. The
+  // settings card still calls this "sidebar" because the saved preference key
+  // is sidebarEntry.
+  const activityGate = createSectionGate(() => {
+    const off = ctx.slots.register({
+      name: 'shell.activity.main',
       id: SIDEBAR_PANEL_ID,
-      order: SIDEBAR_PANEL_ORDER,
-      label: () => t('nav'),
+      order: MARKET_ACTIVITY_ORDER,
       locale: NS,
-    }, ((owner: { size?: number } = {}) => h(MarketLogo, { size: owner.size ?? 16 })) as () => unknown)
+      inject: () => ({ t, panel: marketPanel }),
+    }, ((props: { t: Translate; panel: typeof marketPanel }) => h(MarketActivityButton, props)) as () => unknown)
     return () => {
-      // Leave the page before its panel goes: a selection pointing at a key
-      // that no longer exists would strand the main column on nothing.
-      if (layout?.panelInfo.getSnapshot().activePanelId === SIDEBAR_PANEL_ID) layout.selectPanel(null)
-      if (typeof offRow === 'function') (offRow as () => void)()
-      if (typeof offPanel === 'function') (offPanel as () => void)()
+      marketPanel.close()
+      if (typeof off === 'function') (off as () => void)()
     }
-  }, false)
+  }, true)
   sidebar = createSidebarEntry({
-    gate: sidebarGate,
+    gate: activityGate,
     fetch: (...args) => fetch(...args),
     // The Plugins page tab is the other door (#1015). While that slot
-    // exists, this row stays optional rather than the only way in.
+    // exists, this icon stays optional rather than the only way in.
     hasOtherSeat: () => entries.pluginsTabSupported(),
   })
   void sidebar.load()
-  ctx.slots.inject('sidebar.panellist', () => { sidebar?.markSupported() })
+  ctx.slots.inject('shell.activity.main', () => { sidebar?.markSupported() })
   // The slot injections above either fire synchronously (the host declares the
   // slot) or never; this re-answers once the setup pass is over so a host with
-  // no Plugins page tab shows the row without waiting for the server round trip.
+  // no Plugins page tab shows the icon without waiting for the server round trip.
   setTimeout(() => { sidebar?.refresh() }, 0)
   ;(ctx as unknown as { inject(services: string[], callback: (scoped: { layout: LayoutService }) => void): void })
-    .inject(['layout'], (scoped) => { layout = scoped.layout })
+    .inject(['layout'], (scoped) => {
+      layout = scoped.layout
+      marketPanel.attach()
+    })
 
   // The host's own page for a bundle (dsh 0.2.1+). Its Plugins page documents
   // `pluginNavigation.openBundle(packageName)` for other client plugins: the
@@ -326,8 +350,10 @@ function mountMarket(ctx: MarketClientContext): void {
     })
   })
   const retire = (): void => {
+    retired = true
     entries.retire()
-    sidebarGate.retire()
+    activityGate.retire()
+    releasePanel()
   }
 
   // The control surface a host uses instead of reaching into our internals.

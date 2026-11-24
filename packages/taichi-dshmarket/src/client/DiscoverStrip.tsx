@@ -5,10 +5,9 @@
  */
 
 import { useEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from 'react'
-import { Button, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './Market.module.css'
 import {
-  IconChevronDownOutline14,
   IconChevronLeftOutline14,
   IconChevronRightOutline14,
   IconQuestionOutline14,
@@ -62,59 +61,30 @@ export function StripRow({ id, rowRef, children }: {
   )
 }
 
-export function DiscoverStrip({ titleId, gridId, title, help, plugins, collapsed, hidden, showLabel, hideLabel, onToggle, onHide, onShow, tile, t }: {
+export function DiscoverStrip({ titleId, gridId, title, help, plugins, tile, t }: {
   titleId: string
   gridId: string
   title: string
   help?: string
   plugins: readonly RegistryPlugin[]
-  collapsed: boolean
-  hidden: boolean
-  showLabel: string
-  hideLabel: string
-  onToggle: () => void
-  onHide: () => void
-  onShow: () => void
   tile: (plugin: RegistryPlugin) => ReactElement
   t: (key: ArrowKey) => string
 }): ReactElement {
   const rowRef = useRef<HTMLDivElement>(null)
-  if (hidden) {
-    return (
-      <button type="button" className={css.recentShow} onClick={onShow}>
-        <IconChevronRightOutline14 size={14} />{showLabel}
-      </button>
-    )
-  }
   return (
     <section className={css.recentBlock} aria-labelledby={titleId}>
       <div className={css.recentHead}>
         <h3 id={titleId} className={css.favoritesSectionHead}>
-          <button
-            type="button"
-            className={css.recentToggle}
-            aria-expanded={!collapsed}
-            aria-controls={gridId}
-            onClick={onToggle}
-          >
-            {collapsed ? <IconChevronRightOutline14 size={14} /> : <IconChevronDownOutline14 size={14} />}
-            {title}
-          </button>
+          {title}
           {help !== undefined && (
             <Tooltip label={help} side="bottom" delayMs={150} portal maxWidth={320}>
               <span className={css.aiHelp} tabIndex={0} aria-label={help}><IconQuestionOutline14 size={14} /></span>
             </Tooltip>
           )}
         </h3>
-        {!collapsed && <StripArrows rowRef={rowRef} t={t} />}
-        <Button variant="ghost" size="sm" className={css.recentHide} onClick={onHide}>{hideLabel}</Button>
+        <StripArrows rowRef={rowRef} t={t} />
       </div>
-      {/* Clipped in place, never unmounted, same as the recent strip (#940). */}
-      <div
-        id={gridId}
-        ref={rowRef}
-        className={collapsed ? `${css.recentRow} ${css.recentCollapsed}` : css.recentRow}
-      >
+      <div id={gridId} ref={rowRef} className={css.recentRow}>
         {plugins.map(plugin => tile(plugin))}
       </div>
     </section>

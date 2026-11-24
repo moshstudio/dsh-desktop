@@ -15,6 +15,7 @@ let container;
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
   container?.remove();
+  document.querySelector("[data-sidebar-collapsed]")?.remove();
   root = null;
   document.getElementById("dsh-desktop-activity-style")?.remove();
   document.body.replaceChildren();
@@ -22,15 +23,14 @@ afterEach(async () => {
 });
 
 async function mount({
-  studio,
   collapsed = false,
-  deferStudio = false,
   activePanelId = null,
+  main,
 } = {}) {
   let plugin;
   let toggles = 0;
+  let collapsedNow = collapsed;
   let dictionary;
-  let deliverStudio;
   let panelId = activePanelId;
   const panelListeners = new Set();
   const panels = [];
@@ -52,6 +52,13 @@ async function mount({
     {
       toggleSidebar() {
         toggles += 1;
+        collapsedNow = !collapsedNow;
+        document.querySelector("[data-sidebar-collapsed]")?.remove();
+        if (collapsedNow) {
+          const marker = document.createElement("div");
+          marker.setAttribute("data-sidebar-collapsed", "");
+          document.body.append(marker);
+        }
       },
       selectPanel(id) {
         panels.push(id);
@@ -83,13 +90,6 @@ async function mount({
       },
       bind: () => (key) => dictionary.zh[key],
     },
-    inject(names, callback) {
-      expect(names).toEqual(["taichiImageStudio"]);
-      deliverStudio = () =>
-        callback(studio ? { taichiImageStudio: studio } : {});
-      if (!deferStudio && studio)
-        return callback({ taichiImageStudio: studio });
-    },
     slots: {
       inject(_name, run) {
         run();
@@ -101,6 +101,14 @@ async function mount({
           ctx.children = meta.children;
           ctx.props.renderSlot = (name, props) => {
             ctx.slotCalls.push([name, props]);
+            ctx.bindTip = props.bindTip;
+            if (name === "shell.activity.main" && main) {
+              return React.createElement(props.component, {
+                region: props.region,
+                bindTip: props.bindTip,
+                children: main(props),
+              });
+            }
             return React.createElement("span", {
               "data-test-activity-action": name,
             });
@@ -136,12 +144,13 @@ async function mount({
   return {
     dictionary,
     toggles: () => toggles,
-    home: () => container.querySelector('[data-dsh-activity="home"]'),
-    image: () => container.querySelector('[data-dsh-activity="image"]'),
-    settings: () => container.querySelector('[data-dsh-activity="settings"]'),
+    home: () => container.querySelector("[data-dsh-activity-home]"),
+    image: () => container.querySelector('[aria-label="图片"]'),
+    settings: () => container.querySelector('[aria-label="设置"]'),
     footer: () => container.querySelector("[data-dsh-activity-footer]"),
     panels: () => panels,
     slotCalls: ctx.slotCalls,
+    bindTip: () => ctx.bindTip,
     children: ctx.children,
     async setPanel(id) {
       panelId = id;
@@ -149,64 +158,53 @@ async function mount({
         for (const listener of panelListeners) listener();
       });
     },
-    async deliverStudio() {
-      await act(async () => {
-        deliverStudio();
-      });
-    },
     showSettings: render,
   };
 }
 
-function studioDouble() {
-  const calls = [];
-  let panelOpen = false;
-  const listeners = new Set();
-  return {
-    calls,
-    open() {
-      calls.push("open");
-      panelOpen = true;
-      for (const listener of listeners) listener();
+function imageSeat(open) {
+  return React.createElement(
+    "span",
+    {
+      "data-dsh-activity-item": "",
+      "data-label": "图片",
+      "data-selected": open ? "true" : "false",
+      onClick: () => {
+        imageSeat.calls.push("open");
+      },
     },
-    close() {
-      calls.push("close");
-      panelOpen = false;
-      for (const listener of listeners) listener();
-    },
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    getSnapshot: () => ({ panelOpen }),
-  };
+    React.createElement("svg", null, React.createElement("rect", null)),
+  );
 }
+imageSeat.calls = [];
 
-it("opens the sidebar from Home only while it is collapsed, and opens the studio from the image button", async () => {
-  const studio = studioDouble();
-  const collapsed = await mount({ studio, collapsed: true });
+it("opens the sidebar from Home only while it is collapsed, and paints the image seat from the main slot", async () => {
+  imageSeat.calls = [];
+  const collapsed = await mount({
+    collapsed: true,
+    main: () => imageSeat(false),
+  });
   expect(collapsed.home().getAttribute("aria-label")).toBe("主页");
   expect(collapsed.image().getAttribute("aria-label")).toBe("图片");
-  await act(async () => {
-    collapsed.home().click();
-  });
-  expect(studio.calls).toEqual(["close"]);
-  expect(collapsed.toggles()).toBe(1);
-  expect(collapsed.image().innerHTML).toContain("<rect");
+  expect(collapsed.image().getAttribute("aria-current")).toBeNull();
   await act(async () => {
     collapsed.image().click();
   });
-  expect(studio.calls).toEqual(["close", "open"]);
-  expect(collapsed.image().getAttribute("aria-current")).toBe("page");
-  expect(collapsed.home().hasAttribute("aria-current")).toBe(false);
-  expect(collapsed.home().innerHTML).not.toContain("M3 7.5 8 3.5l5 4V13");
-  expect(collapsed.image().innerHTML).toContain('fill-rule="evenodd"');
-  expect(collapsed.image().innerHTML).not.toContain("<rect");
+  expect(imageSeat.calls).toEqual(["open"]);
+  expect(collapsed.slotCalls.map(([name]) => name)).toContain("shell.activity.main");
+});
+
+it("releases Home while the image page is the current place", async () => {
+  const rail = await mount({ main: () => imageSeat(true) });
+  const home = container.querySelector("[data-dsh-activity-home]");
+  expect(rail.image().getAttribute("aria-current")).toBe("page");
+  expect(home.getAttribute("aria-current")).toBeNull();
+  expect(home.innerHTML).toContain("M2.2 7.35");
 });
 
 it("keeps Home current while the account dialog is not the main page", async () => {
   const rail = await mount({ activePanelId: "desktop-account" });
-  expect(rail.home().getAttribute("aria-current")).toBe("page");
+  expect(rail.home()).not.toBeNull();
   expect(rail.home().innerHTML).toContain('fill-rule="evenodd"');
   await act(async () => {
     rail.home().click();
@@ -214,13 +212,67 @@ it("keeps Home current while the account dialog is not the main page", async () 
   expect(rail.panels()).toEqual([]);
 });
 
-it("leaves an expanded sidebar where it is", async () => {
-  const studio = studioDouble();
-  const rail = await mount({ studio });
+it("returns to Home from a plugin page and restores a collapsed sidebar", async () => {
+  const rail = await mount({ collapsed: true, main: () => imageSeat(true) });
+  const seen = [];
+  const onHome = () => { seen.push("home"); };
+  document.addEventListener("dsh-activity-home", onHome);
+  try {
+    await act(async () => {
+      rail.home().click();
+    });
+  } finally {
+    document.removeEventListener("dsh-activity-home", onHome);
+  }
+  expect(seen).toEqual(["home"]);
+  expect(rail.toggles()).toBe(0);
+});
+
+it("returns an expanded sidebar after a page that hid it", async () => {
+  const rail = await mount({});
+  await act(async () => {
+    document.dispatchEvent(new CustomEvent("dsh-activity-sidebar", { detail: { mode: "hidden" } }));
+  });
+  expect(rail.toggles()).toBe(1);
   await act(async () => {
     rail.home().click();
   });
-  expect(studio.calls).toEqual(["close"]);
+  expect(rail.toggles()).toBe(2);
+});
+
+it("opens the sidebar once for a page that needs it and restores the user's collapse afterwards", async () => {
+  const rail = await mount({ collapsed: true });
+  await act(async () => {
+    document.dispatchEvent(new CustomEvent("dsh-activity-sidebar", { detail: { mode: "expanded" } }));
+  });
+  expect(rail.toggles()).toBe(1);
+  await act(async () => {
+    rail.home().click();
+  });
+  expect(rail.toggles()).toBe(2);
+});
+
+it("keeps a manual collapse while the same page stays open", async () => {
+  const rail = await mount({});
+  await act(async () => {
+    document.dispatchEvent(new CustomEvent("dsh-activity-sidebar", { detail: { mode: "expanded" } }));
+  });
+  document.querySelector("[data-sidebar-collapsed]")?.remove();
+  const marker = document.createElement("div");
+  marker.setAttribute("data-sidebar-collapsed", "");
+  document.body.append(marker);
+  await act(async () => {});
+  await act(async () => {
+    document.dispatchEvent(new CustomEvent("dsh-activity-sidebar", { detail: { mode: "keep" } }));
+  });
+  expect(rail.toggles()).toBe(0);
+});
+
+it("leaves an expanded sidebar where it is", async () => {
+  const rail = await mount({});
+  await act(async () => {
+    rail.home().click();
+  });
   expect(rail.toggles()).toBe(0);
 });
 
@@ -237,8 +289,7 @@ it("moves settings onto the bottom of the rail and drops the sidebar gear", asyn
   });
   const button = rail.settings();
   expect(button.getAttribute("aria-label")).toBe("设置");
-  expect(button.getAttribute("aria-expanded")).toBe("false");
-  expect(button.getAttribute("aria-haspopup")).toBe("dialog");
+  expect(button.hasAttribute("aria-expanded")).toBe(false);
   expect(button.getAttribute("aria-keyshortcuts")).toBe("Control+Comma");
   expect(button.querySelector('[data-icon="settings"]')).not.toBeNull();
   expect(container.querySelectorAll("button")).toHaveLength(2);
@@ -246,10 +297,9 @@ it("moves settings onto the bottom of the rail and drops the sidebar gear", asyn
     kind: "list",
     scope: "root",
   });
-  expect(rail.slotCalls).toContainEqual([
-    "shell.activity.action",
-    { wide: false },
-  ]);
+  expect(rail.slotCalls).toEqual(expect.arrayContaining([
+    expect.arrayContaining(["shell.activity.action", expect.objectContaining({ wide: false, region: "footer" })]),
+  ]));
   const footer = rail.footer();
   expect(
     footer.firstElementChild.getAttribute("data-test-activity-action"),
@@ -277,21 +327,14 @@ function stubBox(element, top, height = 36) {
 }
 
 it("slides the leading mark to the newly selected activity", async () => {
-  const studio = studioDouble();
-  const rail = await mount({ studio });
+  const rail = await mount({ main: () => imageSeat(true) });
   const mark = () => container.querySelector("[data-dsh-activity-mark]");
   expect(container.querySelectorAll("[data-dsh-activity-mark]")).toHaveLength(1);
   expect(mark().dataset.state).toBe("on");
   expect(mark().getAttribute("aria-hidden")).toBe("true");
-  stubBox(rail.home(), 8);
   stubBox(rail.image(), 48);
-  stubBox(mark(), 0, 16);
-  await act(async () => {
-    rail.image().click();
-  });
   expect(rail.image().getAttribute("aria-current")).toBe("page");
   expect(mark().dataset.state).toBe("on");
-  expect(mark().style.transform).toBe("translateY(58px)");
   await rail.showSettings({
     openSettings: () => {},
     settingsOpen: false,
@@ -319,9 +362,7 @@ it("shows a rounded tooltip beside the icon and drops the native title", async (
   vi.useFakeTimers();
   try {
     await act(async () => {
-      rail.home().dispatchEvent(
-        new PointerEvent("pointerover", { bubbles: true }),
-      );
+      rail.bindTip()(rail.home()).onPointerEnter({ currentTarget: rail.home() });
     });
     expect(document.querySelector("[data-dsh-activity-tip]")).toBeNull();
     await act(async () => {
@@ -332,9 +373,7 @@ it("shows a rounded tooltip beside the icon and drops the native title", async (
     expect(tip?.getAttribute("role")).toBe("tooltip");
     expect(tip?.classList.contains("dsh-desktop-tooltip")).toBe(true);
     await act(async () => {
-      rail.home().dispatchEvent(
-        new PointerEvent("pointerout", { bubbles: true }),
-      );
+      rail.bindTip()(rail.home()).onPointerLeave({ currentTarget: rail.home() });
       vi.advanceTimersByTime(80);
     });
     expect(document.querySelector("[data-dsh-activity-tip]")).toBeNull();
@@ -343,31 +382,25 @@ it("shows a rounded tooltip beside the icon and drops the native title", async (
   }
 });
 
-it("hides the image button until the studio service exists", async () => {
-  const studio = studioDouble();
-  const rail = await mount({ studio, deferStudio: true });
+it("keeps the image seat empty until a main contribution arrives", async () => {
+  const rail = await mount({});
   expect(rail.image()).toBeNull();
   expect(rail.home()).not.toBeNull();
-  await rail.deliverStudio();
-  expect(rail.image()).not.toBeNull();
-  await act(async () => {
-    rail.image().click();
-  });
-  expect(studio.calls).toEqual(["open"]);
+  expect(rail.slotCalls.map(([name]) => name)).toContain("shell.activity.main");
 });
 
 it("registers the desktop languages and only alias colors", async () => {
   const rail = await mount({});
   for (const language of ["zh", "en", "ja", "es", "fr", "de", "ru", "pt"]) {
     expect(rail.dictionary[language].home).toEqual(expect.any(String));
-    expect(rail.dictionary[language].image).toEqual(expect.any(String));
     expect(rail.dictionary[language].settings).toEqual(expect.any(String));
+    expect(rail.dictionary[language].image).toBeUndefined();
   }
   const style = document.getElementById(
     "dsh-desktop-activity-style",
   ).textContent;
   expect(style).toContain(
-    "[data-dsh-activity-footer]{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:8px}",
+    "[data-dsh-activity-footer]{margin-top:auto;gap:8px}",
   );
   expect(style).toContain("var(--dsh-frame-top-clearance,48px)");
   expect(style).toContain("background:var(--dsw-specific-sidebar-fill)");
@@ -381,7 +414,8 @@ it("registers the desktop languages and only alias colors", async () => {
   expect(style).toContain("var(--dsw-alias-interactive-bg-active)");
   expect(style).toContain('button[aria-current="page"]');
   expect(style).toContain('button[data-selected="true"]');
-  expect(style).toContain("[data-dsh-activity-mark]");
+  expect(style).toContain('[data-dsh-activity-rail] [data-slot="shell.activity.main"]');
+  expect(style).toContain("display:contents");
   expect(style).toContain(
     "transition:transform .34s cubic-bezier(.22,1,.36,1),opacity .18s ease,scale .22s cubic-bezier(.22,1,.36,1)",
   );

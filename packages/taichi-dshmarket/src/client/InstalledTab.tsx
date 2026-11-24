@@ -2,9 +2,22 @@
  * The Installed tab: list and groups views, update/notes rows, install-task rows and per-plugin menus.
  */
 
+import { useState } from 'react'
 import { Button, DisclosureRow, Input, Menu, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './Market.module.css'
 import { SearchInput } from './SearchInput.tsx'
+import {
+  installedListMessage,
+  installedQueryHits,
+  installedStatusKind,
+  installedUpdateTag,
+  isInstalledProblem,
+  packageNameSegments,
+  matchesInstalledFilter,
+  showEnabledLabel,
+  type InstalledFilter,
+  type InstalledStatusKind,
+} from './installed-status.ts'
 import {
   catalogEntryForInstalled,
   displayLatest,
@@ -91,6 +104,29 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
     toggleUpdateExempt, togglingName, ungroupedNames, unignoreUpdateNotice, updateCheck,
     updateExemptSet, updatedNames, updates, updatingName, visibleGroupIds, visibleUngrouped, whyOpen,
   } = c
+  const [installedFilter, setInstalledFilter] = useState<InstalledFilter>('all')
+  const rowKind = (name: string): InstalledStatusKind => {
+    const act = activations[name]
+    return installedStatusKind({
+      disabled: effectiveDisabledSet.has(name),
+      checkFailed: updateCheck.failed?.has(name) === true,
+      library: act?.library === true,
+      activation: act?.state ?? null,
+    })
+  }
+  const rowUpdatable = (name: string) => updates[name]?.updateAvailable === true
+  const statusText = (kind: InstalledStatusKind) => {
+    if (kind === 'check-failed') return t('rowCheckFailed')
+    if (kind === 'broken') return t('stateBroken')
+    if (kind === 'incompatible') return t('stateIncompatible')
+    if (kind === 'failed') return t('stateFailed')
+    if (kind === 'restart') return t('stateRestart')
+    if (kind === 'disabled') return t('disabledState')
+    if (kind === 'inert') return t('stateInert')
+    if (kind === 'live') return t('statusLive')
+    if (kind === 'library') return t('stateLibrary')
+    return ''
+  }
   return (
     <>
       {/* On the Plugins page the update actions live here, beside the rows
@@ -101,6 +137,17 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
           <button type="button" className={installedView === 'groups' ? `${css.viewBtn} ${css.viewOn}` : css.viewBtn} onClick={() => setInstalledView('groups')}>{t('tabGroups')}</button>
         </div>
         <div className={css.installedBatch}>{batchActions}</div>
+      </div>
+      <div className={css.installedFilters} role="group" aria-label={t('filtersButton')}>
+        {(['all', 'updates', 'problems', 'disabled'] as const).map(filter => (
+          <button
+            key={filter}
+            type="button"
+            className={installedFilter === filter ? `${css.viewBtn} ${css.viewOn}` : css.viewBtn}
+            aria-pressed={installedFilter === filter}
+            onClick={() => setInstalledFilter(filter)}
+          >{t(filter === 'all' ? 'filterAll' : filter === 'updates' ? 'filterUpdates' : filter === 'problems' ? 'filterProblems' : 'filterDisabled')}</button>
+        ))}
       </div>
       <div className={css.tabSearchRow}>
         <SearchInput key="installed" resetToken={installedSearchReset} className={css.tabSearch} placeholder={t('searchPh')} value={qInstalled} onCommit={setQInstalled} t={t} />
@@ -153,7 +200,8 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
                       const visibleMembers = (groupQuery === '' || nameHit
                         ? members
                         : members.filter(matchesInstalledQuery)
-                      ).slice().sort((a, b) => Number(installedThemeNames.has(b)) - Number(installedThemeNames.has(a)))
+                      ).filter(name => matchesInstalledFilter(installedFilter, { kind: rowKind(name), updatable: rowUpdatable(name) }))
+                        .slice().sort((a, b) => Number(installedThemeNames.has(b)) - Number(installedThemeNames.has(a)))
                       const themeSlot = visibleMembers.some(name => installedThemeNames.has(name)) && visibleMembers.some(name => !installedThemeNames.has(name))
                       if (groupQuery !== '' && !nameHit && visibleMembers.length === 0) return null
                       const switchableMembers = members.filter(member => activations[member]?.library !== true)
@@ -268,8 +316,7 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
                                       <span className={note !== undefined ? `${css.ungroupedDesc} ${css.noteMine}` : css.ungroupedDesc}>{shown}</span>
                                     </Tooltip>
                                   )}
-                                  {activations[member]?.library === true && <span className={css.spec}>{t('stateLibrary')}</span>}
-                                  {activations[member]?.library !== true && effectiveDisabledSet.has(member) && <span className={css.spec}>{t('disabledState')}</span>}
+                                  <span className={css.spec} role="status">{statusText(rowKind(member))}</span>
                                   {activations[member]?.library !== true && onOffSwitch({
                                     label: (effectiveDisabledSet.has(member) ? t('enable') : t('disable')) + ' ' + member,
                                     on: !effectiveDisabledSet.has(member),
@@ -382,27 +429,29 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
                 <p className={css.groupOrgHint}>{t('groupOrgHint')}</p>
               </>
             )
-          : orderedInstalledEntries.length === 0
-            ? <div className={css.empty}>{t('installedEmpty')}</div>
-            : (
+          : (() => {
+              const listed = orderedInstalledEntries.filter(([name, spec]) => {
+                if (!matchesInstalledFilter(installedFilter, { kind: rowKind(name), updatable: rowUpdatable(name) })) return false
+                const entry = data === null ? undefined : catalogEntryForInstalled(data.plugins, name, String(spec), repoIdentities[name], repoHints[name])
+                const desc = entry === undefined ? '' : (entry.description && (entry.description[lang] || entry.description.en)) || ''
+                return installedQueryHits(qInstalled, {
+                  name,
+                  spec: String(spec),
+                  note: notes[name],
+                  description: desc,
+                  owner: entry?.owner,
+                })
+              })
+              const message = installedListMessage(orderedInstalledEntries.length, listed.length)
+              if (message !== 'list') {
+                return <div className={css.empty}>{t(message === 'installed-empty' ? 'installedEmpty' : 'searchEmpty')}</div>
+              }
+              return (
               <Masonry
-                maxColumns={2}
+                maxColumns={1}
                 minColumns={1}
                 className={css.masonryInstalled}
-                items={orderedInstalledEntries
-                .filter(([name, spec]) => {
-                  const needle = qInstalled.trim().toLowerCase()
-                  if (needle === '') return true
-                  if (name.toLowerCase().includes(needle)) return true
-                  if (String(spec).toLowerCase().includes(needle)) return true
-                  const entry = data === null ? undefined : catalogEntryForInstalled(data.plugins, name, String(spec), repoIdentities[name], repoHints[name])
-                  if (entry !== undefined) {
-                    const desc = (entry.description && (entry.description[lang] || entry.description.en)) || ''
-                    if (desc.toLowerCase().includes(needle)) return true
-                    if ((entry.owner || '').toLowerCase().includes(needle)) return true
-                  }
-                  return false
-                })}
+                items={listed}
                 render={([name, spec]) => {
                 const missing = pendingBackup !== null && !installedFiles.includes(name)
                 const entry = data === null ? undefined : catalogEntryForInstalled(data.plugins, name, String(spec), repoIdentities[name], repoHints[name])
@@ -496,8 +545,8 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
                             beside it pointed at the same page. */}
                         <span className={css.irowNameText}>
                           {repoUrl !== null
-                            ? <a className={css.nameLink} href={repoUrl + '#readme'} target="_blank" rel="noreferrer" title={name} aria-label={`${name} — ${t('readme')}`}>{name}</a>
-                            : name}
+                            ? <a className={css.nameLink} href={repoUrl + '#readme'} target="_blank" rel="noreferrer" title={name} aria-label={`${name} — ${t('readme')}`}>{packageLabel(name)}</a>
+                            : packageLabel(name)}
                         </span>
                         {entry?.deprecated === true && <span className={css.depBadge}>{t('deprecatedBadge')}</span>}
                       </div>
@@ -568,6 +617,8 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
                           which is what someone with forty plugins
                           is asking. The original stays one click
                           away rather than being lost. */}
+                      <details className={css.irowDetail} open={isInstalledProblem(rowKind(name)) || undefined}>
+                      <summary className={css.irowDetailSummary}>{t('rowDetails')}</summary>
                       <div className={css.irowDescBand}>
                         {notingName === name
                           ? (
@@ -763,6 +814,7 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
                           </div>
                         </div>
                       )}
+                      </details>
                     </div>
                     {/* At half width the identity and the controls cannot
                         share a line, so the row is two stacked bands. Left
@@ -774,12 +826,17 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
                     <div className={css.irowActions}>
                     {/* Dot + tag, the pairing the host's own plugin
                         inventory uses for exactly this state. */}
-                    {!missing && act?.library !== true && (
-                      <span className={css.stateTag} data-on={off ? 'false' : 'true'}>
-                        <span className={css.stateDot} data-on={off ? 'false' : 'true'} />
-                        {off ? t('disabledState') : t('switchOnLabel')}
+                    {!missing && (() => {
+                      const kind = rowKind(name)
+                      const label = showEnabledLabel(kind) ? t('switchOnLabel') : statusText(kind)
+                      if (label === '') return null
+                      return (
+                      <span className={css.stateTag} role="status" data-on={kind === 'live' || kind === 'restart' ? 'true' : 'false'}>
+                        <span className={css.stateDot} data-on={kind === 'live' || kind === 'restart' ? 'true' : 'false'} />
+                        {label}
                       </span>
-                    )}
+                      )
+                    })()}
                     {toggleable && (
                       onOffSwitch({
                         label: (off ? t('enable') : t('disable')) + ' ' + name,
@@ -913,9 +970,7 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
                                         >{t('install')}</Button>
                                       </>
                                     )
-                                  : updateCheck.failed === null || updateCheck.failed.has(name)
-                                    ? null
-                                    : <span className={css.metaTag} title={t('upToDate')}>{t('upToDate')}</span>}
+                                  : <InstalledUpdateTag name={name} ready={updateCheck.ready} failed={updateCheck.failed} t={t} />}
                     {removingName === name && <span className={css.metaTag}>{t('uninstalling')}</span>}
                     </span>
                     </span>
@@ -924,7 +979,8 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
                 )
               }}
               />
-            )}
+            )
+            })()}
     {dependencyOnlyNames.size > 0 && (
       // The list is complete as a list of PLUGINS; the count keeps it
       // from looking like packages went missing (#857).
@@ -934,4 +990,25 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
     )}
     </>
   )
+}
+
+function InstalledUpdateTag({ name, ready, failed, t }: {
+  name: string
+  ready: boolean
+  failed: ReadonlySet<string> | null
+  t: (key: string) => string
+}) {
+  const tag = installedUpdateTag({ ready, failed, name })
+  if (tag === 'check-failed') return <span className={css.metaTag} role="status">{t('rowCheckFailed')}</span>
+  if (tag === 'up-to-date') return <span className={css.metaTag} title={t('upToDate')}>{t('upToDate')}</span>
+  return null
+}
+
+/** Break opportunities after `@`, `/`, and `-`, so a scoped name wraps at its separators. */
+function packageLabel(name: string) {
+  return packageNameSegments(name).map((segment, index) => (
+    segment.breakAfter
+      ? <span key={index}>{segment.text}<wbr /></span>
+      : <span key={index}>{segment.text}</span>
+  ))
 }

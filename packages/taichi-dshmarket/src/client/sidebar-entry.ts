@@ -1,64 +1,53 @@
 /**
- * The market's own row in the sidebar (#846), beside the host's Plugins page.
+ * The market's icon on the desktop activity rail (leftmost icon column).
  *
- * Off by default: the sidebar's global rows are the host's own pages, and
- * installing plugins is occasional, so the row is something a user turns on
- * in the market's settings card. The Plugins page tab is the default door;
- * the card refuses to let the last open door close, this row included
- * (#1015). The Settings section is not a door.
+ * Shown by default. A user can hide it from the market's settings card. The
+ * card refuses to let the last open door close, this icon included (#1015).
+ * The Settings section is not a door. The saved preference key remains
+ * `sidebarEntry` for compatibility with existing profiles.
  *
- * Two facts decide whether the row exists, and they arrive independently:
- * whether the host declares `sidebar.panellist` at all (hosts before the
- * Plugins page moved to the sidebar do not), and what the user chose, which
- * is read from the server. The section gate already owns that ordering
- * problem for the settings entry; this reuses it with the opposite default.
+ * Two facts decide whether the icon exists, and they arrive independently:
+ * whether the host declares `shell.activity.main` at all, and what the user
+ * chose, which is read from the server. The section gate already owns that
+ * ordering problem for the settings entry; this reuses it with shown-by-default.
  *
- * Opening the row selects a `main` panel, so the market renders as a page —
- * the only one-click destination the host's public contracts allow. A
- * settings-dialog shortcut is not possible: the dialog's state is private
- * to the host's settings shell.
+ * Opening the icon selects a `main` panel, so the market renders as a page —
+ * the only one-click destination the host's public contracts allow.
  */
 
 import { api } from './market-data.ts'
 import type { SectionGate } from './section-gate.ts'
 
-/** The `main` key and `sidebar.panellist` id this package registers. */
+/** The `main` key and activity-rail id this package registers. */
 export const SIDEBAR_PANEL_ID = 'taichi-dshmarket'
 
-/**
- * Directly below the host's Plugins row (order 0) and above Scheduled tasks
- * (order 10): the market is where plugins come from, so it sits next to
- * where they are managed.
- */
-export const SIDEBAR_PANEL_ORDER = 1
-
 export interface SidebarEntry {
-  /** The host declares sidebar panels, so the switch can do something. */
+  /** The host declares the activity rail, so the switch can do something. */
   supported(): boolean
   /** The user's choice as last confirmed by the server. */
   enabled(): boolean
   /**
-   * The row is registered right now. Not the same as {@link enabled}: on a
-   * host where this row is the only door it is shown before the user has
-   * answered, and a deliberate OFF hides it even there (#846).
+   * The icon is registered right now. Not the same as {@link enabled}: on a
+   * host where it is the only door it is shown before the user has answered,
+   * and a deliberate OFF hides it even there.
    */
   shown(): boolean
   /**
    * The initial `load()` finished (ok, refused, or failed). Until then
-   * `enabled()` is still the default off, and must not be treated as a
-   * confirmed choice — the settings tip would otherwise flash for users
-   * who already turned the row on.
+   * `enabled()` is still the default on, and must not be treated as a
+   * confirmed choice — a saved OFF that has not arrived yet is not "the user
+   * wants it hidden".
    */
   ready(): boolean
   /**
    * True when the host offers NO other entry — no Plugins page tab (#1015) —
-   * so this row is the market's ONLY door. The row is then shown by default:
+   * so this icon is the market's ONLY door. The icon is then shown by default:
    * a default that leaves the market unreachable is a missing feature. On
-   * hosts that declare the Plugins tab this stays a guard (#846).
+   * hosts that declare the Plugins tab this stays a guard.
    */
   onlyDoor(): boolean
   /**
-   * Persist the choice, then show or hide the row.
+   * Persist the choice, then show or hide the icon.
    * @returns the value the server accepted.
    */
   set(enabled: boolean): Promise<boolean>
@@ -66,7 +55,7 @@ export interface SidebarEntry {
   subscribe(listener: () => void): () => void
   /** The slot exists: the gate may register now. */
   markSupported(): void
-  /** Re-answer "is the row shown" after the host's seat set is known/changed. */
+  /** Re-answer "is the icon shown" after the host's seat set is known/changed. */
   refresh(): void
   /** Read the saved choice once at page load. */
   load(): Promise<void>
@@ -90,7 +79,8 @@ export function createSidebarEntry({ gate, fetch, hasOtherSeat }: Deps): Sidebar
   // the one that reports the slot missing changes the default.
   const otherSeat = hasOtherSeat ?? ((): boolean => true)
   let supported = false
-  let enabled = false
+  /** Absent means shown. A saved false is the only way this starts hidden. */
+  let enabled = true
   let ready = false
   /** The user has ever answered; an absent choice is not an "off". */
   let chosen = false
@@ -100,13 +90,12 @@ export function createSidebarEntry({ gate, fetch, hasOtherSeat }: Deps): Sidebar
   const notify = (): void => { for (const listener of listeners) listener() }
 
   /**
-   * One place that answers "is the row shown": the user's own choice wins;
-   * with no choice on record, the row is shown exactly when it is the only
-   * way into the market.
+   * One place that answers "is the icon shown": a saved choice wins. With no
+   * choice on record the icon is shown.
    */
   const decide = (): void => {
     if (!supported) return
-    gate.setVisible(enabled || (!chosen && !otherSeat()))
+    gate.setVisible(chosen ? enabled : true)
     notify()
   }
 
@@ -138,10 +127,11 @@ export function createSidebarEntry({ gate, fetch, hasOtherSeat }: Deps): Sidebar
         const response = await fetch(api('/taichi-dsh-market/sidebar-entry'), { cache: 'no-store' })
         if (response.ok) {
           const body = (await response.json()) as { enabled?: unknown; chosen?: unknown }
-          // A POST that finished while we were in flight already owns the row.
+          // A POST that finished while we were in flight already owns the icon.
           if (at === epoch) {
-            enabled = body.enabled === true
             chosen = body.chosen === true
+            // Unchosen answers keep the default on. A chosen answer is exact.
+            enabled = chosen ? body.enabled === true : true
             decide()
           }
         }

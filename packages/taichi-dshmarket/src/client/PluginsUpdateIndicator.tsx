@@ -28,8 +28,8 @@ interface LocaleSource {
 
 const DOT_STYLE: CSSProperties = {
   position: 'absolute', right: -2, top: -2, width: 6, height: 6, borderRadius: '50%',
-  background: 'var(--dsw-alias-state-error-primary, #e5484d)',
-  boxShadow: '0 0 0 1.5px var(--dsw-alias-bg-base, #fff)', pointerEvents: 'none',
+  background: 'var(--dsw-alias-state-error-primary)',
+  boxShadow: '0 0 0 1.5px var(--dsw-alias-bg-base)', pointerEvents: 'none',
 }
 const ANNOUNCEMENT_STYLE: CSSProperties = {
   position: 'absolute', width: 1, height: 1, padding: 0, margin: -1,

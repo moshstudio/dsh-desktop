@@ -65,7 +65,7 @@ export function resolveVitestConfig(mode = resolveCliMode()) {
   if (mode === 'windows-parallel') {
     return {
       test: {
-        include: ['test/**/*.{test,spec}.{ts,js,mjs}'],
+        include: ['test/**/*.{test,spec}.{ts,tsx,js,mjs}'],
         exclude: [...configDefaults.exclude, ...WINDOWS_COMPLETE_EXCLUDES, ...WINDOWS_SERIAL_SUITES],
         fileParallelism: true,
         testTimeout: 60_000
@@ -84,7 +84,7 @@ export function resolveVitestConfig(mode = resolveCliMode()) {
   }
   return {
     test: {
-      include: ['test/**/*.{test,spec}.{ts,js,mjs}'],
+      include: ['test/**/*.{test,spec}.{ts,tsx,js,mjs}'],
       // Native Intel runners and Windows CI contend for CPU and disk while integration suites
       // unpack archives and launch subprocesses (hitting EBUSY locks). Keep every test, but serialize files.
       fileParallelism: !(

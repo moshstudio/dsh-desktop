@@ -3806,7 +3806,7 @@ describe('workbench market screenshot and metadata display', () => {
     withMarket(service, { '/api/desktop-workbenches/market-install': () => Response.json({ install: { catalogId: 'o/helper', pluginName: 'helper', version: '1.0.0' }, restartRequired: true }) })
     await service.installFromMarket('o/helper')
     expect(service.getSnapshot().switcherHint).toBe(true)
-    expect(ctx.layout.toggleSidebar).toHaveBeenCalledOnce()
+    expect(ctx.layout.toggleSidebar).not.toHaveBeenCalled()
     expect(service.state.pinned).toContain('o/helper')
     service.dismissSwitcherHint()
     expect(service.getSnapshot().switcherHint).toBe(false)

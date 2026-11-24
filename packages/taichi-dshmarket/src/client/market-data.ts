@@ -67,6 +67,14 @@ export interface RegistryPlugin {
    * discover byline only when it is a non-empty string.
    */
   version?: string | null
+  /** Declarations of the pinned install tag, when the catalog has them. */
+  releaseManifest?: {
+    tarball: string
+    checkedAt: string
+    version: string | null
+    enginesDsh: string | null
+    peerDependencies: Record<string, string>
+  }
   added?: string
   install?: string
   /**
@@ -103,6 +111,16 @@ export function pluginCategories(plugin: Pick<RegistryPlugin, 'category'>): stri
     categories.push(value)
   }
   return categories
+}
+
+/** Catalog label for a category id, then English, then the id itself. */
+export function categoryLabel(categories: Record<string, LocalizedText>, id: string, lang: string): string {
+  const entry = categories[id]
+  if (entry === undefined) return id
+  const local = entry[lang]
+  if (typeof local === 'string' && local !== '') return local
+  if (typeof entry.en === 'string' && entry.en !== '') return entry.en
+  return id
 }
 
 /** The catalog payload under `registry` in /taichi-dsh-market/registry. */

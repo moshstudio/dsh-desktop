@@ -14,6 +14,7 @@ import {
   IconCodeOutline16,
   IconCopyOutline16,
 } from './icons.ts'
+import { isUrgentRedLine } from './capability-flags.ts'
 /**
  * Sweeping cards or the recent strip must not flash tips. Same dwell as
  * the recent-tile name/blurb tips.
@@ -350,7 +351,7 @@ export function ConfirmWarnIcon() {
  * that urgent is how a warning gets trained away.
  */
 export function redLineIsUrgent(line: string): boolean {
-  return line.startsWith('runs code at install time') || line.startsWith('tampers with a core bundle')
+  return isUrgentRedLine(line)
 }
 
 /**
@@ -448,22 +449,24 @@ export function CatalogVersionMark({ version, tip, dot = true }: { version: stri
  * stars. The dots sit only BETWEEN items that are present, so the line never
  * starts with one — which is what a single wrapping line used to do.
  */
-export function CardStats({ plugin, t, versionTip, lead = false }: {
+export function CardStats({ plugin, t, versionTip, lead = false, stars = true }: {
   plugin: RegistryPlugin
   t: Translate
   versionTip: string
   /** Leading dot on the first figure, for a line that already starts with the author. */
   lead?: boolean
+  /** Discover cards leave stars for the detail page. */
+  stars?: boolean
 }) {
   const hasVersion = typeof plugin.version === 'string' && plugin.version.length > 0
   const hasDownloads = downloadStatsText(plugin, t) !== null && downloadStatistic(plugin) !== null
-  const hasStars = starStatsText(plugin, t) !== null
+  const hasStars = stars && starStatsText(plugin, t) !== null
   if (!hasVersion && !hasDownloads && !hasStars) return null
   return (
     <div className={css.cardStats}>
       <CatalogVersionMark version={plugin.version} tip={versionTip} dot={lead} />
       <DownloadCount plugin={plugin} t={t} dot={lead || hasVersion} />
-      <StarCount plugin={plugin} t={t} dot={lead || hasVersion || hasDownloads} />
+      {hasStars && <StarCount plugin={plugin} t={t} dot={lead || hasVersion || hasDownloads} />}
     </div>
   )
 }

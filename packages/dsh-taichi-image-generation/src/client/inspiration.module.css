@@ -21,8 +21,12 @@
   --inspiration-scrim: var(--dsw-static-neutral-1000);
 }
 
+.gallery {
+  margin-block: 0;
+}
+
 .title {
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 650;
   color: var(--dsw-alias-label-primary);
 }

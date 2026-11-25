@@ -76,7 +76,7 @@ export function InspirationGallery(props: {
   }
 
   return (
-    <div className={css.wrap} aria-label={tt('inspiration.title')}>
+    <div className={`${css.wrap} ${css.gallery}`} aria-label={tt('inspiration.title')}>
       <span className={css.title}>{tt('inspiration.title')}</span>
       {samples === null ? (
         <span className={css.spinner} aria-hidden="true" />

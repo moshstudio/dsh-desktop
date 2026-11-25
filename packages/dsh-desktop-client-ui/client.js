@@ -287,6 +287,34 @@ window.__ModuleLoader__.load({
       if (typeof bridge?.openRepairAgent === 'function' || typeof bridge?.openMobilePairing === 'function') ctx.slots.inject('sidebar.settings.action', () => ctx.slots.register({ name: 'sidebar.settings.action', id: 'desktop-utilities', locale: REPAIR_NS, inject: () => ({ t: ctx.locale.bind(REPAIR_NS) }) }, DesktopUtilityActions))
     }
 
+    function desktopTypographyCss() {
+      // The official font site blocks direct requests from the desktop origin.
+      // Only load font binaries from the versioned mirror, not remote CSS.
+      const fontSources = (variant) => ['cdn.jsdmirror.com', 'cdn.jsdelivr.net']
+        .map((host) => `url('https://${host}/npm/c1-alibaba-puhui-ti@1.0.0/fonts/AlibabaPuHuiTi-3-${variant}.woff2') format('woff2')`)
+        .join(', ')
+      return `
+        @font-face {
+          font-family: 'DSH Alibaba PuHuiTi';
+          src: ${fontSources('55-Regular')};
+          font-weight: 400;
+          font-display: swap;
+        }
+        @font-face {
+          font-family: 'DSH Alibaba PuHuiTi';
+          src: ${fontSources('85-Bold')};
+          font-weight: 700;
+          font-display: swap;
+        }
+        /* Override only the built-in text stack so user font settings still win. */
+        html[data-platform] {
+          --dsh-font-family-text-default: 'DSH Alibaba PuHuiTi', -apple-system,
+            BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+            'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        }
+      `
+    }
+
     const inject = ['locale', 'slots', 'remote.session', 'sessions', 'uiWorkspace']
     function apply(ctx) {
       applyRepair(ctx)
@@ -310,6 +338,7 @@ window.__ModuleLoader__.load({
         const style = document.createElement('style')
         style.id = id
         style.textContent = `
+          ${window.dshDesktop ? desktopTypographyCss() : ''}
           [data-dsh-sidebar-brand-identity] { display:none !important; }
           /* The caption already houses the toggle on Windows/Linux and macOS.
              Hide the empty brand control and collapse its row without clipping the fixed toggle. */

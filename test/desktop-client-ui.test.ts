@@ -130,6 +130,21 @@ describe('DSH Desktop client slot occupants', () => {
     window.document.documentElement.setAttribute('data-windows-titlebar', '')
     const sidebarFixture = window.document.body.appendChild(fixture.body.firstElementChild as HTMLElement)
     try {
+      const rules = Array.from(style.sheet?.cssRules ?? [])
+      const defaults = () => window.getComputedStyle(window.document.documentElement)
+        .getPropertyValue('--dsh-font-family-text-default')
+      expect(defaults()).toBe('')
+      window.document.documentElement.setAttribute('data-platform', 'win32')
+      expect(defaults()).toMatch(/^["']DSH Alibaba PuHuiTi["'],.*sans-serif$/s)
+      const faces = rules.filter((rule): rule is CSSFontFaceRule => rule.type === CSSRule.FONT_FACE_RULE)
+      expect(faces.map(face => face.style.getPropertyValue('font-weight'))).toEqual(['400', '700'])
+      expect(style.textContent?.match(/font-display: swap;/g)).toHaveLength(2)
+      const fontSources = Array.from(style.textContent?.matchAll(/src: ([^;]+);/g) ?? [], ([, src]) => src)
+      expect(fontSources).toEqual(['55-Regular', '85-Bold'].map(variant => {
+        const fontPath = `npm/c1-alibaba-puhui-ti@1.0.0/fonts/AlibabaPuHuiTi-3-${variant}.woff2`
+        return ['cdn.jsdmirror.com', 'cdn.jsdelivr.net']
+          .map(host => `url('https://${host}/${fontPath}') format('woff2')`).join(', ')
+      }))
       const row = sidebarFixture.querySelector('[data-window-drag]')
       const brand = sidebarFixture.querySelector('[data-brand-control]')
       const toggle = sidebarFixture.querySelector('[data-sidebar-toggle]')
@@ -143,6 +158,7 @@ describe('DSH Desktop client slot occupants', () => {
       sidebarFixture.remove()
       style.remove()
       window.document.documentElement.removeAttribute('data-windows-titlebar')
+      window.document.documentElement.removeAttribute('data-platform')
     }
 
     disposeStyle?.()

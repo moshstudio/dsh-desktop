@@ -40,18 +40,26 @@ function loadRail() {
       placeActivityMark: (rail: unknown, memory: unknown) => void
     }
   } | undefined
+  class MutationObserverStub {
+    observe(): void {}
+    disconnect(): void {}
+  }
   vm.runInNewContext(source, {
     document: {
       getElementById: () => null,
       createElement: () => ({ id: '', dataset: {}, textContent: '' }),
       head: { appendChild: () => undefined },
-      querySelector: () => null
+      querySelector: () => null,
+      body: {},
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined
     },
     window: {
       __ModuleLoader__: {
         load: (value: typeof definition) => { definition = value }
       }
-    }
+    },
+    MutationObserver: MutationObserverStub
   })
   if (!definition) throw new Error('activity client did not register')
   const React = {
@@ -110,6 +118,16 @@ describe('activity rail seats', () => {
       'shell.activity.main': { kind: 'list', scope: 'root' },
       'shell.activity.action': { kind: 'list', scope: 'root' }
     })
+  })
+
+  it('exports unstable-getSnapshot crash helpers for activity seats', () => {
+    const plugin = loaded.plugin as {
+      unstableSnapshotHint: (error: unknown) => string | null
+      watchActivitySlotCrashes: unknown
+    }
+    expect(typeof plugin.watchActivitySlotCrashes).toBe('function')
+    expect(plugin.unstableSnapshotHint(new Error('Maximum update depth exceeded'))).toMatch(/getSnapshot/)
+    expect(plugin.unstableSnapshotHint(new Error('unrelated'))).toBeNull()
   })
 
   it('renders both seats through the same button', () => {

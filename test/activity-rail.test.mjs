@@ -465,3 +465,71 @@ it("registers the desktop languages and only alias colors", async () => {
     );
   }
 });
+
+function loadActivityExports() {
+  let plugin;
+  window.__ModuleLoader__ = {
+    load({ factory }) {
+      plugin = factory((name) => {
+        if (name === "react") return React;
+        if (name === "@deepseek-ai/dsh-client-ui-primitives") {
+          return { IconSettingsOutlineMedium: () => null };
+        }
+        throw new Error(name);
+      });
+    },
+  };
+  new Function(source)();
+  return plugin;
+}
+
+it("names the crashed activity contribution and hints at unstable getSnapshot", () => {
+  const plugin = loadActivityExports();
+  expect(plugin.unstableSnapshotHint(new Error("Minified React error #185; visit https://reactjs.org"))).toMatch(
+    /unstable useSyncExternalStore getSnapshot/,
+  );
+  expect(plugin.unstableSnapshotHint(new Error("something else"))).toBeNull();
+
+  const listeners = [];
+  const slots = {
+    onEntryError(fn) {
+      listeners.push(fn);
+      return () => {
+        const index = listeners.indexOf(fn);
+        if (index >= 0) listeners.splice(index, 1);
+      };
+    },
+    inject() {},
+    register() {},
+  };
+  const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    plugin.apply({
+      effect(run) {
+        return typeof run === "function" ? run() : undefined;
+      },
+      locale: {
+        register: () => () => {},
+        bind: () => (key) => key,
+      },
+      layout: {},
+      slots,
+    });
+    expect(listeners).toHaveLength(1);
+    listeners[0](
+      "shell.activity.main",
+      { options: { id: "taichi-official-doc" } },
+      new Error("Minified React error #185; visit https://reactjs.org"),
+      { abdicated: true },
+    );
+    expect(spy).toHaveBeenCalled();
+    const [message, , hint] = spy.mock.calls[0];
+    expect(message).toContain("shell.activity.main");
+    expect(message).toContain('id="taichi-official-doc"');
+    expect(message).toContain("abdicated=true");
+    expect(hint).toMatch(/unstable useSyncExternalStore getSnapshot/);
+  } finally {
+    spy.mockRestore();
+    delete window.__ModuleLoader__;
+  }
+});

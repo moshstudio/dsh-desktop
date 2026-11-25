@@ -594,9 +594,58 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * Detect the React #185 / unstable-getSnapshot failure mode that silently
+     * removes an activity-rail seat after abdication.
+     * @param {unknown} error
+     * @returns {string | null}
+     */
+    function unstableSnapshotHint(error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        !/Minified React error #185/i.test(message) &&
+        !/Maximum update depth exceeded/i.test(message) &&
+        !/getSnapshot should be cached/i.test(message)
+      ) {
+        return null;
+      }
+      return (
+        "Likely unstable useSyncExternalStore getSnapshot (new object/array every call). " +
+        "Cache the snapshot or select a primitive; see packages/AGENTS.md § useSyncExternalStore."
+      );
+    }
+
+    /**
+     * Log contribution id + getSnapshot hint when a rail seat crashes.
+     * Upstream only prints the slot key; without the id authors reinstall tgz
+     * while the icon stays missing.
+     * @param {{ onEntryError?: Function }} slots
+     * @returns {() => void}
+     */
+    function watchActivitySlotCrashes(slots) {
+      if (typeof slots?.onEntryError !== "function") return () => {};
+      return slots.onEntryError((key, registration, error, info) => {
+        if (key !== "shell.activity.main" && key !== "shell.activity.action") return;
+        const options = registration && typeof registration === "object" ? registration.options : undefined;
+        const id =
+          options && typeof options.id === "string"
+            ? options.id
+            : options && typeof options.key === "string"
+              ? options.key
+              : "(unknown)";
+        const hint = unstableSnapshotHint(error);
+        console.error(
+          `[dsh-desktop-activity] contribution crashed in '${key}' id=${JSON.stringify(id)} abdicated=${Boolean(info?.abdicated)}`,
+          error,
+          ...(hint ? [hint] : []),
+        );
+      });
+    }
+
     const inject = ["locale", "slots", "layout"];
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, copy));
+      ctx.effect(() => watchActivitySlotCrashes(ctx.slots), "dsh-desktop-activity: slot crash watch");
       const t = ctx.locale.bind(NS);
       ctx.slots.inject("shell.activity", () =>
         ctx.slots.register(
@@ -634,6 +683,8 @@ window.__ModuleLoader__.load({
     exports.ActivityButton = ActivityButton;
     exports.ActivityContributions = ActivityContributions;
     exports.placeActivityMark = placeActivityMark;
+    exports.unstableSnapshotHint = unstableSnapshotHint;
+    exports.watchActivitySlotCrashes = watchActivitySlotCrashes;
     return module.exports;
   },
 });

@@ -1148,7 +1148,6 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
     }, 'dsh-taichi-imagegen: canvas skills')
     void unregister
   })
-
   })
 
   // The route family mounts once, gated on the settings seam (the bridge
@@ -1279,7 +1278,11 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
 
   // System-prompt announcement (toggled by settings changes).
   let disposeSection: (() => void) | undefined
+  // Model refresh and settings events can resolve after this fiber has been
+  // disposed. `committed` is cleared exactly when its injected services stop
+  // being readable, so a stale callback must leave instead of touching them.
   const sync = (): void => {
+    if (ctx.fiber.committed === undefined) return
     if (disposeSection !== undefined) {
       disposeSection()
       disposeSection = undefined
@@ -1294,7 +1297,7 @@ export function apply(ctx: Context, config?: Config): (() => void) | void {
   }
 
   installSettingsSectionCompat(ctx, ImageGenSettingsNamespace, Config, unwrapConfig(config), {
-    setSource: (source) => {
+    setSource: (source: () => Config) => {
       current = source
       sync()
     },

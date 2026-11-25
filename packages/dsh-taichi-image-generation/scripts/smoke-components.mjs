@@ -90,3 +90,68 @@ assert.equal(tools.size, 0)
 assert.equal(commands.size, 0)
 for (const child of children.values()) await child.dispose()
 console.log('PASS: actual root composition owns all endpoints; video tools unload independently; core removal suspends dependents')
+
+// A model refresh can settle after its fiber was replaced. The stale callback
+// must not read that fiber's services; doing so crashes host startup.
+const reads = []
+const generations = []
+const releases = []
+let applying = false
+const PromiseAll = Promise.all.bind(Promise)
+Promise.all = (values) => {
+  const tracked = PromiseAll(values)
+  if (!applying) return tracked
+  let release = () => {}
+  const gate = new Promise(resolve => { release = resolve })
+  releases.push(release)
+  const originalThen = tracked.then.bind(tracked)
+  tracked.then = (onFulfilled, onRejected) => originalThen(
+    typeof onFulfilled === 'function' ? (value) => gate.then(() => onFulfilled(value)) : onFulfilled,
+    onRejected,
+  )
+  return tracked
+}
+const wrapped = {
+  ...core,
+  apply(ctx, config) {
+    const generation = generations.length + 1
+    generations.push(generation)
+    applying = true
+    try {
+      return core.apply(new Proxy(ctx, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver)
+          return property === 'systemPrompt'
+            ? new Proxy(value, { get: (service, key) => key === 'section' ? (...args) => (reads.push(generation), service.section(...args)) : Reflect.get(service, key, service) })
+            : typeof value === 'function' ? value.bind(target) : value
+        },
+      }), config)
+    } finally {
+      applying = false
+    }
+  },
+}
+const reloaded = new Context()
+reloaded.provide('webServer', { register: () => () => {} })
+reloaded.provide('systemPrompt', { section() { return () => {} } })
+reloaded.provide('commands', { register: () => () => {} })
+reloaded.provide('tools', { register: () => () => {} })
+reloaded.provide('attachments', {})
+reloaded.provide('settings', { installSection() {}, describe() {} })
+try {
+  const first = reloaded.plugin(wrapped, { enabled: true, announceToAgent: true })
+  await new Promise(resolve => setImmediate(resolve))
+  releases[0]()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(reads, [1, 1])
+  await first.dispose()
+  const replacement = reloaded.plugin(wrapped, { enabled: true, announceToAgent: true })
+  await new Promise(resolve => setImmediate(resolve))
+  releases[1]()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(reads, [1, 1, 2, 2])
+  await replacement.dispose()
+} finally {
+  Promise.all = PromiseAll
+}
+console.log('PASS: a model refresh settling on a disposed fiber does not read its services')

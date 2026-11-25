@@ -37,6 +37,29 @@
 - UI 需覆盖 loading/error/empty/disabled、键盘及焦点、深浅主题。弹层需焦点陷阱、`aria-modal`、Esc 关闭、遮罩点击，busy 时禁止关闭。状态切换不能只改颜色，需配文案或 `aria-live`。
 - 长会话和插件热重载下验证重复渲染、订阅清理及绘制成本；不能凭静态截图判断性能。
 
+### `useSyncExternalStore` 与外部快照
+
+`getSnapshot` 在数据未变时必须对 `Object.is` 返回同一值。禁止 `getSnapshot: () => ({ ... })` 这类每次新建对象/数组的写法：React 会当成持续变更并无限重渲染，生产环境表现为 `Minified React error #185`（Maximum update depth exceeded），list slot 会把该贡献项 abdicate，活动栏图标随之消失。
+
+正确做法（任选，优先靠前）：
+
+- 订阅**原始值**：`() => store.getSnapshot().open`（见 `dsh-taichi-image-generation` 的 `activity-entry`）
+- 状态变更时**替换并缓存**快照对象，未变更时返回同一引用
+- 复杂状态用 `@deepseek-ai/dsh-client-store` 的 `createSnapshotStore`
+- 宿主快照本身不稳定、无法改契约时，用 `useState` + `subscribe` 同步，不要直接把该 `getSnapshot` 交给 `useSyncExternalStore`（见生图 `use-conversation-image-attachment`）
+
+插件单测应对控制器断言：未变更时连续两次 `getSnapshot()` 引用相等。
+
+### 活动栏座位（`shell.activity.main` / `shell.activity.action`）
+
+主列与底列由 `dsh-desktop-activity` 声明。贡献项须自绘 `button[data-dsh-activity]`（或经 `ActivityContributions` 识别的 `data-dsh-activity-item` 描述），参考生图/市场的 `activity-entry`。安装成功 ≠ 图标出现。
+
+自测清单（改活动栏相关客户端后至少做一遍）：
+
+1. 重启后 DevTools 中 `document.querySelectorAll('[data-dsh-activity]')` 能看到本插件按钮（`aria-label` 正确）
+2. 控制台无 `slot entry crashed in 'shell.activity.main'` / `shell.activity.action`，也无 React #185
+3. 若出现 `[dsh-desktop-activity] contribution crashed`，按日志中的 `id` 与 getSnapshot 提示排查，不要只重装 tgz
+
 ## 编译与模板型包
 
 `ppt-runtime/` 及类似包不是 slot 替换型宿主插件：它们有模板源、编译 CSS、hash class、预览图和生成产物。

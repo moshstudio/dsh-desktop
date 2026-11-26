@@ -37,7 +37,7 @@ import { addTemplateFavorite, listTemplateFavorites, removeTemplateFavorite } fr
 import { testStorage, type StorageSyncConfig } from './storage-sync.ts'
 import { type UpdateHostContext } from './updater.ts'
 import { IMAGE_PRESETS } from './presets.ts'
-import { parseVideoResolution } from './video-model-catalog.ts'
+import { describeVideoModel, durationsOf, parseVideoResolution, snapToFamilySeconds } from './video-model-catalog.ts'
 import { clearDiagnostics, listDiagnostics } from './diagnostics-store.ts'
 import { allSignals, clearSignals, listSignals, promptBucketOf, recordSignal } from './signal-store.ts'
 import { buildReport, DEFAULT_WINDOW_DAYS } from './signal-report.ts'
@@ -650,7 +650,19 @@ function parseVideoRequest(
   if (prompt === '') return undefined
   const mode = body.mode === 'image' || body.mode === 'keyframe' || body.mode === 'reference' ? body.mode : 'text'
   const model = typeof body.model === 'string' ? body.model.trim() : ''
-  const seconds = typeof body.seconds === 'number' ? body.seconds : Number(body.seconds ?? 5)
+  const hasSeconds = body.seconds !== undefined && body.seconds !== null && body.seconds !== ''
+  const rawSeconds = typeof body.seconds === 'number' ? body.seconds : Number(body.seconds)
+  let seconds: number
+  if (model !== '') {
+    const entry = describeVideoModel(model)
+    if (hasSeconds && Number.isFinite(rawSeconds)) {
+      seconds = snapToFamilySeconds(rawSeconds, entry)
+    } else {
+      seconds = durationsOf(entry)[0] ?? 5
+    }
+  } else {
+    seconds = hasSeconds && Number.isFinite(rawSeconds) ? rawSeconds : 5
+  }
   const resolution = parseVideoResolution(body.resolution)
   const images = Array.isArray(body.images)
     ? body.images.filter((item): item is string => typeof item === 'string' && item !== '').slice(0, 4)
@@ -672,7 +684,7 @@ function parseVideoRequest(
     prompt,
     aspectRatio: typeof body.aspectRatio === 'string' && body.aspectRatio.trim() !== '' ? body.aspectRatio.trim() : '16:9',
     resolution,
-    seconds: Number.isFinite(seconds) ? seconds : 5,
+    seconds,
     ...canvas === undefined ? {} : { canvas },
     ...typeof body.image === 'string' && body.image !== '' ? { image: body.image } : {},
     ...images.length > 0 ? { images } : {},

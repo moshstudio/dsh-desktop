@@ -37,9 +37,8 @@
 import {
   clampVideoSeconds,
   describeVideoModel,
-  durationsOf,
   resolutionRank,
-  type VideoCatalogEntry,
+  snapToFamilySeconds,
 } from './video-model-catalog.ts'
 import type { PromptModelConfig } from './prompt-enhancer.ts'
 import type { VideoDirectorPlan, VideoMode, VideoResolution } from './protocol.ts'
@@ -278,20 +277,6 @@ function renderPrompt(raw: RawPlan, input: VideoPlanInput): string {
   return text === '' ? input.prompt : text
 }
 
-/** Clamp one duration onto the step the family actually accepts. */
-function clampToFamilySeconds(seconds: number, entry: VideoCatalogEntry): number {
-  const clamped = clampVideoSeconds(seconds)
-  // The offered set is the family's own: the panel renders the same list, so a
-  // planner asking for 7 snaps to a duration the user could have picked rather
-  // than to a stale constant (snapgen speaks 6/10/15, muse only 10).
-  const offered = durationsOf(entry)
-  if (offered.includes(clamped)) return clamped
-  const nearest = offered.reduce((best, candidate) =>
-    Math.abs(candidate - clamped) < Math.abs(best - clamped) ? candidate : best, offered[0]!)
-  // Never widen: a user asking for 5s must not come back with 10.
-  return Math.min(nearest, clamped) >= 1 ? Math.min(nearest, clamped) : clamped
-}
-
 /**
  * Apply a raw plan to a request and produce the validated plan.
  *
@@ -318,11 +303,13 @@ function finalize(raw: RawPlan, input: VideoPlanInput, source: VideoPlanSource, 
 
   // --- seconds -------------------------------------------------------------
   const requested = clampVideoSeconds(input.seconds)
-  const planned = raw.seconds === undefined ? requested : clampToFamilySeconds(raw.seconds, entry)
-  // Only narrow. A planner that asks for longer than the user chose would
-  // silently increase render time and cost.
-  const seconds = Math.max(1, Math.min(planned, requested))
-  if (seconds !== requested) notes.push(`时长按镜头节奏收紧为 ${seconds}s（原 ${requested}s）`)
+  const planned = raw.seconds === undefined ? requested : snapToFamilySeconds(raw.seconds, entry)
+  // Only narrow relative to the user's choice when a shorter offered tier exists;
+  // otherwise snap up to the family's shortest tier so the gateway never sees
+  // an off-tier value.
+  const capped = Math.max(1, Math.min(planned, requested))
+  const seconds = snapToFamilySeconds(capped, entry)
+  if (seconds !== requested) notes.push(`时长调整为 ${seconds}s（原 ${requested}s）`)
 
   // --- aspect --------------------------------------------------------------
   let aspectRatio = input.aspectRatio.trim() === '' ? '16:9' : input.aspectRatio.trim()

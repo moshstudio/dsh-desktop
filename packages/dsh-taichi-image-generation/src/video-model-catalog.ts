@@ -466,6 +466,20 @@ export function clampVideoSeconds(seconds: number): number {
   return Math.min(30, Math.max(1, rounded))
 }
 
+/** Snap a requested duration onto a duration the family actually accepts. */
+export function snapToFamilySeconds(seconds: number, entry: VideoCatalogEntry): number {
+  const offered = durationsOf(entry)
+  const clamped = clampVideoSeconds(seconds)
+  if (offered.includes(clamped)) return clamped
+  const notLonger = offered.filter(candidate => candidate <= clamped)
+  if (notLonger.length > 0) {
+    return notLonger.reduce((best, candidate) =>
+      Math.abs(candidate - clamped) < Math.abs(best - clamped) ? candidate : best)
+  }
+  // No offered tier is shorter or equal: use the shortest offered tier.
+  return offered.reduce((best, candidate) => candidate < best ? candidate : best)
+}
+
 /**
  * Ordered clarity tiers, lowest first.
  *

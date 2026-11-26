@@ -11,7 +11,7 @@ afterEach(() => {
 describe('taichi web providers', () => {
   it('is unavailable without url or token', () => {
     expect(resolveTaichiWebGateway({}).ok).toBe(false)
-    expect(new TaichiSearchProvider(() => ({})).available()).toBe(false)
+    expect(new TaichiSearchProvider(() => ({}), { count: 10, searchRequestsPerSecond: 5 }).available()).toBe(false)
     expect(new TaichiFetchProvider(() => ({})).available()).toBe(false)
   })
 

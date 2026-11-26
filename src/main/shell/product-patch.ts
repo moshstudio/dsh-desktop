@@ -42,6 +42,8 @@ const DESKTOP_PRODUCT_PATCH_BASE = `- id: desktop-product-telemetry
       name: dsh-desktop-activity
     - id: dsh-taichi-account
       name: dsh-taichi-account
+    - id: dsh-taichi-web
+      name: dsh-taichi-web
 `
 
 const DESKTOP_ENTERPRISE_ROW = `    - id: dsh-desktop-enterprise

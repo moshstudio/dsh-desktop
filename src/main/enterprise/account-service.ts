@@ -14,6 +14,7 @@ import {
 } from './gateway-client'
 import { restoreBuiltinAccount } from './provider-config'
 import { AccountSessionStore, electronSecretBox, type SecretBox, type StoredSession } from './session-store'
+import { clearTaichiWebDefaults, ensureTaichiWebDefaults } from './taichi-web-defaults'
 
 export { electronSecretBox }
 
@@ -180,6 +181,11 @@ export class DesktopAccountService {
     if (this.client && session) await this.client.logout(session.refreshToken).catch(() => undefined)
     await this.store.clear()
     this.clearMemory()
+    try {
+      await clearTaichiWebDefaults(this.options.profileDir)
+    } catch (error) {
+      console.error('[account] could not clear taichi web defaults', safeDiagnostic(error))
+    }
     // The running host keeps the access token from launch until it restarts.
     if (hadAccess && this.options.hostReady?.() === true) {
       this.needsRestart = true
@@ -356,6 +362,11 @@ export class DesktopAccountService {
     await this.loadCredits(accessToken)
     await this.loadMediaCatalog(accessToken, 'image')
     await this.loadMediaCatalog(accessToken, 'video')
+    try {
+      await ensureTaichiWebDefaults(this.options.profileDir)
+    } catch (error) {
+      console.error('[account] could not apply taichi web defaults', safeDiagnostic(error))
+    }
     if (!this.modelsFailed && !this.balanceFailed && this.message === 'profile_unavailable') this.message = ''
   }
 

@@ -1,0 +1,26 @@
+{
+  "name": "dsh-taichi-web",
+  "version": "0.1.0",
+  "description": "Taichi gateway web search and fetch providers for DSH Desktop.",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1 || ^4.1.0",
+    "@deepseek-ai/dsh-web": "^0.2.2-rc.5",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "tsdown": "0.23.7",
+    "typescript": "~5.7.2"
+  }
+}

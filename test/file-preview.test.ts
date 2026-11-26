@@ -29,7 +29,7 @@ describe('uploaded file preview', () => {
 
   it('opens relative links in the live working directory and keeps attachment-name precedence', async () => {
     const source = await packageClient('dsh-client-ui-chat')
-    const helpersStart = source.indexOf('const FILE_ADDRESS_PREFIX =')
+    const helpersStart = source.indexOf('const FILE_ADDRESS_PREFIX=')
     const helpersEnd = source.indexOf('\n\t\t//#endregion', helpersStart)
     const callbackStart = source.indexOf('openFile: async (path, options) => {') + 'openFile: '.length
     // rc.1 inserts resolveFilePath between openFile and openExternalLink.
@@ -109,7 +109,7 @@ describe('uploaded file preview', () => {
     expect(uploads).toContain('findStagedFile(agent, attachmentId)')
     expect(uploads).not.toContain('findStagedFilesByName')
     expect(client).toContain('async readFileHostPath(attachmentIdOrName)')
-    expect(client).toContain('query.set("name", attachmentIdOrName.name)')
+    expect(client).toContain('query.set(`name`,attachmentIdOrName.name)')
     expect(client).toContain('/api/session/fileHostPath')
   })
 
@@ -124,19 +124,19 @@ describe('uploaded file preview', () => {
     expect(chat).toContain('sidebarRightTabs.candidates(address)')
     expect(chat).toContain('ctx.remote.session.openWorkspacePath({ path: hostPath })')
     expect(chat).toContain('ctx.sidebarRight.openResource')
-    expect(chat).toContain('"sidebarRightTabs"')
-    expect(chat).toContain('ctx.get("openUploadedAttachment").open(sessionId, attachmentId)')
+    expect(chat).toContain('`sidebarRightTabs`')
+    expect(chat).toContain('ctx.get("openUploadedAttachment").open(sessionId,attachmentId)')
     expect(chat).toContain('onOpenUploadedFile(attachment.file.attachmentId)')
     expect(chat).not.toContain('openFile(attachment.file.name)')
     expect(chat).not.toContain('openFile(attachment.name)')
 
     expect(conversation).toContain('ctx.get("openUploadedAttachment")')
-    expect(conversation).toContain('opener.open(sessionId, attachmentId)')
-    expect(conversation).toContain('onOpenUploadedFile: openUploadedFile')
+    expect(conversation).toContain('opener.open(sessionId,attachmentId)')
+    expect(conversation).toContain('onOpenUploadedFile:openUploadedFile')
     expect(conversation).not.toContain('binding.session.readFileHostPath(attachmentId)')
     expect(conversation).not.toContain('dsh-resource://file/session/')
 
-    expect(attachment).toContain('onOpen: upload?.status === "ready"')
+    expect(attachment).toContain('onOpen:upload?.status===`ready`')
     expect(attachment).toContain('onOpenUploadedFile(upload.file.attachmentId)')
   })
 
@@ -221,7 +221,7 @@ describe('uploaded file preview', () => {
       'utf8'
     )
 
-    expect(preview).toContain('renderSlot("sidebar.right.tab.document.unpreviewable", fileOwner)')
+    expect(preview).toContain('renderSlot(`sidebar.right.tab.document.unpreviewable`,fileOwner)')
     expect(desktop).toContain("ctx.slots.inject('sidebar.right.tab.document.unpreviewable'")
     expect(desktop).toContain("'data-textpreview-open-local': true")
     type Element = { props: Record<string, unknown>; children: Element[] }

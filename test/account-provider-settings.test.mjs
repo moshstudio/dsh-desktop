@@ -8,8 +8,8 @@ const clientPath = require.resolve('@deepseek-ai/dsh-client-ui-settings-models/p
 
 function loadSettingsModels(sourceText) {
   const source = sourceText.replace(
-    'exports.apply = apply;',
-    'exports.joinProviderDirectory = joinProviderDirectory; exports.section = Loaded; exports.apply = apply;'
+    'exports.apply=apply;',
+    'exports.joinProviderDirectory=joinProviderDirectory;exports.section=Loaded;exports.apply=apply;'
   )
   let api
   const jsx = (type, props) => {

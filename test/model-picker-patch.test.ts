@@ -21,21 +21,21 @@ describe('DSH Desktop available-model picker', () => {
   it('ships one state-driven select-all toggle', async () => {
     const client = await readFile(settingsModelsClient, 'utf8')
 
-    expect(client).toContain('const allVisibleCandidatesPicked =')
-    expect(client).toContain('visibleCandidates.every((candidate) => isPicked(candidate.id))')
+    expect(client).toContain('const allVisibleCandidatesPicked=')
+    expect(client).toContain('visibleCandidates.every(candidate=>isPicked(candidate.id))')
     expect(client).toContain(
-      'children: t(allVisibleCandidatesPicked ? "fetchDeselectAll" : "fetchSelectAll")'
+      'children:t(allVisibleCandidatesPicked?`fetchDeselectAll`:`fetchSelectAll`)'
     )
-    expect(client).toContain('const toggleVisibleCandidates =')
+    expect(client).toContain('const toggleVisibleCandidates=')
   })
 
   it('includes English and Chinese copy for both toggle states', async () => {
     const client = await readFile(settingsModelsClient, 'utf8')
 
-    expect(client).toContain('fetchSelectAll: "Select all"')
-    expect(client).toContain('fetchDeselectAll: "Deselect all"')
-    expect(client).toContain('fetchSelectAll: "全选"')
-    expect(client).toContain('fetchDeselectAll: "取消全选"')
+    expect(client).toContain('fetchSelectAll:`Select all`')
+    expect(client).toContain('fetchDeselectAll:`Deselect all`')
+    expect(client).toContain('fetchSelectAll:`全选`')
+    expect(client).toContain('fetchDeselectAll:`取消全选`')
   })
 
   it('leaves the toggle to Harness rather than re-patching it', async () => {
@@ -55,9 +55,9 @@ describe('DSH Desktop model image-input declarations', () => {
     const client = await readFile(settingsModelsClient, 'utf8')
 
     expect(client).toContain('function ModelImageInputToggle(props)')
-    expect(client).toContain('inputField: "inputModalities"')
-    expect(client).toContain('inputField: "input"')
-    expect(client.match(/compact: true/g)).toHaveLength(1)
+    expect(client).toContain('inputField:`inputModalities`')
+    expect(client).toContain('inputField:`input`')
+    expect(client.match(/compact:true/g)).toHaveLength(1)
     expect(client).toContain('dshModelModalityToggleCompact')
     // The upstream reorder handle is the first of six row controls in 0.2.2.
     expect(client).toContain('.qy-_KG_modelRow{grid-template-columns:auto minmax(0,1.3fr) minmax(0,1fr) auto auto auto}')
@@ -75,11 +75,11 @@ describe('DSH Desktop model image-input declarations', () => {
   it('ships localized capability copy and an endpoint warning', async () => {
     const client = await readFile(settingsModelsClient, 'utf8')
 
-    expect(client).toContain('modelImageInput: "Image input"')
-    expect(client).toContain('modelImageInputShort: "Vision"')
+    expect(client).toContain('modelImageInput:`Image input`')
+    expect(client).toContain('modelImageInputShort:`Vision`')
     expect(client).toContain('the endpoint must support them')
-    expect(client).toContain('modelImageInput: "支持图片输入"')
-    expect(client).toContain('modelImageInputShort: "视觉"')
+    expect(client).toContain('modelImageInput:`支持图片输入`')
+    expect(client).toContain('modelImageInputShort:`视觉`')
     expect(client).toContain('请确认接口实际支持')
   })
 
@@ -90,6 +90,6 @@ describe('DSH Desktop model image-input declarations', () => {
     )
 
     expect(patch).toContain('ModelImageInputToggle')
-    expect(patch).toContain('field: props.inputField')
+    expect(patch).toContain('field:props.inputField')
   })
 })

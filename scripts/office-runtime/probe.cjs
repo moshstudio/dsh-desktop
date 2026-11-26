@@ -46,17 +46,18 @@ async function probe(appRoot, resources) {
     const client = await require('node:fs/promises').readFile(host.resolve('dsh-desktop-office/client'), 'utf8')
     assert(client.includes('window.__ModuleLoader__.load'))
     assert(client.includes('conversation.hero.options'))
-    for (const name of ['office', 'office-docx', 'office-pptx', 'office-xlsx', 'office-render', 'office-recalculate', 'office-export-pdf']) {
+    // rc.5 upstream skill-office keeps the four authoring skills; render /
+    // recalculate / export-pdf CLI skills were removed from the package assets.
+    for (const name of ['office', 'office-docx', 'office-pptx', 'office-xlsx']) {
       assert(skills.some(skill => skill.name === name), `Missing packaged Office skill ${name}`)
       const skill = await ctx.skills.get(name)
       // Upstream normalizes resource paths to forward slashes, including on Windows.
       assert.equal(resolve(skill.resourceBase.path), join(resources, 'office-runtime', 'office-skills', name), `Unexpected resources for ${name}`)
     }
-    for (const name of ['office-render', 'office-recalculate', 'office-export-pdf']) {
+    for (const name of ['office-docx', 'office-pptx', 'office-xlsx']) {
       const skill = await ctx.skills.get(name)
-      // Upstream supplies command paths as JSON, escaping Windows separators.
-      assert(skill.content.includes(JSON.stringify(process.execPath)), 'Office CLI must use the current Electron runtime')
-      assert(skill.content.includes(JSON.stringify(join(resources, 'office-cli.mjs'))), 'Office CLI must resolve from the current installation')
+      assert(skill.content.includes('ELECTRON_RUN_AS_NODE'), 'Desktop Office skills must document Electron Node mode for LibreOffice Kit')
+      assert(skill.content.includes('load_workspace_dependencies'), 'Desktop Office skills must require the packaged Python runtime')
     }
     const tool = ctx.tools.get('load_workspace_dependencies')
     assert(tool, 'Missing packaged dependency tool')
@@ -86,7 +87,7 @@ async function probe(appRoot, resources) {
       for (const fiber of nativeFibers.reverse()) await fiber.dispose()
       await rm(scratch, { recursive: true, force: true })
     }
-    console.log('Packaged Office plugin activated; seven templates, seven business skills and the official runtime resolve current physical resources')
+    console.log('Packaged Office plugin activated; seven templates, seven business skills, four Office skills and the official runtime resolve current physical resources')
   } finally {
     for (const fiber of fibers.reverse()) await fiber.dispose()
   }

@@ -178,13 +178,22 @@ print('model summary behavior passed')
 
   it('lists features and descriptions since the nearest reachable tag using real git history', () => {
     const output = execFileSync('python3', ['-c', String.raw`
-import contextlib, os, sys, tempfile, subprocess
+import os, sys, tempfile, subprocess
 from pathlib import Path
 sys.path.insert(0, str(Path('.github/scripts').resolve()))
 import signed_test_build as build
 original_directory = Path.cwd()
-# Restore cwd before TemporaryDirectory cleanup: Windows locks the current directory.
-with tempfile.TemporaryDirectory() as work, contextlib.chdir(work):
+# contextlib.chdir is Python 3.11+. Restore cwd before TemporaryDirectory cleanup:
+# Windows locks the current directory.
+class chdir:
+    def __init__(self, path):
+        self.path = path
+    def __enter__(self):
+        self.previous = os.getcwd()
+        os.chdir(self.path)
+    def __exit__(self, *_exc):
+        os.chdir(self.previous)
+with tempfile.TemporaryDirectory() as work, chdir(work):
     os.environ.update(GIT_AUTHOR_NAME='Test', GIT_COMMITTER_NAME='Test', GIT_AUTHOR_EMAIL='test@example.com', GIT_COMMITTER_EMAIL='test@example.com')
     def git(*args):
         return subprocess.check_output(['git', *args], text=True).strip()

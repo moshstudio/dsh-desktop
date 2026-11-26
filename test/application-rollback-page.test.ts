@@ -18,9 +18,16 @@ function render(stage: string, action = vi.fn().mockResolvedValue({ ok: true }),
     return found
   }
   const root = { lang: '', dataset: { theme: '' } }
+  const header = { textContent: '' }
   runInNewContext(scriptText, {
     location: { search: '?state=' + encodeURIComponent(JSON.stringify({ stage, locale, simulation: true, currentVersion: '0.13.0', targetVersion: '<0.12.1>' })) + '&theme=' + encodeURIComponent(theme) },
-    URLSearchParams, document: { documentElement: root, getElementById: element }, window: { dshRollback: { action } }
+    URLSearchParams,
+    document: {
+      documentElement: root,
+      getElementById: element,
+      querySelector: (selector: string) => selector === 'header' ? header : null
+    },
+    window: { dshRollback: { action } }
   })
   return { root, element, action, click: (id: string) => element(id).listeners.get('click')?.() }
 }

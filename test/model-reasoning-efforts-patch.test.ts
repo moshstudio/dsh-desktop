@@ -80,8 +80,8 @@ async function loadReasoningHelpers(): Promise<ReasoningHelpers> {
 }
 
 function customProviderCardSource(client: string): string {
-  const start = client.indexOf('function CustomProviderCard(props) {')
-  const end = client.indexOf('\n\t\t//#endregion', start)
+  const start = client.indexOf('function CustomProviderCard(props)')
+  const end = client.indexOf('function ', start + 'function '.length)
 
   expect(start).toBeGreaterThanOrEqual(0)
   expect(end).toBeGreaterThan(start)
@@ -90,7 +90,7 @@ function customProviderCardSource(client: string): string {
 
 function reasoningFieldSource(client: string): string {
   const start = client.indexOf('function ModelReasoningEffortsField(props) {')
-  const end = client.indexOf('\n\t\t//#endregion', start)
+  const end = client.indexOf('\n\t\tfunction ', start + 'function '.length)
 
   expect(start).toBeGreaterThanOrEqual(0)
   expect(end).toBeGreaterThan(start)
@@ -215,10 +215,10 @@ describe('settings model reasoning effort field', () => {
       /props\.onChange\(nextReasoningEfforts\(props\.model, parseEffortList\(event\.target\.value\)\)\);/
     )
     expect(client).toContain(
-      'else next.reasoningEfforts = reasoningEfforts;'
+      'else next.reasoningEfforts=reasoningEfforts;'
     )
     expect(customProviderCard).toContain(
-      'models: models.map((model) => ({ ...model }))'
+      'models:models.map(model=>({...model}))'
     )
   })
 
@@ -232,16 +232,16 @@ describe('settings model reasoning effort field', () => {
     expect(client).not.toContain(staleDefaultLocaleKey)
     expect(field).not.toContain('select')
     expect(field).not.toContain('defaultEffort')
-    expect(client).toContain('modelReasoningLevels: "Reasoning effort levels"')
+    expect(client).toContain('modelReasoningLevels:`Reasoning effort levels`')
     expect(client).toContain(
-      'modelReasoningLevelsPlaceholder: "e.g. low, medium, high"'
+      'modelReasoningLevelsPlaceholder:`e.g. low, medium, high`'
     )
     expect(client).toContain(
-      'modelReasoningLevelsHint: "Comma-separated effort ids. These levels become selectable in chat; leave blank to remove the per-model declaration."'
+      'modelReasoningLevelsHint:`Comma-separated effort ids. These levels become selectable in chat; leave blank to remove the per-model declaration.`'
     )
-    expect(client).toContain('modelReasoningLevels: "推理等级"')
+    expect(client).toContain('modelReasoningLevels:`推理等级`')
     expect(client).toContain(
-      'modelReasoningLevelsHint: "使用英文逗号分隔推理等级；这些等级将在会话中可选择，留空则移除此模型的推理等级声明。"'
+      'modelReasoningLevelsHint:`使用英文逗号分隔推理等级；这些等级将在会话中可选择，留空则移除此模型的推理等级声明。`'
     )
   })
 
@@ -279,7 +279,7 @@ describe('settings model reasoning effort field', () => {
     expect(patch).toContain('function configuredReasoningEfforts(model)')
     expect(patch).toContain('function reasoningEffortIds(model)')
     expect(patch).toContain('function nextReasoningEfforts(model, ids)')
-    expect(patch).toContain('else next.reasoningEfforts = reasoningEfforts;')
+    expect(patch).toContain('else next.reasoningEfforts=reasoningEfforts;')
     expect(patch).toContain('delete next.reasoning;')
     expect(patch).not.toContain(staleReasoningWrite)
     expect(patch).not.toContain(staleDefaultLocaleKey)

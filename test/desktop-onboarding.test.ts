@@ -326,10 +326,11 @@ describe('DSH Desktop onboarding composition', () => {
         'utf8'
       )
     ])
-    const gate = 'const onboardingActive = useSessions((state) => state.phase === "ready");'
-    expect(patch).toContain('+\t\t\t' + gate)
+    const gate = 'const onboardingActive=useSessions(state=>state.phase===`ready`)'
+    const added = patch.split('\n').filter((line) => line.startsWith('+') && !line.startsWith('+++')).join('\n')
+    expect(added).toContain(gate)
     expect(installed).toContain(gate)
-    expect(installed).not.toContain('state.byId[state.current]?.blank === true));')
+    expect(installed).not.toContain('retainedBy.mainView')
   })
 
   it('is mounted by the desktop profile patch yml', async () => {

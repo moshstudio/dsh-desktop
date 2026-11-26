@@ -88,7 +88,7 @@ describe('official release publication recovery', () => {
     expect(step('Mirror release assets to ModelScope').run).toContain('tag = os.environ["RELEASE_TAG"]')
     expect(step('Mirror release assets to ModelScope').run).not.toContain('GITHUB_REF_NAME')
     const index = name => jobs.publish.steps.findIndex(item => item.name === name)
-    for (const name of ['Create or update release', 'Mirror release assets to ModelScope', 'Configure initial 5% rollout on crash service']) {
+    for (const name of ['Create or update release', 'Mirror release assets to ModelScope', 'Configure initial 5% rollout on the update service']) {
       expect(index(name)).toBeGreaterThan(index('Wait for Feishu release confirmation'))
       expect(index(name)).toBeGreaterThan(index('Recheck immutable source after human approval'))
     }

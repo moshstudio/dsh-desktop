@@ -71,9 +71,12 @@ const withTrailingNewline = text => (text.endsWith('\n') ? text : `${text}\n`)
 
 // Offline notices belong only to Desktop outputs, never to website documents.
 export function renderBundledGuide(markdown, language = 'zh') {
+  // Follow the source document's newline. A Windows checkout is CRLF; a
+  // hardcoded LF notice would fail the byte-for-byte guide sync on that tree.
+  const newline = markdown.includes('\r\n') ? '\r\n' : '\n'
   const notice = language === 'en'
-    ? '> Bundled offline snapshot: use only after online retrieval fails. This is not guaranteed to be the latest standard and must not override the online version. Report the retrieval failure, this offline source, and document version.\n\n'
-    : '> 内置离线快照：仅在在线获取失败后备用，不保证是最新规范，不得覆盖在线版本。请报告获取失败原因、本离线来源和文档版本。\n\n'
+    ? `> Bundled offline snapshot: use only after online retrieval fails. This is not guaranteed to be the latest standard and must not override the online version. Report the retrieval failure, this offline source, and document version.${newline}${newline}`
+    : `> 内置离线快照：仅在在线获取失败后备用，不保证是最新规范，不得覆盖在线版本。请报告获取失败原因、本离线来源和文档版本。${newline}${newline}`
   return notice + markdown
 }
 

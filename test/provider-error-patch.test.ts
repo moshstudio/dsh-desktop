@@ -19,10 +19,10 @@ describe('provider error classification patches', () => {
       deepseekPatch.lastIndexOf('status === 401')
     )
     expect(piAiPatch).toContain(
-      '+\tif (/\\b401\\b/.test(message)) return "AUTH";'
+      '+\tif (/\\b401\\b/.test(statusSource)) return "AUTH";'
     )
     expect(piAiPatch).toContain(
-      '+\tif (/\\b403\\b/.test(message)) return "FORBIDDEN";'
+      '+\tif (/\\b403\\b/.test(statusSource)) return "FORBIDDEN";'
     )
     expect(piAiPatch.indexOf('isQuotaExceededError(message)')).toBeLessThan(
       piAiPatch.lastIndexOf('\\b401\\b')
@@ -90,7 +90,7 @@ describe('provider error classification patches', () => {
       '+\t\t\tconst message = completeTerminalMessage(event.message, completed);'
     )
     expect(patch).toContain(
-      '+\t\t\t\treplayState: toPiReplayState(message, requestedModel)'
+      '+\t\t\t\treplayState: toPiReplayState(message, requestedModel, prefixDigest)'
     )
   })
 })

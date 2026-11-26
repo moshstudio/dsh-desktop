@@ -5,9 +5,26 @@ import { describe, expect, it } from 'vitest'
 
 function bundledFunction(source, name) {
   const start = source.indexOf('function ' + name + '(')
-  const end = source.indexOf('\n\t\t}', start)
-  if (start < 0 || end < 0) throw new Error('Missing bundled function: ' + name)
-  return source.slice(start, end + 4)
+  if (start < 0) throw new Error('Missing bundled function: ' + name)
+  const marked = source.indexOf('\n\t\t}', start)
+  if (marked >= 0) return source.slice(start, marked + 4)
+  let depth = 0
+  let quote = ''
+  for (let i = source.indexOf('{', start); i < source.length; i++) {
+    const ch = source[i]
+    if (quote) {
+      if (ch === '\\') { i++; continue }
+      if (ch === quote) quote = ''
+      continue
+    }
+    if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue }
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) return source.slice(start, i + 1)
+    }
+  }
+  throw new Error('Missing bundled function: ' + name)
 }
 async function helpers() {
   const chat = await readFile(new URL('../node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js', import.meta.url), 'utf8')

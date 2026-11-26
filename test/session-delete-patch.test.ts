@@ -34,7 +34,7 @@ const patchedPackages = [
   {
     name: 'dsh-api-session-controller',
     file: 'lib/client.js',
-    markers: ['SessionDeleteError', 'this.remote.session.delete({ sessionId })', 'uiWorkspace, which releases its main view before calling this method']
+    markers: ['SessionDeleteError', 'this.remote.session.delete({sessionId})', 'uiWorkspace, which releases its main view before calling this method']
   },
   {
     name: 'dsh-api-session-controller',
@@ -78,8 +78,8 @@ describe('permanent session deletion dependency patches', () => {
       path.join(projectRoot, 'node_modules', '@deepseek-ai', 'dsh-client-ui-workspace', 'lib', 'client.js'),
       'utf8'
     )
-    expect(ui).toContain('renderSlot("sidebar.workspaces.session.menu.item", target.value, { hookContext })')
-    expect(ui).toContain('groupBy === "flat"')
+    expect(ui).toContain('renderSlot(`sidebar.workspaces.session.menu.item`,target.value,{hookContext})')
+    expect(ui).toContain('groupBy===`flat`')
   })
 
   it('states the destructive retention boundary in both locales', async () => {

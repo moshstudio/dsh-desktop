@@ -19,7 +19,9 @@ interface ProviderGroup {
 
 async function loadOrder(): Promise<(groups: readonly ProviderGroup[]) => ProviderGroup[]> {
   const client = await readFile(modelSelectionClient, 'utf8')
-  const source = client.match(/function orderModelProviders\(groups\) \{[\s\S]*?\n\t\t\}/)?.[0]
+  const start = client.indexOf('function orderModelProviders(groups){')
+  const end = start < 0 ? -1 : client.indexOf('}', start)
+  const source = start >= 0 && end > start ? client.slice(start, end + 1) : undefined
   expect(source).toBeDefined()
   return Function(`${source}; return orderModelProviders`)() as (groups: readonly ProviderGroup[]) => ProviderGroup[]
 }

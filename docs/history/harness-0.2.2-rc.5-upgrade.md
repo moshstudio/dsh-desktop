@@ -1,6 +1,6 @@
 # Harness 0.2.2-rc.5 升级记录
 
-依赖、锁文件和 32 个 `@deepseek-ai/dsh*` 补丁已经对上 `0.2.2-rc.5`。干净安装后 `patch-package` 应用全部 40 个补丁成功。`npm run typecheck` 和这次受影响的 6 个测试文件（71 个用例）已通过。还没有跑完整 `npm test`，也没有打安装包或在 Windows 上复验启动，不能发版。
+依赖、锁文件和 `@deepseek-ai/dsh*` 补丁已经对上 `0.2.2-rc.5`。当前跟踪 **41** 个补丁（恢复了桌面所需的 `dsh-mcp-client` 启动时限行为）。干净 `npx patch-package` 可全部应用。Windows 上完整 `npm test`：381 文件中 **372 通过 / 8 跳过**；偶发 1 条 MCP 子进程退出竞态，单跑可过。`npm run typecheck` 对 `src/` 无新增错误；`packages/dsh-taichi-*` 与部分测试导入的既有报错仍在，不在 `tsconfig.node.json` 的权威覆盖宣称内。已打 Windows 开发/生产目录包并做隔离 Profile 启动冒烟（见下文）；签名 NSIS 安装与安装后冒烟未做，仍不能按正式发版验收。
 
 ## 范围
 
@@ -54,8 +54,15 @@
 - 前端隔离测试的压缩符号从 rc.1 的 `ut` / `KZ` / `qZ` / `GZ` 改为 rc.5 的 `yt` / `HJ` / `ZJ` / `KJ`。这些名字属于 `index-Ciz7DZxv.js`，下次升级还会变。
 - rc.5 的审计只把必需插件白名单里的失败当致命。清单外的未知插件失败不再抛错，测试改为断言不抛。必需插件失败仍然是致命的。
 
+## Windows 打包冒烟（2026-11-26）
+
+- `npm run package:dev:dir` 成功：`dist-dev/win-unpacked/taichi-dsh Dev.exe`。afterPack 报告 Packaged Harness/bootstrap/native/terminal、754 个依赖清单，以及 Office 结构检查与 DOCX/PPTX/XLSX PDF 转换通过。
+- 另打生产目录包 `npx electron-builder --dir` → `dist/win-unpacked`（appId `io.taichi.dsh`），避免与正在跑的 Dev 单实例锁冲突。
+- 用隔离 `DSH_DEV_PROFILE=taichi-dsh-pack-smoke-*`、独立 Harness/mobile 端口启动开发目录包：进程保持运行；写出 `userData/harness`、`profiles/desktop`、`desktop-product.patch.yml`（含 Office/PPT/taichi）、sessions/storages，并拉到工作台市场目录与生图模板缓存。未在日志文件中检索到字面量 `Harness is ready`（打包后控制台文案未必落盘），但 Profile/会话投影已写入，作为 Host 已启动证据。
+- 本机若已有 `npm run dev`（同 `io.taichi.dsh.dev`），直接启动开发包会因单实例锁立刻退出；冒烟必须换 `DSH_DEV_PROFILE`。
+
 ## 还要做
 
-1. 完整 `npm test` 还没跑。这次只跑了受升级直接影响的 6 个文件。
-2. 没有打安装包，也没有用临时 `DSH_HOME` 复验普通 profile 和 Safe Mode 的真实启动。
-3. 官方壳移植和签名后的已安装应用冒烟不在这次范围内。
+1. 签名 NSIS 安装包与安装后冒烟仍未做（`package:dev:dir` / `--dir` 不等于正式安装验收）。
+2. 官方壳移植收口仍不在发版门槛内。
+3. Windows 跑发布脚本测试需要 PATH 上可用的真 `python3`（非 WindowsApps 占位）和 Git `bash`；`python3.cmd` 对 Node `execFile` 不够。

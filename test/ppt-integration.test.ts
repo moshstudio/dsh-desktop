@@ -196,9 +196,9 @@ describe('DSH PPT built-in plugin', () => {
     expect(client).not.toContain('heroModeCluster')
     expect(patch).not.toContain('conversation.hero.modeActions')
     expect(patch).not.toContain('heroModeCluster')
-    expect(client.split('renderSlot(`conversation.hero.options`,{})')).toHaveLength(2)
+    expect(client.split('renderSlot("conversation.hero.options", {})')).toHaveLength(2)
     expect(client).toContain('sessionId===void 0?null:(0,react_jsx_runtime.jsx)(`div`,{')
-    expect(client).toContain('input !== void 0 && sessionId !== void 0 ? renderSlot("conversation.composer.dock", extensionZone ?? {}) : null')
+    expect(client).toContain('input!==void 0&&sessionId!==void 0?renderSlot("conversation.composer.dock",extensionZone??{}):null')
   })
 
   it('keeps the PPT slot kind and scope aligned with their published types', async () => {

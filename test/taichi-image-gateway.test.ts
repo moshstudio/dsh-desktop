@@ -612,11 +612,11 @@ describe('taichi image gateway', () => {
       }
     })
     try {
-      const generated = await tools.get('generate_image')!.execute({ prompt: '一只猫', count: 1 }, {})
+      const generated = await tools.get('taichi_generate_image')!.execute({ prompt: '一只猫', count: 1 }, {})
       expect(generated.status).toBe('completed')
       expect(hits[0]?.url).toBe('/v1/images/models')
       expect(hits.some(hit => hit.url === '/v1/images/generations')).toBe(true)
-      const rejected = await tools.get('generate_image')!.execute({ prompt: '一只猫', size: '21:9', quality: '4k', output_format: 'svg' } as never, {}) as { status: string; error?: string }
+      const rejected = await tools.get('taichi_generate_image')!.execute({ prompt: '一只猫', size: '21:9', quality: '4k', output_format: 'svg' } as never, {}) as { status: string; error?: string }
       expect(rejected.status).toBe('failed')
       expect(rejected.error).toMatch(/21:9/)
     } finally {

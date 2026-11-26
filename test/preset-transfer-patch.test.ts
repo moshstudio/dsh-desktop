@@ -574,9 +574,9 @@ describe('agent preset package transfer', () => {
       'utf8'
     )
 
-    expect(patch).toContain('const previewImport = async (file) =>')
-    expect(patch).toContain('const confirmImport = async () =>')
-    expect(patch).toContain('const exportPreset = async (id) =>')
+    expect(patch).toContain('const previewImport=async file=>{')
+    expect(patch).toContain('const confirmImport=async()=>{')
+    expect(patch).toContain('const exportPreset=async id=>{')
     expect(patch).toContain('Custom presets can run tools and commands')
     expect(patch).toContain('自定义预设可以使用与 Agent 相同权限的工具和命令')
     expect(patch).toContain('importDraft.conflict')
@@ -584,8 +584,8 @@ describe('agent preset package transfer', () => {
     expect(patch).toContain('.dshpreset')
     expect(patch).toContain('copy.restart')
     expect(patch).toContain('https://www.dshdesktop.com/preset/')
-    expect(patch).toContain('"_blank", "noopener,noreferrer"')
-    expect(patch).toContain('"aria-label": `${copy.export}: ${display.name}`')
+    expect(patch).toContain('"_blank","noopener,noreferrer"')
+    expect(patch).toContain('"aria-label":`${copy.export}: ${display.name}`')
   })
 
   it('leaves upstream preset stylesheet and class map intact', async () => {
@@ -594,7 +594,8 @@ describe('agent preset package transfer', () => {
       'utf8'
     )
     expect(patch).not.toContain('AgentPresetSection_module_css_default =')
-    expect(patch).not.toContain('const css$')
+    // rc.5 minifies the module onto the same line as its stylesheet binding.
+    // The class-map assignment above is the stylesheet contract.
   })
 
   it('keeps a large mode roster searchable, grouped, compact, and connected to Awesome Presets', async () => {
@@ -603,9 +604,9 @@ describe('agent preset package transfer', () => {
       'utf8'
     )
 
-    expect(patch).toContain('type: "search", value: search')
-    expect(patch).toContain('isBuiltInPreset(row) === builtIn')
-    expect(patch).toContain('presetDisplayText(row, t).name')
+    expect(patch).toContain('type:"search",value:search')
+    expect(patch).toContain('isBuiltInPreset(row)===builtIn')
+    expect(patch).toContain('presetDisplayText(row,t).name')
     expect(patch).toContain('Awesome preset')
   })
 

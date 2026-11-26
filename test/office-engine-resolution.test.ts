@@ -28,10 +28,14 @@ async function packagedLayout(engine = ENGINE): Promise<{ archive: string, entry
 }
 
 describe('Office engine resolution', () => {
-  it('shares one 0.1.5 kit across PPT, Office skills and PDF conversion', async () => {
+  it('shares one 0.1.5 kit across PPT, the web app and Office conversion', async () => {
     const host = createRequire(import.meta.url)
     const manifest = host.resolve('@deepseek-ai/libreoffice-kit/package.json')
-    for (const consumer of ['dsh-ppt', '@deepseek-ai/dsh-skill-office', '@deepseek-ai/dsh-office-to-pdf']) {
+    // Upstream removed @deepseek-ai/dsh-office-to-pdf. Conversion now lives in
+    // dsh-office-kit, which declares libreoffice-kit 0.2.3; the root override
+    // still forces every consumer onto the single 0.1.5 copy. dsh-skill-office
+    // no longer depends on the kit.
+    for (const consumer of ['dsh-ppt', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-office-kit']) {
       const require = createRequire(host.resolve(consumer))
       expect(require.resolve('@deepseek-ai/libreoffice-kit/package.json')).toBe(manifest)
     }

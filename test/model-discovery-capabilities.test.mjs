@@ -8,7 +8,25 @@ const levels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 function helper(source, name, indent = '') {
   const start = source.indexOf('function ' + name + '(')
   expect(start).toBeGreaterThanOrEqual(0)
-  return source.slice(start, source.indexOf('\n' + indent + '}', start) + indent.length + 2)
+  const marked = source.indexOf('\n' + indent + '}', start)
+  if (marked >= 0) return source.slice(start, marked + indent.length + 2)
+  let depth = 0
+  let quote = ''
+  for (let i = source.indexOf('{', start); i < source.length; i++) {
+    const ch = source[i]
+    if (quote) {
+      if (ch === '\\') { i++; continue }
+      if (ch === quote) quote = ''
+      continue
+    }
+    if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue }
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) return source.slice(start, i + 1)
+    }
+  }
+  throw new Error('unterminated ' + name)
 }
 const parse = new Function('LlmError', helper(adapter, 'capacity') + helper(adapter, 'label') + helper(adapter, 'discoveryObject') + helper(adapter, 'listingCapabilities') + helper(adapter, 'readListing') + ';return readListing')(Error)
 const catalog = new Function('THINKING_LEVELS', helper(adapter, 'catalogReasoning') + ';return catalogReasoning')(levels)
@@ -90,13 +108,13 @@ it('sends exact provider payloads for off, max and xhigh through installed pi-ai
 })
 
 it('executes the picker adoption action without overwriting existing user configuration', () => {
-  const start = client.indexOf('const configuredIds = new Set(')
-  const end = client.indexOf('\n\t\t\tconst toggle = (id) => {', start)
+  const start = client.indexOf('const configuredIds=new Set(')
+  const end = client.indexOf('const toggle=id=', start)
   const action = `${client.slice(start, end)}\nreturn adoptPicked`
   const existing = { id: 'model', input: ['text'], reasoningEfforts: false, compat: { thinkingFormat: 'manual' } }
   const candidate = openrouter({ mandatory: false, supported_efforts: ['high'] })
   let result
-  new Function('models', 'candidates', 'flipped', 'rowState', 'textOf', 'adopt', 'onChange', 'closePicker', action)([existing], [candidate, { ...candidate, id: 'new' }], new Set(['new']), { forget() {} }, (m, k) => m[k], adopt, next => { result = next }, () => {})()
+  new Function('models', 'candidates', 'flipped', 'rowState', 'textOf$1', 'adopt', 'onChange', 'closePicker', action)([existing], [candidate, { ...candidate, id: 'new' }], new Set(['new']), { forget() {} }, (m, k) => m[k], adopt, next => { result = next }, () => {})()
   expect(result[0]).toBe(existing)
   expect(result[1]).toMatchObject({ id: 'new', input: ['text', 'image'], reasoningEfforts: { high: 'high' } })
 })

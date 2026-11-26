@@ -626,7 +626,6 @@ index 48de090..50f2ec8 100644
 @@ -2020,6 +2028,31 @@ const $remote = createTypertRemoteInfo({
        sourceLocation: {"file":"packages/api/session-controller/src/index.ts","line":631,"column":10},
      },
-     'session/create': {
 +    'session/delete': {
 +      id: '@deepseek-ai/dsh-api-session-controller#session/delete',
 +      service: 'sessionController',
@@ -652,6 +651,7 @@ index 48de090..50f2ec8 100644
 +      },
 +      sourceLocation: {"file":"packages/api/session-controller/src/index.ts","line":312,"column":3},
 +    },
+     'session/create': {
        service: 'sessionController',
        description: 'Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.',
        invocation: { kind: 'direct' },
@@ -737,7 +737,6 @@ index 9263edb..0af71dc 100644
 @@ -2020,6 +2028,31 @@ export const TYPERT_REMOTE = createTypertRemoteInfo({
        sourceLocation: {"file":"packages/api/session-controller/src/index.ts","line":631,"column":10},
      },
-     'session/create': {
 +    'session/delete': {
 +      id: '@deepseek-ai/dsh-api-session-controller#session/delete',
 +      service: 'sessionController',
@@ -763,6 +762,7 @@ index 9263edb..0af71dc 100644
 +      },
 +      sourceLocation: {"file":"packages/api/session-controller/src/index.ts","line":312,"column":3},
 +    },
+     'session/create': {
        service: 'sessionController',
        description: 'Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.',
        invocation: { kind: 'direct' },

@@ -201,16 +201,6 @@ index 4d9a3ca..32a7c49 100644
  export { PluginPackages, type PluginPackage, type PluginPackagesConfig, } from './profile-resolution/service.ts';
  export { ResolutionRestartRequired } from './profile-resolution/resolver.ts';
  /**
-diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/types/plugin-compatibility.d.ts b/node_modules/@deepseek-ai/dsh-app-boot/lib/types/plugin-compatibility.d.ts
-index 9594009..4d1bdd4 100644
---- a/node_modules/@deepseek-ai/dsh-app-boot/lib/types/plugin-compatibility.d.ts
-+++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/types/plugin-compatibility.d.ts
-@@ -34,3 +34,4 @@ export declare function evaluatePluginCompatibility(manifest: object, exemptions
-  */
- export declare function pluginCompatibilityWarning(issue: PluginCompatibility): string;
- //# sourceMappingURL=plugin-compatibility.d.ts.map
-+/** Report an unverified version declaration without blocking installation or loading. */
-\ No newline at end of file
 diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/types/profile.d.ts b/node_modules/@deepseek-ai/dsh-app-boot/lib/types/profile.d.ts
 index 7144f0e..dc057ba 100644
 --- a/node_modules/@deepseek-ai/dsh-app-boot/lib/types/profile.d.ts

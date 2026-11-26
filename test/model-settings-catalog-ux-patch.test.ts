@@ -33,8 +33,8 @@ async function loadSearch(): Promise<
 }
 
 function customProviderCardSource(client: string): string {
-  const start = client.indexOf('function CustomProviderCard(props) {')
-  const end = client.indexOf('\n\t\t//#endregion', start)
+  const start = client.indexOf('function CustomProviderCard(props)')
+  const end = client.indexOf('function ', start + 'function '.length)
 
   expect(start).toBeGreaterThanOrEqual(0)
   expect(end).toBeGreaterThan(start)
@@ -42,8 +42,8 @@ function customProviderCardSource(client: string): string {
 }
 
 function modelListEditorSource(client: string): string {
-  const start = client.indexOf('function ModelRow(props) {')
-  const end = client.indexOf('\n\t\t//#endregion', start)
+  const start = client.indexOf('function ModelRow(props)')
+  const end = client.indexOf('function ', start + 'function '.length)
 
   expect(start).toBeGreaterThanOrEqual(0)
   expect(end).toBeGreaterThan(start)
@@ -80,10 +80,10 @@ describe('settings model catalog search', () => {
     const client = await readFile(settingsModelsClient, 'utf8')
 
     expect(client.match(/jsx\)\(ModelCatalogSearch/g)).toHaveLength(2)
-    expect(client.match(/visibleModels\.map\(\(\{ index \}\) => \{/g)).toHaveLength(2)
-    expect(client).toContain('modelSearch: "Search models"')
-    expect(client).toContain('modelSearch: "搜索模型"')
-    expect(client).toContain('modelSearchEmpty: "没有找到匹配的模型。"')
+    expect(client.match(/searchableModelEntries\((?:props\.)?models,props\.modelQuery\)/g)).toHaveLength(2)
+    expect(client).toContain('modelSearch:`Search models`')
+    expect(client).toContain('modelSearch:`搜索模型`')
+    expect(client).toContain('modelSearchEmpty:`没有找到匹配的模型。`')
   })
 
   it('provides search state when the custom-provider form renders its model editor', async () => {
@@ -91,10 +91,10 @@ describe('settings model catalog search', () => {
     const customProviderCard = customProviderCardSource(client)
 
     expect(customProviderCard).toContain(
-      'const [modelQuery, setModelQuery] = (0, react.useState)("")'
+      'const[modelQuery,setModelQuery]=(0,react.useState)("")'
     )
     expect(customProviderCard).toMatch(
-      /jsx\)\(ModelListEditor, \{[\s\S]*?modelQuery,[\s\S]*?onModelQueryChange: setModelQuery/
+      /jsx\)\(ModelListEditor,\{[\s\S]*?modelQuery,[\s\S]*?onModelQueryChange:setModelQuery/
     )
   })
 
@@ -103,19 +103,16 @@ describe('settings model catalog search', () => {
     const customProviderCard = customProviderCardSource(client)
 
     expect(customProviderCard).toContain(
-      'setModels((current) => [...current.map((model) => ({ ...model })), { id: "" }])'
+      'setModels(current=>[...current.map(model=>({...model})),{id:""}])'
     )
     expect(customProviderCard).toContain('setModelQuery("")')
     expect(customProviderCard).toContain(
-      'className: ModelsSection_module_css_default["addModelButton"]'
+      'className:ModelsSection_module_css_default["addModelButton"]'
     )
-    expect(customProviderCard).toContain(
-      'className: "dshProviderEditorStickyFooter"'
-    )
-    expect(customProviderCard).toContain('disabled: profileDisabled')
-    expect(customProviderCard).toContain('onClick: addModel')
-    expect(customProviderCard).toContain('jsx)(EditorFooter, {')
-    expect(customProviderCard.match(/onClick: addModel/g)).toHaveLength(1)
+    expect(customProviderCard).toContain('disabled:profileDisabled')
+    expect(customProviderCard).toContain('onClick:addModel')
+    expect(customProviderCard).toContain('jsx)(EditorFooter,{')
+    expect(customProviderCard.match(/onClick:addModel/g)).toHaveLength(1)
   })
 
   it('renders model-row actions with imported primitive icons', async () => {
@@ -146,11 +143,11 @@ describe('settings provider editor sticky actions', () => {
     )
     expect(client).toContain('" dshProviderEditorExpanded"')
     expect(client).toContain(
-      'props.credentialOnly === true || !customizedOpen || layout === "unknown"'
+      'credentialOnly===true||!customizedOpen||layout==="unknown"'
     )
-    expect(client).toContain('className: "dshProviderEditorStickyFooter"')
-    expect(client).toContain('onClick: addModel')
-    expect(client).toContain('jsx)(EditorFooter, { ...footerProps })')
+    expect(client).toContain('className:"dshProviderEditorStickyFooter"')
+    expect(client).toContain('onClick:addModel')
+    expect(client).toContain('jsx)(EditorFooter,{...footerProps})')
   })
 
   it('captures search and sticky actions in the reproducible package patch', async () => {
@@ -162,19 +159,19 @@ describe('settings provider editor sticky actions', () => {
     expect(patch).toContain('function searchableModelEntries(models, query)')
     expect(patch).toContain('ModelCatalogSearch')
     expect(patch).toContain(
-      'const [modelQuery, setModelQuery] = (0, react.useState)("")'
+      'const[modelQuery,setModelQuery]=(0,react.useState)("")'
     )
-    expect(patch).toContain('onModelQueryChange: setModelQuery')
+    expect(patch).toContain('onModelQueryChange:setModelQuery')
     expect(patch).toContain('dshProviderEditorStickyFooter')
-    expect(patch).toContain('onClick: addModel')
+    expect(patch).toContain('onClick:addModel')
     expect(patch).toContain(
-      'setModels((current) => [...current.map((model) => ({ ...model })), { id: "" }])'
+      'setModels(current=>[...current.map(model=>({...model})),{id:""}])'
     )
     expect(patch).toContain(
-      'className: ModelsSection_module_css_default["addModelButton"]'
+      'className:ModelsSection_module_css_default["addModelButton"]'
     )
     // 0.2.2 owns row actions and stable row identities; the patch only adds capabilities/search.
-    expect(patch).toContain('ModelImageInputToggle, { model, field: props.inputField')
+    expect(patch).toContain('ModelImageInputToggle,{model,field:props.inputField')
     expect(patch).toContain('rowState.rows[index]')
     expect(patch).not.toMatch(/jsx\)\(Icon(?:Chevron|Trash)\b/)
   })

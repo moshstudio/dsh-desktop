@@ -100,14 +100,14 @@ describe('Desktop host plugin sources', () => {
     await mkdir(other, { recursive: true })
     await writeFile(join(other, 'package.json'), '{"name":"host-other","main":"index.js"}')
     await writeFile(join(other, 'index.js'), 'module.exports = {}\n')
-    await writeFile(patchPath, '- insert:\n    - id: image\n      name: dsh-image-generation\n    - id: other\n      name: host-other\n')
-    await setHostPluginEnabled(home, 'dsh-image-generation', false)
+    await writeFile(patchPath, '- insert:\n    - id: image\n      name: dsh-taichi-image-generation\n    - id: other\n      name: host-other\n')
+    await setHostPluginEnabled(home, 'dsh-taichi-image-generation', false)
     const output = await readFile(await prepareHostPluginSourcesPatch(home, patchPath, join(app, 'package.json')), 'utf8')
     const rows = parse(output, { logLevel: 'silent' }) as { insert: { id: string; name: string }[] }[]
     const resolveHost = createRequire(join(app, 'package.json')).resolve
     expect(rows[0]?.insert).toEqual([{ id: 'other', name: pathToFileURL(resolveHost('host-other')).href }])
-    expect(output).not.toContain('dsh-image-generation')
-    expect(hostInsertedPluginNames(await readFile(patchPath, 'utf8'), ['dsh-image-generation'])).toEqual(['host-other'])
+    expect(output).not.toContain('dsh-taichi-image-generation')
+    expect(hostInsertedPluginNames(await readFile(patchPath, 'utf8'), ['dsh-taichi-image-generation'])).toEqual(['host-other'])
   })
 
   it('drops subpath exports when their package is switched off', async () => {
@@ -122,23 +122,25 @@ describe('Desktop host plugin sources', () => {
     await mkdir(other, { recursive: true })
     await writeFile(join(other, 'package.json'), '{"name":"host-other","main":"index.js"}')
     await writeFile(join(other, 'index.js'), 'module.exports = {}\n')
-    await writeFile(patchPath, '- insert:\n    - id: image\n      name: dsh-image-generation\n    - id: image-video\n      name: dsh-image-generation/video\n    - id: other\n      name: host-other\n')
-    await setHostPluginEnabled(home, 'dsh-image-generation', false)
+    await writeFile(patchPath, '- insert:\n    - id: image\n      name: dsh-taichi-image-generation\n    - id: image-video\n      name: dsh-taichi-image-generation/video\n    - id: other\n      name: host-other\n')
+    await setHostPluginEnabled(home, 'dsh-taichi-image-generation', false)
     const output = await readFile(await prepareHostPluginSourcesPatch(home, patchPath, join(app, 'package.json')), 'utf8')
     const rows = parse(output, { logLevel: 'silent' }) as { insert: { id: string; name: string }[] }[]
     const resolveHost = createRequire(join(app, 'package.json')).resolve
     expect(rows[0]?.insert).toEqual([{ id: 'other', name: pathToFileURL(resolveHost('host-other')).href }])
-    expect(output).not.toContain('dsh-image-generation')
+    expect(output).not.toContain('dsh-taichi-image-generation')
   })
 
-  it('writes a derived patch when the only host insertion is disabled by default', async () => {
+  it('writes a derived patch when the only host insertion is switched off', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-host-sources-'))
     directories.push(root)
     const patchPath = join(root, 'desktop.patch.yml')
-    await writeFile(patchPath, '- insert:\n    - id: image\n      name: dsh-image-generation\n')
+    await writeFile(patchPath, '- insert:\n    - id: image\n      name: dsh-taichi-image-generation\n')
+    // Nothing is disabled by default; image generation stays mounted until the host state turns it off.
+    await setHostPluginEnabled(root, 'dsh-taichi-image-generation', false)
     const outputPath = await prepareHostPluginSourcesPatch(root, patchPath, join(root, 'package.json'))
     expect(outputPath).not.toBe(patchPath)
     expect(parse(await readFile(outputPath, 'utf8'))).toEqual([])
-    expect(await readFile(patchPath, 'utf8')).toContain('dsh-image-generation')
+    expect(await readFile(patchPath, 'utf8')).toContain('dsh-taichi-image-generation')
   })
 })

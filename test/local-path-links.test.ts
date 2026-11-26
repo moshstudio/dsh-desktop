@@ -70,22 +70,20 @@ describe('assistant local path links', () => {
       'utf8'
     )
 
-    expect(patch).toContain('onlyPathWithBasename(paths, value)')
+    expect(patch).toContain('onlyPathWithBasename(paths,value)')
     expect(patch).toContain('localPathReference(value)')
-    expect(patch).toContain('revealInFileManager: true')
-    expect(patch).toContain('kind === "folder"')
+    expect(patch).toContain('revealInFileManager:true')
+    expect(patch).toContain('kind===`folder`')
     expect(patch).toContain('presented.openFolder')
     expect(patch).toContain('在文件管理器中打开 {name}')
-    // Upstream bails out of `forClosing` when the turn produced and presented
-    // nothing; the patch drops that guard so a mention still resolves against
-    // an empty deliverable set.
-    expect(patch).toContain('-\t\t\t\tif (paths === null && presented.length === 0) return void 0;')
+    // rc.5 no longer bails out of mention resolution when a turn presented nothing.
+    expect(patch).not.toContain('paths === null && presented.length === 0')
     expect(primitives).toContain('mention.kind === "folder" ? "folder"')
     expect(primitives).toContain('kind?: "file" | "folder"')
     expect(chat).toContain('options?.revealInFileManager === true')
     expect(chat).toContain('openWorkspacePath({ path: hostPathForOpen(cwd, workingPath) })')
     expect(chat).toContain('if (!opened.ok) throw opened.error')
-    expect(chat).toContain('requestOpenFile(fileOpenError.path, fileOpenError.options)')
+    expect(chat).toContain('requestOpenFile(fileOpenError.path,fileOpenError.options)')
     expect(chat).toContain('readonly revealInFileManager?: boolean')
   })
 

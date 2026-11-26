@@ -36,7 +36,9 @@ it('retains fullscreen until the document root exists', () => {
 it('opts this host into Web shortcuts without changing official desktop detection', async () => {
   const { readFile } = await import('node:fs/promises')
   const source = await readFile('node_modules/@deepseek-ai/dsh-client-shortcuts/lib/client.js', 'utf8')
-  const fn = source.match(/function detectEnvironment\(document, navigator\) \{[\s\S]*?\n\t\t\}/)?.[0]
+  const start = source.indexOf('function detectEnvironment(document,navigator){')
+  const end = source.indexOf('}', source.indexOf('return{', start))
+  const fn = start >= 0 && end > start ? source.slice(start, end + 2) : undefined
   expect(fn).toBeDefined()
   const detect = new Function(`${fn}; return detectEnvironment`)()
   const doc = document.implementation.createHTMLDocument()

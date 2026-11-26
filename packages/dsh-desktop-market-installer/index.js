@@ -136,6 +136,16 @@ export async function stagePnpmRunner(directory) {
     // copy cannot leave a runner that resolves the helper from .desktop-bin.
     await copyFile(helperSource, join(directory, 'windows-hide-console.mjs'))
     await copyFile(fileURLToPath(new URL('./registry-view.mjs', import.meta.url)), join(directory, 'registry-view.mjs'))
+    // The staged runner imports ./generations/market-lock.mjs. Re-export the
+    // package original so its yaml dependency resolves beside the installer,
+    // not from this temporary bin directory.
+    await mkdir(join(directory, 'generations'), { recursive: true })
+    const marketLockHref = new URL('./generations/market-lock.mjs', import.meta.url).href
+    await writeFile(
+      join(directory, 'generations', 'market-lock.mjs'),
+      `export { holdProjectedMarketLock } from ${JSON.stringify(marketLockHref)}\n`,
+      'utf8'
+    )
     await copyFile(source, staged)
     return staged
   } catch {

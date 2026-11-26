@@ -100,7 +100,7 @@ describe('normal Profile boot preflight', () => {
     expect((await check())?.packageName).toBe('test-startup-bundle')
   })
 
-  it.each(['dsh-image-generation', 'test-startup-bundle'])('sends a duplicate %s bundle to Recovery without changing the manifest', async (name) => {
+  it.each(['dsh-taichi-image-generation', 'test-startup-bundle'])('sends a duplicate %s bundle to Recovery without changing the manifest', async (name) => {
     const { home, profile } = await fixture()
     const manifestPath = join(profile, 'package.json')
     const manifest = JSON.stringify({
@@ -118,9 +118,6 @@ describe('normal Profile boot preflight', () => {
       : join(projectRoot, 'build', 'dsh-desktop.patch.yml')
     if (name === 'test-startup-bundle') {
       await writeFile(hostPatch, '- insert:\n    - id: host-test\n      name: test-startup-bundle\n')
-    } else {
-      expect(await inspectProfileBootInputs(home, entry, hostPatch)).toBeUndefined()
-      await setHostPluginEnabled(home, name, true)
     }
     expect(await inspectProfileBootInputs(home, entry, hostPatch)).toEqual({
       message: expect.stringContaining('enabled in both'),

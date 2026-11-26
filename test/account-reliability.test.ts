@@ -83,7 +83,14 @@ describe('account profile partial failures', () => {
       signedIn: true, balance: 0, models: [], needsRestart: true, message: 'profile_unavailable'
     })
     expect(await new AccountSessionStore(sessionFile, box).read()).toEqual({ email: 'owner@example.com', refreshToken: 'refresh' })
-    expect(await readFile(patchPath, 'utf8')).toBe(previous)
+    const afterFailure = await readFile(patchPath, 'utf8')
+    // Model sync failed, so the existing LLM provider stays. Web defaults still apply after sign-in.
+    expect(afterFailure).toContain('existing')
+    expect(afterFailure).toContain('https://gateway.test/v1')
+    expect(afterFailure).toContain('searchProvider: taichi-search')
+    expect(afterFailure).toContain('fetchProvider: taichi-fetch')
+    expect(afterFailure).not.toContain('wrong')
+    expect(afterFailure).not.toBe(previous)
     expect(diagnostic).toHaveBeenCalled()
     if (failure === 'transport') expect(diagnostic.mock.calls[0]?.[1]).toMatchObject({ cause: { kind: 'Error' } })
     recovered = true

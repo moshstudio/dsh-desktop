@@ -37,6 +37,9 @@
     - id: dsh-taichi-account
       name: dsh-taichi-account
 
+    - id: dsh-taichi-web
+      name: dsh-taichi-web
+
     - id: dsh-desktop-workbenches
       name: dsh-desktop-workbenches
       config:

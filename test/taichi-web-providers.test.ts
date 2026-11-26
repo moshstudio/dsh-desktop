@@ -9,6 +9,21 @@ afterEach(() => {
 })
 
 describe('taichi web providers', () => {
+  it('exposes a string title and bilingual description for the picker', () => {
+    // dsh-web types title as string; the settings card renders it as a React
+    // child. A {en,zh} object crashes plugins.item (React #31) and blanks the page.
+    const search = new TaichiSearchProvider(() => ({}), { count: 10, searchRequestsPerSecond: 5 })
+    const fetch = new TaichiFetchProvider(() => ({}))
+    for (const provider of [search, fetch]) {
+      expect(typeof provider.title).toBe('string')
+      expect(provider.title.length).toBeGreaterThan(0)
+      expect(provider.description).toMatchObject({
+        en: expect.any(String),
+        zh: expect.any(String),
+      })
+    }
+  })
+
   it('is unavailable without url or token', () => {
     expect(resolveTaichiWebGateway({}).ok).toBe(false)
     expect(new TaichiSearchProvider(() => ({}), { count: 10, searchRequestsPerSecond: 5 }).available()).toBe(false)

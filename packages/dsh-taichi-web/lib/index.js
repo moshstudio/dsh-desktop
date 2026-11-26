@@ -97,10 +97,7 @@ async function dispatchResolved(gateway, path, body, decode, signal) {
 var TaichiFetchProvider = class {
 	resolveEnv;
 	id = TAICHI_FETCH_PROVIDER_ID;
-	title = {
-		en: "Taichi",
-		zh: "太极"
-	};
+	title = "太极";
 	description = {
 		en: "Uses the signed-in Taichi account credits. Cannot reach intranet or local addresses. Requires sign-in.",
 		zh: "使用已登录的太极账号积分。无法访问内网和本机。需要登录。"
@@ -159,10 +156,7 @@ var TaichiSearchProvider = class {
 	resolveEnv;
 	limits;
 	id = TAICHI_SEARCH_PROVIDER_ID;
-	title = {
-		en: "Taichi",
-		zh: "太极"
-	};
+	title = "太极";
 	description = {
 		en: "Uses the signed-in Taichi account credits. Cannot reach intranet or local addresses. Requires sign-in.",
 		zh: "使用已登录的太极账号积分。无法访问内网和本机。需要登录。"

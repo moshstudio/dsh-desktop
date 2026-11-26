@@ -25,5 +25,7 @@
       name: dsh-desktop-activity
     - id: dsh-taichi-account
       name: dsh-taichi-account
+    - id: dsh-taichi-web
+      name: dsh-taichi-web
     - id: dsh-desktop-hmr-fallback
       name: dsh-desktop-hmr-fallback

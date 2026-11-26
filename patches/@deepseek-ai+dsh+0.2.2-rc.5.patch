@@ -25,6 +25,7 @@ diff --git a/node_modules/@deepseek-ai/dsh/package.json b/node_modules/@deepseek
 +    "dsh-desktop-activity": "0.1.0",
 +    "dsh-desktop-client-ui": "0.1.0",
 +    "dsh-taichi-account": "0.1.0",
++    "dsh-taichi-web": "0.1.0",
 +    "dsh-desktop-hmr-fallback": "0.1.0",
 +    "dsh-desktop-log-bridge": "0.1.0",
 +    "dsh-desktop-market-installer": "0.1.0",

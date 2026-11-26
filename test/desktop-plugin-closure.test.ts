@@ -3,6 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { hostPluginPackageName } from '../src/main/profile/host-plugin-sources'
+import { buildDesktopProductPatch } from '../src/main/shell/product-patch'
 import { patchPath, projectRoot } from './patch-path'
 
 const profileConfigTags = [
@@ -12,11 +13,20 @@ const profileConfigTags = [
   }
 ]
 
-async function readProfilePatch(): Promise<{ name?: string; insert?: { name?: string }[] }[]> {
+type ProfilePatchRow = { name?: string; insert?: { name?: string }[] }
+
+async function readPackagedProfilePatch(): Promise<ProfilePatchRow[]> {
   return parseYaml(
     await readFile(path.join(projectRoot, 'build', 'dsh-desktop.patch.yml'), 'utf8'),
     { customTags: profileConfigTags }
-  ) as { name?: string; insert?: { name?: string }[] }[]
+  ) as ProfilePatchRow[]
+}
+
+function insertedNames(rows: ProfilePatchRow[]): string[] {
+  return rows
+    .flatMap((row) => row.insert ?? [])
+    .map((entry) => entry.name)
+    .filter((name): name is string => typeof name === 'string')
 }
 
 /**
@@ -31,17 +41,20 @@ async function readProfilePatch(): Promise<{ name?: string; insert?: { name?: st
  * does. Adding a row to the profile patch without that injection boots to
  * `Cannot find package ... imported from .../profiles/web/`, which fails the
  * whole plugin tree rather than just that row.
+ *
+ * Cover both the packaged overlay and the shell-written product patch: the
+ * latter is what ordinary Desktop boot mounts today.
  */
 describe('desktop plugin closure', () => {
   it('injects every profile-mounted package into the dsh dependency closure', async () => {
-    const profilePatch = await readProfilePatch()
-
-    const mounted = profilePatch
-      .flatMap((row) => row.insert ?? [])
-      .map((entry) => entry.name)
-      .filter((name): name is string => typeof name === 'string')
+    const packaged = insertedNames(await readPackagedProfilePatch())
+    const product = insertedNames(
+      parseYaml(buildDesktopProductPatch(), { customTags: profileConfigTags }) as ProfilePatchRow[]
+    )
+    const mounted = [...new Set([...packaged, ...product])]
 
     expect(mounted.length).toBeGreaterThan(0)
+    expect(mounted).toContain('dsh-taichi-web')
 
     const dshPatch = await readFile(patchPath('@deepseek-ai/dsh'), 'utf8')
     for (const specifier of mounted) {
@@ -51,15 +64,18 @@ describe('desktop plugin closure', () => {
   })
 
   it('declares every profile-mounted package as a local production dependency', async () => {
-    const profilePatch = await readProfilePatch()
+    const packaged = insertedNames(await readPackagedProfilePatch())
+    const product = insertedNames(
+      parseYaml(buildDesktopProductPatch(), { customTags: profileConfigTags }) as ProfilePatchRow[]
+    )
+    const mounted = [...new Set([...packaged, ...product])]
 
     const manifest = JSON.parse(
       await readFile(path.join(projectRoot, 'package.json'), 'utf8')
     ) as { dependencies: Record<string, string> }
 
-    for (const row of profilePatch.flatMap((entry) => entry.insert ?? [])) {
-      if (typeof row.name !== 'string') continue
-      expect(manifest.dependencies[hostPluginPackageName(row.name)]).toMatch(/^file:packages\//u)
+    for (const specifier of mounted) {
+      expect(manifest.dependencies[hostPluginPackageName(specifier)]).toMatch(/^file:packages\//u)
     }
   })
 })

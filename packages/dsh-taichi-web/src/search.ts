@@ -36,7 +36,8 @@ function boundedQuestion(question: string | undefined): string | undefined {
 
 export class TaichiSearchProvider implements WebSearchProvider {
   readonly id = TAICHI_SEARCH_PROVIDER_ID
-  readonly title = { en: 'Taichi', zh: '太极' }
+  // dsh-web types title as a single string; bilingual copy belongs in description.
+  readonly title = '太极'
   readonly description = {
     en: 'Uses the signed-in Taichi account credits. Cannot reach intranet or local addresses. Requires sign-in.',
     zh: '使用已登录的太极账号积分。无法访问内网和本机。需要登录。',
